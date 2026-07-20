@@ -194,11 +194,29 @@ async def profile(interaction: discord.Interaction, member: discord.Member = Non
         title = f"{prof['country']} " + title
     title += f" (Level {prof['level']})"
     
+    import json
+    strat_json = {}
+    strategy_str = prof.get('pit_strategy_json')
+    if strategy_str:
+        try:
+            strat_json = json.loads(strategy_str)
+        except Exception:
+            pass
+            
+    pace = strat_json.get("pace", prof.get("pref_strategy", "Balanced"))
+    start_tyre = strat_json.get("start_tyre", prof.get("pref_tyres", "Medium"))
+    stops = strat_json.get("stops", [])
+    
+    if stops:
+        stops_str = ", ".join([f"L{s['lap']}({s['tyre']})" for s in stops])
+    else:
+        stops_str = f"{prof.get('pref_pit_stops', 1)} (Auto)"
+        
     desc = (
         f"💰 **Money:** {prof['money']:,} credits\n"
         f"🏆 **Wins:** {prof['wins']} | 🚫 **Losses:** {prof['losses']}\n"
         f"⚡ **Power:** {overall_power}\n"
-        f"📋 **Strategy:** {prof.get('pref_strategy', 'Balanced')} | 🛞 **Tyres:** {prof.get('pref_tyres', 'Medium')} | 🔧 **Stops:** {prof.get('pref_pit_stops', 1)}"
+        f"📋 **Strategy:** `{pace}` | 🛞 **Start Tyres:** `{start_tyre}` | 🔧 **Stops:** `{stops_str}`"
     )
     
     fields = [
