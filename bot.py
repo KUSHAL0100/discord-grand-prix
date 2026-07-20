@@ -43,6 +43,14 @@ async def on_ready():
             synced = await bot.tree.sync(guild=guild)
             print(f"Synced {len(synced)} commands to test guild {config.GUILD_ID}.")
         else:
+            # Clear old guild-specific commands to prevent duplicates, then sync globally
+            for g in bot.guilds:
+                try:
+                    bot.tree.clear_commands(guild=g)
+                    await bot.tree.sync(guild=g)
+                except Exception as guild_err:
+                    if debug_mode:
+                        print(f"Failed to clear commands for guild {g.id}: {guild_err}")
             synced = await bot.tree.sync()
             print(f"Synced {len(synced)} commands globally.")
     except Exception as e:

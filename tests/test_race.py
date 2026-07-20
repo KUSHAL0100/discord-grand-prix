@@ -81,7 +81,7 @@ def test_simulate_gp():
         },
         {
             "user_id": 4, "team_name": "Yellow Minardi", "discord_id": 1004,
-            "engine": 2, "aerodynamics": 2, "tyres": 2, "ers": 2, "reliability": 2,
+            "engine": 2, "aerodynamics": 2, "tyres": 2, "ers": 2, "reliability": 10,
             "pace": 20, "qual": 20, "wet_skill": 30, "consistency": 40, "aggression": 45, "overtaking": 30
         }
     ]
