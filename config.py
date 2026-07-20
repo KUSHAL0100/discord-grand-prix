@@ -31,8 +31,8 @@ STARTING_XP = 0
 # Economy caps & earnings
 CHAT_CREDITS_PER_MSG = 5
 CHAT_DAILY_LIMIT = 200  # max 40 messages/day
-VOICE_CREDITS_PER_MIN = 10
-VOICE_DAILY_LIMIT = 600  # max 60 minutes/day
+VOICE_CREDITS_PER_MIN = 2
+VOICE_DAILY_LIMIT = 200  # max 100 minutes/day (100 mins * 2 credits)
 DAILY_BONUS = 500
 WORK_MIN_CREDITS = 100
 WORK_MAX_CREDITS = 500
@@ -69,8 +69,8 @@ MAX_DAMAGE = 100
 MAX_STAT_LEVEL = 10
 
 # Duel Rewards
-DUEL_WIN_CREDITS = 1200
-DUEL_LOSS_CREDITS = 300
+DUEL_WIN_CREDITS = 200
+DUEL_LOSS_CREDITS = 50
 DUEL_COOLDOWN_SECONDS = 60  # Anti-spam limit for duels
 
 # Grand Prix Rewards & Settings

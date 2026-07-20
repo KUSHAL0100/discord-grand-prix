@@ -23,6 +23,9 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 # In-memory dict to track when voice members joined: {member_id: join_time}
 voice_tracking = {}
 
+# In-memory dict to track when members last earned chat credits: {member_id: last_award_time}
+chat_cooldowns = {}
+
 # Keep track of debug mode status
 debug_mode = False
 
@@ -57,14 +60,20 @@ async def on_message(message: discord.Message):
     # Check if user has a profile
     user = database.get_user_by_discord_id(message.author.id)
     if user:
-        # Award chat credits
-        credits_earned = database.award_daily_activity_credits(
-            user['user_id'], 
-            config.CHAT_CREDITS_PER_MSG, 
-            'chat'
-        )
-        if debug_mode and credits_earned > 0:
-            print(f"Awarded {credits_earned}¢ to {message.author.name} for chat activity.")
+        now = datetime.now()
+        last_award = chat_cooldowns.get(message.author.id)
+        
+        # Only award credits if they haven't earned yet, or it's been >= 60 seconds
+        if not last_award or (now - last_award).total_seconds() >= 60.0:
+            credits_earned = database.award_daily_activity_credits(
+                user['user_id'], 
+                config.CHAT_CREDITS_PER_MSG, 
+                'chat'
+            )
+            if credits_earned > 0:
+                chat_cooldowns[message.author.id] = now
+                if debug_mode:
+                    print(f"Awarded {credits_earned}¢ to {message.author.name} for chat activity.")
             
     await bot.process_commands(message)
 
@@ -745,7 +754,7 @@ async def gp_admin(interaction: discord.Interaction, action: app_commands.Choice
             progress_embed.description = "\n".join(show_history)
             progress_embed.color = utils.COLOR_RACE_RESULTS
             await live_message.edit(embed=progress_embed)
-            await asyncio.sleep(3.5) # Time between laps
+            await asyncio.sleep(15.0) # Time between laps (slowed down for immersion)
             
         # Post final standings
         final_desc = "\n".join(finish_logs)
