@@ -37,6 +37,9 @@ def init_db():
         last_credits_reset TEXT DEFAULT (date('now')),
         last_daily_claim TEXT,
         last_work_claim TEXT,
+        pref_strategy TEXT DEFAULT 'Balanced',
+        pref_tyres TEXT DEFAULT 'Medium',
+        pref_pit_stops INTEGER DEFAULT 1,
         created_at TEXT DEFAULT (datetime('now')),
         UNIQUE(discord_id, guild_id)
     );
@@ -69,6 +72,7 @@ def init_db():
         sc_skill INTEGER NOT NULL DEFAULT 50,
         risk INTEGER NOT NULL DEFAULT 50,
         communication INTEGER NOT NULL DEFAULT 50,
+        experience INTEGER NOT NULL DEFAULT 0,
         FOREIGN KEY (user_id) REFERENCES users (user_id) ON DELETE CASCADE
     );
     """)
@@ -269,6 +273,24 @@ def update_user_balance(user_id: int, amount: int) -> bool:
             return False # Enforce no negative balances
         
         cursor.execute("UPDATE users SET money = ? WHERE user_id = ?", (new_balance, user_id))
+        conn.commit()
+        return True
+    except sqlite3.Error:
+        conn.rollback()
+        return False
+    finally:
+        conn.close()
+
+def update_user_strategy(user_id: int, pace: str, tyres: str, pit_stops: int) -> bool:
+    """Update a user's strategy preferences in the database."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
+            UPDATE users 
+            SET pref_strategy = ?, pref_tyres = ?, pref_pit_stops = ?
+            WHERE user_id = ?
+        """, (pace, tyres, pit_stops, user_id))
         conn.commit()
         return True
     except sqlite3.Error:
@@ -725,12 +747,59 @@ def save_gp_results(race_id: int, results: List[Dict[str, Any]], winner_user_id:
             if res["finish_position"] in [1, 2, 3]:
                 xp_to_add = 1500
                 
-            # Driver experience increases
-            cursor.execute(
-                "UPDATE drivers SET experience = experience + ? WHERE user_id = ?",
-                (50, res["user_id"])
-            )
+            # Calculate F1 Sprint points for XP: 8, 7, 6, 5, 4, 3, 2, 1
+            finish_pos = res["finish_position"]
+            if res["dnf"]:
+                sprint_xp = 0
+            else:
+                sprint_xp = max(0, 9 - finish_pos) if finish_pos <= 8 else 0
             
+            # 1. Update Driver Experience & Skills (flat 100 XP threshold)
+            cursor.execute("SELECT experience, pace, qual, wet_skill, consistency, aggression, overtaking FROM drivers WHERE user_id = ?", (res["user_id"],))
+            drv_row = cursor.fetchone()
+            if drv_row:
+                new_drv_xp = drv_row["experience"] + sprint_xp
+                stat_boost = new_drv_xp // 100
+                new_drv_xp %= 100
+                
+                if stat_boost > 0:
+                    cursor.execute("""
+                        UPDATE drivers 
+                        SET experience = ?,
+                            pace = MIN(100, pace + ?),
+                            qual = MIN(100, qual + ?),
+                            wet_skill = MIN(100, wet_skill + ?),
+                            consistency = MIN(100, consistency + ?),
+                            aggression = MIN(100, aggression + ?),
+                            overtaking = MIN(100, overtaking + ?)
+                        WHERE user_id = ?
+                    """, (new_drv_xp, stat_boost, stat_boost, stat_boost, stat_boost, stat_boost, stat_boost, res["user_id"]))
+                else:
+                    cursor.execute("UPDATE drivers SET experience = ? WHERE user_id = ?", (new_drv_xp, res["user_id"]))
+                    
+            # 2. Update Strategist Experience & Skills (flat 100 XP threshold)
+            cursor.execute("SELECT experience, pit_timing, weather_call, undercut, sc_skill, risk, communication FROM strategists WHERE user_id = ?", (res["user_id"],))
+            strat_row = cursor.fetchone()
+            if strat_row:
+                new_strat_xp = strat_row["experience"] + sprint_xp
+                stat_boost = new_strat_xp // 100
+                new_strat_xp %= 100
+                
+                if stat_boost > 0:
+                    cursor.execute("""
+                        UPDATE strategists 
+                        SET experience = ?,
+                            pit_timing = MIN(100, pit_timing + ?),
+                            weather_call = MIN(100, weather_call + ?),
+                            undercut = MIN(100, undercut + ?),
+                            sc_skill = MIN(100, sc_skill + ?),
+                            risk = MIN(100, risk + ?),
+                            communication = MIN(100, communication + ?)
+                        WHERE user_id = ?
+                    """, (new_strat_xp, stat_boost, stat_boost, stat_boost, stat_boost, stat_boost, stat_boost, res["user_id"]))
+                else:
+                    cursor.execute("UPDATE strategists SET experience = ? WHERE user_id = ?", (new_strat_xp, res["user_id"]))
+
             # Add XP using add_user_xp logic (internal transaction, so we update manually here)
             cursor.execute("SELECT xp, level FROM users WHERE user_id = ?", (res["user_id"],))
             user_row = cursor.fetchone()

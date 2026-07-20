@@ -44,16 +44,16 @@ def test_simulate_duel():
     }
     
     # Run a single duel
-    winner, loser, logs = race.simulate_duel(team1, team2)
+    winner, loser, lap_logs, qual_logs = race.simulate_duel(team1, team2)
     
-    assert len(logs) > 0
-    assert "Duel Start!" in logs[0]
+    assert len(qual_logs) > 0
+    assert "Duel Start!" in qual_logs[0]
     
     # Run multiple duels to assert that team1 wins significantly more often (~95% in PRD)
     team1_wins = 0
     runs = 30
     for _ in range(runs):
-        winner, _, _ = race.simulate_duel(team1, team2)
+        winner, _, _, _ = race.simulate_duel(team1, team2)
         if winner["user_id"] == 1:
             team1_wins += 1
             
@@ -96,8 +96,41 @@ def test_simulate_gp():
     finish_positions = [res["finish_position"] for res in results]
     assert sorted(finish_positions) == [1, 2, 3, 4]
     
-    # Ensure points distribution is allocated correctly (25, 18, 15, 12)
-    assert results[0]["points_earned"] == 25
-    assert results[1]["points_earned"] == 18
-    assert results[2]["points_earned"] == 15
-    assert results[3]["points_earned"] == 12
+    # Ensure points distribution is allocated correctly based on position and DNF status
+    import utils
+    for res in results:
+        pos = res["finish_position"]
+        expected_points = utils.get_points_for_position(pos) if not res["dnf"] else 0
+        assert res["points_earned"] == expected_points
+
+def test_strategy_selection():
+    # Verify that a player with custom tyres/strategies initializes properly in SimTeam
+    player_data = {
+        "user_id": 1,
+        "team_name": "Ferrari F1",
+        "discord_id": 1001,
+        "pref_strategy": "Aggressive",
+        "pref_tyres": "Soft",
+        "pref_pit_stops": 3,
+        "engine": 10,
+        "aerodynamics": 10,
+        "tyres": 10,
+        "ers": 10,
+        "reliability": 10,
+        "pace": 90,
+        "qual": 90,
+        "wet_skill": 90,
+        "consistency": 90,
+        "aggression": 90,
+        "overtaking": 90
+    }
+    
+    t = race.SimTeam(player_data)
+    assert t.strategy == "Aggressive"
+    assert t.tyre_type == "Soft"
+    assert t.pref_pit_stops == 3
+    
+    # Test pit laps calculation for 12 laps
+    intervals = 12 / (t.pref_pit_stops + 1)
+    t.pit_laps = [int(round(intervals * i)) for i in range(1, t.pref_pit_stops + 1)]
+    assert t.pit_laps == [3, 6, 9]

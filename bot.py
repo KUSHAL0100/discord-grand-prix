@@ -188,7 +188,8 @@ async def profile(interaction: discord.Interaction, member: discord.Member = Non
     desc = (
         f"💰 **Money:** {prof['money']:,} credits\n"
         f"🏆 **Wins:** {prof['wins']} | 🚫 **Losses:** {prof['losses']}\n"
-        f"⚡ **Power:** {overall_power}"
+        f"⚡ **Power:** {overall_power}\n"
+        f"📋 **Strategy:** {prof.get('pref_strategy', 'Balanced')} | 🛞 **Tyres:** {prof.get('pref_tyres', 'Medium')} | 🔧 **Stops:** {prof.get('pref_pit_stops', 1)}"
     )
     
     fields = [
@@ -228,12 +229,12 @@ async def garage(interaction: discord.Interaction):
     overall_power = utils.calculate_overall_power(prof, prof["pace"])
     
     fields = [
-        {"name": "⚙️ Engine", "value": f"Level {prof['engine']}/10 (Damage: {prof['damage_engine']}%)", "inline": True},
-        {"name": "✈️ Aerodynamics", "value": f"Level {prof['aerodynamics']}/10", "inline": True},
-        {"name": "⭕ Tyres", "value": f"Level {prof['tyres']}/10 (Damage: {prof['damage_tyres']}%)", "inline": True},
-        {"name": "🔋 ERS", "value": f"Level {prof['ers']}/10", "inline": True},
-        {"name": "🛡️ Reliability", "value": f"Level {prof['reliability']}/10", "inline": True},
-        {"name": "🔧 Pit Crew", "value": f"Level {prof['pit_crew']}/10", "inline": True}
+        {"name": "⚙️ Engine", "value": f"Level {prof['engine']}/{config.MAX_STAT_LEVEL} (Damage: {prof['damage_engine']}%)", "inline": True},
+        {"name": "✈️ Aerodynamics", "value": f"Level {prof['aerodynamics']}/{config.MAX_STAT_LEVEL}", "inline": True},
+        {"name": "⭕ Tyres", "value": f"Level {prof['tyres']}/{config.MAX_STAT_LEVEL} (Damage: {prof['damage_tyres']}%)", "inline": True},
+        {"name": "🔋 ERS", "value": f"Level {prof['ers']}/{config.MAX_STAT_LEVEL}", "inline": True},
+        {"name": "🛡️ Reliability", "value": f"Level {prof['reliability']}/{config.MAX_STAT_LEVEL}", "inline": True},
+        {"name": "🔧 Pit Crew", "value": f"Level {prof['pit_crew']}/{config.MAX_STAT_LEVEL}", "inline": True}
     ]
     
     embed = utils.create_embed(
@@ -280,6 +281,52 @@ async def stats(interaction: discord.Interaction):
     )
     await interaction.response.send_message(embed=embed)
 
+@bot.tree.command(name="strategy", description="Configure your preferred race strategy, tyres, and pit stops.")
+@app_commands.describe(
+    pace="Your driving style (Aggressive, Balanced, Conservative)",
+    tyres="Your preferred starting tyre compound (Soft, Medium, Hard)",
+    pit_stops="Number of pit stops to plan (1 to 4)"
+)
+@app_commands.choices(
+    pace=[
+        app_commands.Choice(name="Aggressive (+pace, ++wear, +crash)", value="Aggressive"),
+        app_commands.Choice(name="Balanced (neutral pace, normal wear)", value="Balanced"),
+        app_commands.Choice(name="Conservative (-pace, -wear, -crash)", value="Conservative")
+    ],
+    tyres=[
+        app_commands.Choice(name="Soft tyres (++pace, ++wear)", value="Soft"),
+        app_commands.Choice(name="Medium tyres (+pace, +wear)", value="Medium"),
+        app_commands.Choice(name="Hard tyres (neutral pace, very low wear)", value="Hard")
+    ],
+    pit_stops=[
+        app_commands.Choice(name="1 pit stop", value=1),
+        app_commands.Choice(name="2 pit stops", value=2),
+        app_commands.Choice(name="3 pit stops", value=3),
+        app_commands.Choice(name="4 pit stops", value=4)
+    ]
+)
+@app_commands.guild_only()
+async def strategy_setup(interaction: discord.Interaction, pace: str, tyres: str, pit_stops: int = 1):
+    prof = database.get_full_team_profile(interaction.user.id, interaction.guild_id)
+    if not prof:
+        await interaction.response.send_message("❌ You do not have a profile. Use `/start` first.", ephemeral=True)
+        return
+        
+    database.update_user_strategy(prof['user_id'], pace, tyres, pit_stops)
+    
+    embed = utils.create_embed(
+        title="⚙️ Strategy Configuration Saved",
+        description=(
+            f"Your racing strategy settings for **{prof['team_name']}** have been updated!\n\n"
+            f"• **Pacing Strategy:** `{pace}`\n"
+            f"• **Starting Tyres:** `{tyres}`\n"
+            f"• **Planned Pit Stops:** `{pit_stops}` stop(s) (spaced evenly)\n\n"
+            f"*These settings will be applied in your next Race Duel and Grand Prix.*"
+        ),
+        color=utils.COLOR_SUCCESS
+    )
+    await interaction.response.send_message(embed=embed)
+
 @bot.tree.command(name="daily", description="Claim your daily credit login bonus (500 credits).")
 @app_commands.guild_only()
 async def daily(interaction: discord.Interaction):
@@ -306,100 +353,176 @@ async def work(interaction: discord.Interaction):
 
 # ----------------- Duel Command & Betting -----------------
 
-@bot.tree.command(name="race", description="Challenge another user to a 1-lap racing duel!")
-@app_commands.describe(opponent="The player you want to challenge")
-@app_commands.guild_only()
-async def race_duel(interaction: discord.Interaction, opponent: discord.Member):
-    if opponent.id == interaction.user.id:
-        await interaction.response.send_message("❌ You cannot race against yourself!", ephemeral=True)
-        return
+# ----------------- Duel Command & Betting -----------------
+
+async def run_duel_simulation(channel, p1_member: discord.Member, p2_member: discord.Member, p1_prof: dict, p2_prof: dict, laps: int, wager_amount: int = 0):
+    # Simulate the duel
+    winner, loser, lap_logs, qual_logs = race.simulate_duel(p1_prof, p2_prof, laps)
+    
+    # 1. Post Qualifying Grid
+    embed = utils.create_embed(
+        title=f"🏁 Race Duel Setup: {p1_prof['team_name']} vs {p2_prof['team_name']}",
+        description="\n".join(qual_logs),
+        color=utils.COLOR_QUALIFYING
+    )
+    await channel.send(embed=embed)
+    await asyncio.sleep(4.0)
+    
+    # 2. Stream Laps
+    for idx, lap_events in enumerate(lap_logs):
+        lap_num = idx + 1
+        is_last = (lap_num == len(lap_logs))
         
-    p1_prof = database.get_full_team_profile(interaction.user.id, interaction.guild_id)
-    p2_prof = database.get_full_team_profile(opponent.id, interaction.guild_id)
-    
-    if not p1_prof:
-        await interaction.response.send_message("❌ You do not have a profile. Use `/start` first.", ephemeral=True)
-        return
-    if not p2_prof:
-        await interaction.response.send_message("❌ Your opponent does not have a profile yet.", ephemeral=True)
-        return
+        embed = utils.create_embed(
+            title=f"🏎️ Duel Lap {lap_num}/{laps}: {p1_prof['team_name']} vs {p2_prof['team_name']}",
+            description="\n".join(lap_events),
+            color=utils.COLOR_SUCCESS if is_last else utils.COLOR_QUALIFYING
+        )
+        await channel.send(embed=embed)
+        await asyncio.sleep(5.0)
         
-    # Enforce basic anti-spam cooldown or check damage
-    if p1_prof['damage_total'] >= 80:
-        await interaction.response.send_message("❌ Your car is heavily damaged! Run `/repairs` and `/repair` before racing.", ephemeral=True)
-        return
-    if p2_prof['damage_total'] >= 80:
-        await interaction.response.send_message("❌ Opponent's car is too damaged to race.", ephemeral=True)
-        return
-        
-    # Defer response to handle simulation time
-    await interaction.response.defer()
-    
-    winner, loser, logs = race.simulate_duel(p1_prof, p2_prof)
-    
-    # Save results to DB: award credits and log stats
-    database.update_user_balance(winner['user_id'], config.DUEL_WIN_CREDITS)
-    database.update_user_balance(loser['user_id'], config.DUEL_LOSS_CREDITS)
-    
-    # Add Wins/Losses
+    # 3. Apply database updates & rewards
     conn = database.get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("UPDATE users SET wins = wins + 1 WHERE user_id = ?", (winner['user_id'],))
-    cursor.execute("UPDATE users SET losses = losses + 1 WHERE user_id = ?", (loser['user_id'],))
-    
-    # Add slight car damage
-    cursor.execute("""
-        UPDATE garage 
-        SET damage_engine = MIN(100, damage_engine + ?),
-            damage_tyres = MIN(100, damage_tyres + ?)
-        WHERE user_id = ?
-    """, (random.randint(1, 4), random.randint(2, 8), winner['user_id']))
-    cursor.execute("""
-        UPDATE garage 
-        SET damage_engine = MIN(100, damage_engine + ?),
-            damage_tyres = MIN(100, damage_tyres + ?)
-        WHERE user_id = ?
-    """, (random.randint(2, 6), random.randint(4, 12), loser['user_id']))
-    
-    # Recalculate totals
-    for uid in [winner['user_id'], loser['user_id']]:
-        cursor.execute("SELECT damage_engine, damage_tyres FROM garage WHERE user_id = ?", (uid,))
-        d = cursor.fetchone()
-        cursor.execute("UPDATE garage SET damage_total = ? WHERE user_id = ?", (d['damage_engine'] + d['damage_tyres'], uid))
+    try:
+        w_uid = winner['user_id']
+        l_uid = loser['user_id']
         
-    conn.commit()
-    conn.close()
-    
-    # Format embed response
-    desc = "\n".join(logs)
-    embed = utils.create_embed(
-        title=f"🏁 Race Duel: {p1_prof['team_name']} vs {p2_prof['team_name']}",
-        description=(
-            f"{desc}\n\n"
+        if wager_amount > 0:
+            # Deduct wager from both
+            cursor.execute("UPDATE users SET money = money - ? WHERE user_id = ?", (wager_amount, w_uid))
+            cursor.execute("UPDATE users SET money = money - ? WHERE user_id = ?", (wager_amount, l_uid))
+            # Award payout to winner
+            payout = wager_amount * 2
+            cursor.execute("UPDATE users SET money = money + ? WHERE user_id = ?", (payout, w_uid))
+            
+            # Insert bet record
+            cursor.execute("INSERT INTO bets (race_id, bettor_id, target_id, amount, outcome, payout) VALUES (0, ?, ?, ?, ?, ?)",
+                           (p1_prof['user_id'], p2_prof['user_id'], wager_amount, "win" if w_uid == p1_prof['user_id'] else "lose", payout))
+        else:
+            # Standard duel rewards
+            cursor.execute("UPDATE users SET money = money + ? WHERE user_id = ?", (config.DUEL_WIN_CREDITS, w_uid))
+            cursor.execute("UPDATE users SET money = money + ? WHERE user_id = ?", (config.DUEL_LOSS_CREDITS, l_uid))
+            payout = config.DUEL_WIN_CREDITS
+            
+        # Update wins/losses
+        cursor.execute("UPDATE users SET wins = wins + 1 WHERE user_id = ?", (w_uid,))
+        cursor.execute("UPDATE users SET losses = losses + 1 WHERE user_id = ?", (l_uid,))
+        
+        # Add slight car damage
+        cursor.execute("""
+            UPDATE garage 
+            SET damage_engine = MIN(100, damage_engine + ?),
+                damage_tyres = MIN(100, damage_tyres + ?)
+            WHERE user_id = ?
+        """, (random.randint(1, 4), random.randint(2, 8), w_uid))
+        cursor.execute("""
+            UPDATE garage 
+            SET damage_engine = MIN(100, damage_engine + ?),
+                damage_tyres = MIN(100, damage_tyres + ?)
+            WHERE user_id = ?
+        """, (random.randint(2, 6), random.randint(4, 12), l_uid))
+        
+        # Recalculate totals
+        for uid in [w_uid, l_uid]:
+            cursor.execute("SELECT damage_engine, damage_tyres FROM garage WHERE user_id = ?", (uid,))
+            d = cursor.fetchone()
+            cursor.execute("UPDATE garage SET damage_total = ? WHERE user_id = ?", (d['damage_engine'] + d['damage_tyres'], uid))
+            
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        print(f"Error saving duel results: {e}")
+    finally:
+        conn.close()
+        
+    # 4. Final summary embed
+    if wager_amount > 0:
+        desc = (
+            f"🏆 **Winner:** **{winner['team_name']}** takes the pot of **{wager_amount * 2}¢**!\n"
+            f"📉 **{loser['team_name']}** loses **{wager_amount}¢**."
+        )
+    else:
+        desc = (
             f"🏆 **Winner:** **{winner['team_name']}** (+{config.DUEL_WIN_CREDITS}¢)\n"
             f"🏎️ **Runner-up:** **{loser['team_name']}** (+{config.DUEL_LOSS_CREDITS}¢)"
-        ),
+        )
+        
+    final_embed = utils.create_embed(
+        title="🏁 Race Duel: Checkered Flag",
+        description=desc,
         color=utils.COLOR_SUCCESS
     )
-    
-    await interaction.followup.send(embed=embed)
+    await channel.send(embed=final_embed)
 
-import random
 
-class BetAcceptView(discord.ui.View):
-    """View handling Bet requests."""
-    def __init__(self, bettor: discord.Member, target: discord.Member, amount: int, bettor_prof: dict, target_prof: dict):
+class RaceAcceptView(discord.ui.View):
+    """View handling Duel Race requests."""
+    def __init__(self, bettor: discord.Member, target: discord.Member, laps: int, bettor_prof: dict, target_prof: dict):
         super().__init__(timeout=60.0)
         self.bettor = bettor
         self.target = target
-        self.amount = amount
+        self.laps = laps
         self.bettor_prof = bettor_prof
         self.target_prof = target_prof
         
     async def on_timeout(self):
         for child in self.children:
             child.disabled = True
-        # Note: We don't have message reference here, so we do nothing or handle in send.
+            
+    @discord.ui.button(label="Accept Duel", style=discord.ButtonStyle.green)
+    async def accept(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.target.id:
+            await interaction.response.send_message("❌ This challenge is not for you!", ephemeral=True)
+            return
+            
+        # Re-fetch profiles to ensure they are current
+        p1 = database.get_full_team_profile(self.bettor.id, interaction.guild_id)
+        p2 = database.get_full_team_profile(self.target.id, interaction.guild_id)
+        if not p1 or not p2:
+            await interaction.response.send_message("❌ Profile not found.", ephemeral=True)
+            self.stop()
+            return
+            
+        if p1['damage_total'] >= 80 or p2['damage_total'] >= 80:
+            await interaction.response.send_message("❌ One of the cars is too damaged to race (must be < 80% damage)!", ephemeral=True)
+            self.stop()
+            return
+            
+        for child in self.children:
+            child.disabled = True
+        await interaction.response.edit_message(content="🟢 The duel was accepted! The race is starting...", view=self)
+        self.stop()
+        
+        # Run simulation in channel
+        await run_duel_simulation(interaction.channel, self.bettor, self.target, p1, p2, self.laps, wager_amount=0)
+
+    @discord.ui.button(label="Decline Duel", style=discord.ButtonStyle.red)
+    async def decline(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.target.id:
+            await interaction.response.send_message("❌ This challenge is not for you!", ephemeral=True)
+            return
+            
+        for child in self.children:
+            child.disabled = True
+        await interaction.response.edit_message(content="❌ The duel challenge was declined.", view=self)
+        self.stop()
+
+
+class BetAcceptView(discord.ui.View):
+    """View handling Bet requests."""
+    def __init__(self, bettor: discord.Member, target: discord.Member, amount: int, laps: int, bettor_prof: dict, target_prof: dict):
+        super().__init__(timeout=60.0)
+        self.bettor = bettor
+        self.target = target
+        self.amount = amount
+        self.laps = laps
+        self.bettor_prof = bettor_prof
+        self.target_prof = target_prof
+        
+    async def on_timeout(self):
+        for child in self.children:
+            child.disabled = True
 
     @discord.ui.button(label="Accept Bet", style=discord.ButtonStyle.green)
     async def accept(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -411,62 +534,32 @@ class BetAcceptView(discord.ui.View):
         p1 = database.get_user_by_id(self.bettor_prof['user_id'])
         p2 = database.get_user_by_id(self.target_prof['user_id'])
         
-        if p1['money'] < self.amount or p2['money'] < self.amount:
+        if not p1 or not p2 or p1['money'] < self.amount or p2['money'] < self.amount:
             await interaction.response.send_message("❌ One of you no longer has enough credits to cover the bet!", ephemeral=True)
             self.stop()
             return
             
-        # Defer and disable buttons
+        # Re-fetch profiles
+        prof1 = database.get_full_team_profile(self.bettor.id, interaction.guild_id)
+        prof2 = database.get_full_team_profile(self.target.id, interaction.guild_id)
+        
+        if not prof1 or not prof2:
+            await interaction.response.send_message("❌ Profile not found.", ephemeral=True)
+            self.stop()
+            return
+            
+        if prof1['damage_total'] >= 80 or prof2['damage_total'] >= 80:
+            await interaction.response.send_message("❌ One of the cars is too damaged to race (must be < 80% damage)!", ephemeral=True)
+            self.stop()
+            return
+            
         for child in self.children:
             child.disabled = True
-        await interaction.response.edit_message(view=self)
-        
-        # Deduct bet amounts
-        database.update_user_balance(p1['user_id'], -self.amount)
-        database.update_user_balance(p2['user_id'], -self.amount)
-        
-        # Simulate duel
-        winner, loser, logs = race.simulate_duel(self.bettor_prof, self.target_prof)
-        
-        # Award double the bet (payout) to the winner
-        payout = self.amount * 2
-        database.update_user_balance(winner['user_id'], payout)
-        
-        # Update wins/losses
-        conn = database.get_db_connection()
-        cursor = conn.cursor()
-        cursor.execute("UPDATE users SET wins = wins + 1 WHERE user_id = ?", (winner['user_id'],))
-        cursor.execute("UPDATE users SET losses = losses + 1 WHERE user_id = ?", (loser['user_id'],))
-        
-        # Apply damage
-        cursor.execute("UPDATE garage SET damage_engine = MIN(100, damage_engine + ?), damage_tyres = MIN(100, damage_tyres + ?) WHERE user_id = ?", (random.randint(1, 4), random.randint(2, 8), winner['user_id']))
-        cursor.execute("UPDATE garage SET damage_engine = MIN(100, damage_engine + ?), damage_tyres = MIN(100, damage_tyres + ?) WHERE user_id = ?", (random.randint(2, 6), random.randint(4, 12), loser['user_id']))
-        
-        for uid in [winner['user_id'], loser['user_id']]:
-            cursor.execute("SELECT damage_engine, damage_tyres FROM garage WHERE user_id = ?", (uid,))
-            d = cursor.fetchone()
-            cursor.execute("UPDATE garage SET damage_total = ? WHERE user_id = ?", (d['damage_engine'] + d['damage_tyres'], uid))
-            
-        # Insert bet record
-        # Determine race_id if there's any active or just default to null/dummy
-        cursor.execute("INSERT INTO bets (race_id, bettor_id, target_id, amount, outcome, payout) VALUES (0, ?, ?, ?, ?, ?)",
-                       (p1['user_id'], p2['user_id'], self.amount, "win" if winner['user_id'] == p1['user_id'] else "lose", payout))
-        
-        conn.commit()
-        conn.close()
-        
-        desc = "\n".join(logs)
-        embed = utils.create_embed(
-            title=f"💸 Wager Duel: {self.bettor.name} vs {self.target.name} (Amount: {self.amount}¢)",
-            description=(
-                f"{desc}\n\n"
-                f"🏆 **Winner:** **{winner['team_name']}** takes the pot of **{payout}¢**!\n"
-                f"📉 **{loser['team_name']}** loses **{self.amount}¢**."
-            ),
-            color=utils.COLOR_SUCCESS
-        )
-        await interaction.followup.send(embed=embed)
+        await interaction.response.edit_message(content="🟢 The bet was accepted! The race is starting...", view=self)
         self.stop()
+        
+        # Run simulation in channel
+        await run_duel_simulation(interaction.channel, self.bettor, self.target, prof1, prof2, self.laps, wager_amount=self.amount)
 
     @discord.ui.button(label="Decline Bet", style=discord.ButtonStyle.red)
     async def decline(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -479,15 +572,56 @@ class BetAcceptView(discord.ui.View):
         await interaction.response.edit_message(content="❌ The bet challenge was declined.", view=self)
         self.stop()
 
-@bot.tree.command(name="bet", description="Challenge another user to a race with a credit wager!")
-@app_commands.describe(opponent="The player you want to wager against", amount="Credits amount to bet")
+
+@bot.tree.command(name="race", description="Challenge another user to a racing duel!")
+@app_commands.describe(opponent="The player you want to challenge", laps="Number of laps (1-20)")
 @app_commands.guild_only()
-async def race_bet(interaction: discord.Interaction, opponent: discord.Member, amount: int):
+async def race_duel(interaction: discord.Interaction, opponent: discord.Member, laps: int = 1):
+    if opponent.id == interaction.user.id:
+        await interaction.response.send_message("❌ You cannot race against yourself!", ephemeral=True)
+        return
+    if laps < 1 or laps > 20:
+        await interaction.response.send_message("❌ Laps must be between 1 and 20.", ephemeral=True)
+        return
+        
+    p1_prof = database.get_full_team_profile(interaction.user.id, interaction.guild_id)
+    p2_prof = database.get_full_team_profile(opponent.id, interaction.guild_id)
+    
+    if not p1_prof:
+        await interaction.response.send_message("❌ You do not have a profile. Use `/start` first.", ephemeral=True)
+        return
+    if not p2_prof:
+        await interaction.response.send_message("❌ Your opponent does not have a profile yet.", ephemeral=True)
+        return
+        
+    if p1_prof['damage_total'] >= 80:
+        await interaction.response.send_message("❌ Your car is heavily damaged! Run `/repairs` and `/repair` before racing.", ephemeral=True)
+        return
+    if p2_prof['damage_total'] >= 80:
+        await interaction.response.send_message("❌ Opponent's car is too damaged to race.", ephemeral=True)
+        return
+        
+    view = RaceAcceptView(interaction.user, opponent, laps, p1_prof, p2_prof)
+    embed = utils.create_embed(
+        title="🏎️ Racing Duel Challenge!",
+        description=f"**{interaction.user.name}** has challenged **{opponent.name}** to a **{laps}-lap** racing duel!",
+        color=utils.COLOR_WARNING
+    )
+    await interaction.response.send_message(content=opponent.mention, embed=embed, view=view)
+
+
+@bot.tree.command(name="bet", description="Challenge another user to a race with a credit wager!")
+@app_commands.describe(opponent="The player you want to wager against", amount="Credits amount to bet", laps="Number of laps (1-20)")
+@app_commands.guild_only()
+async def race_bet(interaction: discord.Interaction, opponent: discord.Member, amount: int, laps: int = 1):
     if opponent.id == interaction.user.id:
         await interaction.response.send_message("❌ You cannot bet against yourself!", ephemeral=True)
         return
     if amount <= 0:
         await interaction.response.send_message("❌ Bet amount must be positive.", ephemeral=True)
+        return
+    if laps < 1 or laps > 20:
+        await interaction.response.send_message("❌ Laps must be between 1 and 20.", ephemeral=True)
         return
         
     p1_prof = database.get_full_team_profile(interaction.user.id, interaction.guild_id)
@@ -507,10 +641,17 @@ async def race_bet(interaction: discord.Interaction, opponent: discord.Member, a
         await interaction.response.send_message(f"❌ Opponent does not have enough credits to cover the bet ({p2_prof['money']}¢).", ephemeral=True)
         return
         
-    view = BetAcceptView(interaction.user, opponent, amount, p1_prof, p2_prof)
+    if p1_prof['damage_total'] >= 80:
+        await interaction.response.send_message("❌ Your car is heavily damaged! Run `/repairs` and `/repair` before racing.", ephemeral=True)
+        return
+    if p2_prof['damage_total'] >= 80:
+        await interaction.response.send_message("❌ Opponent's car is too damaged to race.", ephemeral=True)
+        return
+        
+    view = BetAcceptView(interaction.user, opponent, amount, laps, p1_prof, p2_prof)
     embed = utils.create_embed(
         title="💸 Racing Wager Challenge!",
-        description=f"**{interaction.user.name}** has challenged **{opponent.name}** to a 1-lap racing duel for **{amount}¢**!",
+        description=f"**{interaction.user.name}** has challenged **{opponent.name}** to a **{laps}-lap** racing duel for **{amount}¢**!",
         color=utils.COLOR_WARNING
     )
     await interaction.response.send_message(content=opponent.mention, embed=embed, view=view)
@@ -538,7 +679,7 @@ async def shop(interaction: discord.Interaction):
             cost = config.get_upgrade_cost(part, curr_level + 1)
             cost_str = f"{cost:,}¢"
             
-        desc += f"• **{part.capitalize()}:** Level {curr_level} → Level {curr_level + 1 if curr_level < 10 else 10} (Cost: {cost_str})\n"
+        desc += f"• **{part.capitalize()}:** Level {curr_level} → Level {curr_level + 1 if curr_level < config.MAX_STAT_LEVEL else config.MAX_STAT_LEVEL} (Cost: {cost_str})\n"
         
     embed = utils.create_embed(
         title="🛒 The Performance Shop",
@@ -781,13 +922,30 @@ async def gp_admin(interaction: discord.Interaction, action: app_commands.Choice
             await asyncio.sleep(15.0) # Time between laps (slowed down for immersion)
             
         # Post final standings
-        final_desc = "\n".join(finish_logs)
+        # Split finish_logs into chunks of max 20 lines to prevent character limits
+        chunks = []
+        current_chunk = []
+        for log in finish_logs:
+            current_chunk.append(log)
+            if len(current_chunk) == 20:
+                chunks.append("\n".join(current_chunk))
+                current_chunk = []
+        if current_chunk:
+            chunks.append("\n".join(current_chunk))
+            
         results_embed = utils.create_embed(
             title=f"🏁 RESULTS: Grand Prix of {active_gp['track']} Finished",
-            description=f"🏆 **Grand Prix completed successfully!**\n\n{final_desc}",
+            description=f"🏆 **Grand Prix completed successfully!**\n\n" + (chunks[0] if chunks else ""),
             color=utils.COLOR_SUCCESS
         )
         await live_message.edit(embed=results_embed)
+        
+        for c in chunks[1:]:
+            await interaction.followup.send(embed=utils.create_embed(
+                title=f"🏁 Grand Prix Results (Continued)",
+                description=c,
+                color=utils.COLOR_SUCCESS
+            ))
 
 @bot.tree.command(name="joinrace", description="Register and pay 1000¢ entry fee to join the upcoming Grand Prix.")
 @app_commands.guild_only()
@@ -840,17 +998,32 @@ async def results(interaction: discord.Interaction):
         await interaction.response.send_message("❌ No Grand Prix races have finished yet.", ephemeral=True)
         return
         
-    desc = f"**Results for {race_info['name']} at {race_info['track']}:**\n\n"
+    # Split description into chunks of max 20 lines to prevent character limits
+    chunks = []
+    current_chunk = []
     for row in results_rows:
         dnf_tag = " (DNF)" if row['dnf'] else ""
-        desc += f"P{row['finish_position']}: **{row['team_name']}**{dnf_tag} — **+{row['points_earned']} pts** (+{row['credits_won']}¢)\n"
+        line = f"P{row['finish_position']}: **{row['team_name']}**{dnf_tag} — **+{row['points_earned']} pts** (+{row['credits_won']}¢)"
+        current_chunk.append(line)
+        if len(current_chunk) == 20:
+            chunks.append("\n".join(current_chunk))
+            current_chunk = []
+    if current_chunk:
+        chunks.append("\n".join(current_chunk))
         
-    embed = utils.create_embed(
+    # Send the first chunk, then followup for the rest
+    await interaction.response.send_message(embed=utils.create_embed(
         title=f"🏁 Race Results: {race_info['name']}",
-        description=desc,
+        description=f"**Results for {race_info['name']} at {race_info['track']}:**\n\n" + (chunks[0] if chunks else ""),
         color=utils.COLOR_RACE_RESULTS
-    )
-    await interaction.response.send_message(embed=embed)
+    ))
+    
+    for c in chunks[1:]:
+        await interaction.followup.send(embed=utils.create_embed(
+            title=f"🏁 Race Results (Continued)",
+            description=c,
+            color=utils.COLOR_RACE_RESULTS
+        ))
 
 # ----------------- Admin Override Commands -----------------
 

@@ -35,8 +35,8 @@ def calculate_overall_power(garage: Dict[str, Any], driver_pace: int) -> int:
 
 def get_points_for_position(position: int) -> int:
     """Return points awarded for a given finishing position (1-indexed)."""
-    # 25-18-15-12-10-8-6-4-2-1 for top 10
-    points_map = [25, 18, 15, 12, 10, 8, 6, 4, 2, 1]
+    import config
+    points_map = config.GP_POINTS_DISTRIBUTION
     if 1 <= position <= len(points_map):
         return points_map[position - 1]
     return 0

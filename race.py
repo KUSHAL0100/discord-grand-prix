@@ -51,9 +51,17 @@ class SimTeam:
         self.dnf = False
         self.dnf_reason = ""
         self.tyre_health = 100.0
-        self.tyre_type = "Medium" # 'Medium' (Dry) or 'Intermediates' (Wet)
-        self.strategy = "Balanced" # 'Aggressive', 'Balanced', 'Conservative'
+        
+        # Load user strategy preferences
+        self.pref_strategy = data.get("pref_strategy", "Balanced")
+        self.pref_tyres = data.get("pref_tyres", "Medium")
+        self.pref_pit_stops = data.get("pref_pit_stops", 1)
+        
+        self.tyre_type = self.pref_tyres
+        self.strategy = self.pref_strategy
+        
         self.pit_stop_done = False
+        self.pit_stops_completed = 0
         self.pit_lap = 10
         self.grid_position = 0
         self.current_position = 0
@@ -83,97 +91,183 @@ class SimTeam:
         
         return base_power
 
-def simulate_duel(team1_data: Dict[str, Any], team2_data: Dict[str, Any]) -> Tuple[Dict[str, Any], Dict[str, Any], List[str]]:
+def simulate_duel(team1_data: Dict[str, Any], team2_data: Dict[str, Any], total_laps: int = 1) -> Tuple[Dict[str, Any], Dict[str, Any], List[List[str]], List[str]]:
     """
-    Simulate a 1-lap head-to-head race duel.
-    Returns (winner_data, loser_data, log_events).
+    Simulate a multi-lap head-to-head race duel.
+    Returns (winner_data, loser_data, lap_logs, qual_logs).
     """
     t1 = SimTeam(team1_data)
     t2 = SimTeam(team2_data)
     
-    logs = ["🏁 **Duel Start!** Lights out and away we go!"]
+    qual_logs = ["🏁 **Duel Start!** Lights out and away we go!"]
     
     # Randomly select a track for the duel
     track = random.choice(list(TRACK_PROFILES.keys()))
-    logs.append(f"📍 Track: **{track}** - {TRACK_PROFILES[track]['description']}")
+    qual_logs.append(f"📍 Track: **{track}** - {TRACK_PROFILES[track]['description']}")
     
-    # Choose strategy for the duel
-    t1.strategy = random.choice(["Aggressive", "Balanced", "Conservative"])
-    t2.strategy = random.choice(["Aggressive", "Balanced", "Conservative"])
-    
-    logs.append(f" strategist team '{t1.team_name}' chose **{t1.strategy}** strategy.")
-    logs.append(f" strategist team '{t2.team_name}' chose **{t2.strategy}** strategy.")
-    
-    # Calculate performance
+    # Space pit stops evenly if total laps > 3
     for t in [t1, t2]:
-        car_power = t.calculate_base_car_power(track)
-        
-        # Driver pace bonus
-        driver_bonus = t.driver_pace / 3.0
-        
-        # Strategy modifiers
-        strat_bonus = 0.0
-        if t.strategy == "Aggressive":
-            strat_bonus = car_power * 0.07  # +7% pace
-        elif t.strategy == "Conservative":
-            strat_bonus = -car_power * 0.05 # -5% pace
-            
-        # Overtaking / aggression adjustment
-        aggression_modifier = (t.driver_aggression - 50) / 10.0
-        
-        # Add random noise
-        noise = random.uniform(0, 10)
-        
-        t.performance = car_power + driver_bonus + strat_bonus + aggression_modifier + noise
-
-    # Reliability/DNF check
-    for t in [t1, t2]:
-        # DNF Formula: max(1, 16 - R*1.5)%
-        dnf_chance = max(1.0, 16.0 - t.reliability * 1.5)
-        if t.strategy == "Aggressive":
-            dnf_chance += 10.0  # +10% crash chance
-        elif t.strategy == "Conservative":
-            dnf_chance = max(0.5, dnf_chance - 5.0)  # reduce crash chance
-            
-        if random.uniform(0, 100) < dnf_chance:
-            t.dnf = True
-            reasons = ["spun off into the barriers", "suffered an engine blowup", "had a gearbox failure", "collided with local wildlife"]
-            t.dnf_reason = random.choice(reasons)
-            logs.append(f"💥 **CRASH!** {t.team_name} {t.dnf_reason} and is out of the race!")
-            
-    # Determine winner
-    if t1.dnf and t2.dnf:
-        # Both DNF, choose one randomly or tie, let's say the one who survived longer wins
-        if random.random() < 0.5:
-            winner, loser = team1_data, team2_data
-            logs.append(f"Both crashed! But {t1.team_name} classified ahead of {t2.team_name}.")
+        if total_laps > 3:
+            intervals = total_laps / (t.pref_pit_stops + 1)
+            t.pit_laps = [int(round(intervals * i)) for i in range(1, t.pref_pit_stops + 1)]
         else:
-            winner, loser = team2_data, team1_data
-            logs.append(f"Both crashed! But {t2.team_name} classified ahead of {t1.team_name}.")
-    elif t1.dnf:
-        winner, loser = team2_data, team1_data
-        logs.append(f"🏆 **Winner:** {t2.team_name} takes the checkered flag!")
-    elif t2.dnf:
-        winner, loser = team1_data, team2_data
-        logs.append(f"🏆 **Winner:** {t1.team_name} takes the checkered flag!")
+            t.pit_laps = []
+            
+    qual_logs.append(f"📋 Strategist for '{t1.team_name}' chose **{t1.strategy}** strategy and **{t1.tyre_type}** tyres.")
+    qual_logs.append(f"📋 Strategist for '{t2.team_name}' chose **{t2.strategy}** strategy and **{t2.tyre_type}** tyres.")
+    
+    # Qualifying simulation
+    t1_qual = t1.calculate_base_car_power(track) + (t1.driver_qual / 2.0) + random.uniform(0, 10)
+    t2_qual = t2.calculate_base_car_power(track) + (t2.driver_qual / 2.0) + random.uniform(0, 10)
+    
+    if t1_qual >= t2_qual:
+        leader, trailer = t1, t2
+        qual_logs.append(f"⏱️ **Qualifying:** **{t1.team_name}** takes pole position! **{t2.team_name}** starts P2.")
     else:
-        # Compare performances
-        diff = abs(t1.performance - t2.performance)
-        if t1.performance > t2.performance:
-            winner, loser = team1_data, team2_data
-            if diff > 10:
-                logs.append(f"🏁 {t1.team_name} dominated the lap, crossing the line far ahead!")
-            else:
-                logs.append(f"🏁 A photo finish! {t1.team_name} edges out {t2.team_name} by a nose!")
-        else:
-            winner, loser = team2_data, team1_data
-            if diff > 10:
-                logs.append(f"🏁 {t2.team_name} dominated the lap, crossing the line far ahead!")
-            else:
-                logs.append(f"🏁 A photo finish! {t2.team_name} edges out {t1.team_name} by a nose!")
+        leader, trailer = t2, t1
+        qual_logs.append(f"⏱️ **Qualifying:** **{t2.team_name}** takes pole position! **{t1.team_name}** starts P2.")
+        
+    qual_logs.append("\n🟢 **Lights Out! The duel is underway!**")
+    
+    # We will track the gap (in seconds). Let's start the gap at 1.0s.
+    gap = 1.0
+    lap_logs = []
+    
+    for lap in range(1, total_laps + 1):
+        current_lap_events = []
+        
+        # Check DNF for both active drivers
+        for t in [leader, trailer]:
+            if t.dnf:
+                continue
+            dnf_chance = max(1.0, 16.0 - t.reliability * 1.5)
+            if t.strategy == "Aggressive":
+                dnf_chance += 10.0
+            elif t.strategy == "Conservative":
+                dnf_chance = max(0.5, dnf_chance - 5.0)
                 
-    return winner, loser, logs
-
+            if random.uniform(0, 100) < dnf_chance:
+                t.dnf = True
+                reasons = ["spun off into the barriers", "suffered an engine blowup", "had a gearbox failure", "collided with a competitor"]
+                t.dnf_reason = random.choice(reasons)
+                current_lap_events.append(f"💥 **CRASH!** {t.team_name} {t.dnf_reason} and is out of the race!")
+                
+        # Handle DNFs
+        if leader.dnf and trailer.dnf:
+            # Both crashed, random classification
+            if random.random() < 0.5:
+                winner, loser = leader, trailer
+                current_lap_events.append(f"Both crashed! But {leader.team_name} is classified ahead.")
+            else:
+                winner, loser = trailer, leader
+                current_lap_events.append(f"Both crashed! But {trailer.team_name} is classified ahead.")
+            lap_logs.append(current_lap_events)
+            break
+        elif leader.dnf:
+            winner, loser = trailer, leader
+            current_lap_events.append(f"🏆 **Checkered Flag!** {trailer.team_name} wins the duel!")
+            lap_logs.append(current_lap_events)
+            break
+        elif trailer.dnf:
+            winner, loser = leader, trailer
+            current_lap_events.append(f"🏆 **Checkered Flag!** {leader.team_name} wins the duel!")
+            lap_logs.append(current_lap_events)
+            break
+            
+        # Pitting logic in Duels
+        for t in [leader, trailer]:
+            if t.dnf:
+                continue
+            # Pit if scheduled lap or if tyres are critical (< 30%) and total laps > 3
+            if total_laps > 3 and (lap in t.pit_laps or t.tyre_health < 30.0):
+                pit_duration = 3.5 - (t.pit_crew * 0.15)
+                if t == leader:
+                    gap -= pit_duration
+                else:
+                    gap += pit_duration
+                    
+                t.tyre_health = 100.0
+                t.pit_stops_completed += 1
+                current_lap_events.append(f"🔧 **Lap {lap}:** {t.team_name} pits for fresh {t.tyre_type} tyres (time: {pit_duration:.2f}s)!")
+                
+        # Calculate tyre wear based on compound choice
+        for t in [leader, trailer]:
+            if t.tyre_type == "Soft":
+                base_wear = 12.0
+            elif t.tyre_type == "Hard":
+                base_wear = 4.0
+            else: # Medium
+                base_wear = 7.0
+                
+            if t.strategy == "Aggressive":
+                wear = base_wear * 1.3
+            elif t.strategy == "Conservative":
+                wear = base_wear * 0.7
+            else:
+                wear = base_wear
+                
+            t.tyre_health -= random.uniform(wear - 1, wear + 1)
+            
+        # Calculate performance for this lap
+        l_tyre_bonus = 8.0 if leader.tyre_type == "Soft" else (0.0 if leader.tyre_type == "Hard" else 4.0)
+        t_tyre_bonus = 8.0 if trailer.tyre_type == "Soft" else (0.0 if trailer.tyre_type == "Hard" else 4.0)
+        
+        l_perf = leader.calculate_base_car_power(track) + (leader.driver_pace / 4.0) + l_tyre_bonus + random.uniform(0, 8)
+        t_perf = trailer.calculate_base_car_power(track) + (trailer.driver_pace / 4.0) + t_tyre_bonus + random.uniform(0, 8)
+        
+        # Strategy bonuses
+        if leader.strategy == "Aggressive":
+            l_perf += 5.0
+        elif leader.strategy == "Conservative":
+            l_perf -= 3.0
+            
+        if trailer.strategy == "Aggressive":
+            t_perf += 5.0
+        elif trailer.strategy == "Conservative":
+            t_perf -= 3.0
+            
+        # Tyre penalty
+        if leader.tyre_health < 40.0:
+            l_perf -= (40.0 - leader.tyre_health) * 0.3
+        if trailer.tyre_health < 40.0:
+            t_perf -= (40.0 - trailer.tyre_health) * 0.3
+            
+        # Performance difference shifts the gap
+        # If leader was faster, gap increases. If trailer was faster, gap decreases.
+        perf_diff = (l_perf - t_perf) * 0.25 # scaling factor
+        gap += perf_diff
+        
+        if gap <= 0:
+            # Trailer overtakes!
+            gap = abs(gap)
+            if gap < 0.2:
+                gap = 0.5 # keep some minimal gap
+            leader, trailer = trailer, leader
+            current_lap_events.append(f"🔄 **Lap {lap}:** **{leader.team_name}** makes a brilliant overtake on **{trailer.team_name}** to take the lead!")
+        else:
+            # No overtake, describe state
+            if gap > 3.0:
+                current_lap_events.append(f"🏎️ **Lap {lap}:** **{leader.team_name}** is pulling away, leading **{trailer.team_name}** by **{gap:.2f}s**.")
+            else:
+                current_lap_events.append(f"⚔️ **Lap {lap}:** **{leader.team_name}** defends hard! **{trailer.team_name}** is right on their gearbox (+**{gap:.2f}s**).")
+                
+        # Tyre status stats string
+        current_lap_events.append(
+            f"📊 **Tyre Health:** {leader.team_name}: {max(0, int(leader.tyre_health))}% | {trailer.team_name}: {max(0, int(trailer.tyre_health))}%"
+        )
+        
+        # End of race checks
+        if lap == total_laps:
+            winner, loser = leader, trailer
+            current_lap_events.append(f"\n🏁 **Checkered Flag!** **{winner.team_name}** crosses the line to win the duel!")
+            
+        lap_logs.append(current_lap_events)
+        
+    # Map back SimTeam object dicts
+    w_data = team1_data if winner.user_id == team1_data["user_id"] else team2_data
+    l_data = team1_data if loser.user_id == team1_data["user_id"] else team2_data
+    
+    return w_data, l_data, lap_logs, qual_logs
 
 def simulate_gp(entries_data: List[Dict[str, Any]], track_name: str, total_laps: int = 15) -> Tuple[List[Dict[str, Any]], List[str]]:
     """
@@ -193,19 +287,15 @@ def simulate_gp(entries_data: List[Dict[str, Any]], track_name: str, total_laps:
     
     # Initialize strategies and pit laps
     for t in teams:
-        t.strategy = random.choice(["Aggressive", "Balanced", "Conservative"])
-        
-        # Decide tires based on weather
+        # If weather is Rain, force Intermediates. Otherwise use user's preferred tyres.
         if current_weather == "Rain":
             t.tyre_type = "Intermediates"
         else:
-            t.tyre_type = "Medium"
+            t.tyre_type = t.pref_tyres
             
-        # Determine pit laps (e.g. middle of race)
-        base_pit_lap = total_laps // 2
-        # Strategist skill slightly shifts pit lap to find optimal clean air
-        shift = round((t.strat_pit_timing - 50) / 25.0)
-        t.pit_lap = max(2, min(total_laps - 1, base_pit_lap + shift))
+        # Determine pit laps (space stops evenly)
+        intervals = total_laps / (t.pref_pit_stops + 1)
+        t.pit_laps = [int(round(intervals * i)) for i in range(1, t.pref_pit_stops + 1)]
 
     # 2. Qualifying simulation
     logs.append("⏱️ **Qualifying Sessions complete! Here is the starting grid:**")
@@ -256,12 +346,19 @@ def simulate_gp(entries_data: List[Dict[str, Any]], track_name: str, total_laps:
             car_power = t.calculate_base_car_power(track_name)
             
             # Tyre wear simulation
-            # Tyres wear faster under Aggressive strategy, slower under Conservative
-            wear_rate = 7.0
+            if t.tyre_type == "Soft":
+                base_wear = 12.0
+            elif t.tyre_type == "Hard":
+                base_wear = 4.0
+            else: # Medium or Intermediates
+                base_wear = 7.0
+                
             if t.strategy == "Aggressive":
-                wear_rate = 10.0
+                wear_rate = base_wear * 1.3
             elif t.strategy == "Conservative":
-                wear_rate = 4.0
+                wear_rate = base_wear * 0.7
+            else:
+                wear_rate = base_wear
                 
             t.tyre_health -= random.uniform(wear_rate - 2, wear_rate + 2)
             
@@ -272,7 +369,7 @@ def simulate_gp(entries_data: List[Dict[str, Any]], track_name: str, total_laps:
                 
             # Weather tire compatibility penalty
             weather_penalty = 0.0
-            if current_weather == "Rain" and t.tyre_type == "Medium":
+            if current_weather == "Rain" and t.tyre_type != "Intermediates":
                 # Dry tyres in rain is a massive penalty
                 weather_penalty = 25.0 - (t.driver_wet_skill / 10.0) # Wet skill reduces penalty
             elif current_weather == "Sunny" and t.tyre_type == "Intermediates":
@@ -293,15 +390,18 @@ def simulate_gp(entries_data: List[Dict[str, Any]], track_name: str, total_laps:
             elif t.strategy == "Conservative":
                 strat_bonus = -car_power * 0.04
                 
+            # Tyre pace bonus
+            tyre_bonus = 8.0 if t.tyre_type == "Soft" else (0.0 if t.tyre_type == "Hard" else 4.0)
+            
             # Combine stats
-            t.performance = car_power + driver_bonus + strat_bonus - tyre_penalty - weather_penalty + random.uniform(0, 8)
+            t.performance = car_power + driver_bonus + strat_bonus + tyre_bonus - tyre_penalty - weather_penalty + random.uniform(0, 8)
             
             # If Safety Car or VSC is active, bunch the pack (equalize performance)
             if safety_car_laps_left > 0:
                 t.performance = 30.0 + random.uniform(0, 2)
             elif vsc_laps_left > 0:
                 t.performance = 40.0 + random.uniform(0, 1.5)
-
+ 
         # C. Pit stop logic
         for t in teams:
             if t.dnf:
@@ -314,55 +414,23 @@ def simulate_gp(entries_data: List[Dict[str, Any]], track_name: str, total_laps:
             wants_pit = False
             needed_tyre = t.tyre_type
             
-            if current_weather == "Rain" and t.tyre_type == "Medium":
+            if current_weather == "Rain" and t.tyre_type != "Intermediates":
                 wants_pit = True
                 needed_tyre = "Intermediates"
             elif current_weather == "Sunny" and t.tyre_type == "Intermediates":
                 wants_pit = True
-                needed_tyre = "Medium"
-            elif lap == t.pit_lap and not t.pit_stop_done:
+                needed_tyre = t.pref_tyres
+                if needed_tyre == "Intermediates":
+                    needed_tyre = "Medium"
+            elif lap in t.pit_laps:
                 wants_pit = True
+                needed_tyre = t.pref_tyres
             elif t.tyre_health < 30.0:
                 wants_pit = True
+                needed_tyre = t.pref_tyres
                 
             if wants_pit:
                 # Calculate pit stop duration
-                # Base is 3.5s down to 2.0s based on pit crew
-                pit_duration = 3.5 - (t.reliability * 0.15) # Wait! Config says actual pit time uses pit_crew_level
-                # Let's read from self.reliability or let's use the actual pit_crew level (which is t.reliability in some DB schemas, but we have pit_crew!)
-                # Wait, in the schema, garage has `pit_crew` column. Yes, t.reliability or t.pit_crew!
-                pit_crew_level = getattr(t, "pit_crew", 1)
-                # Let's look at SimTeam class definition:
-                # self.engine, self.aerodynamics, self.tyres_stat, self.ers, self.reliability...
-                # Wait! Did we add self.pit_crew to SimTeam? Let's check!
-                # Yes: `self.reliability = data.get("reliability", 1)`
-                # Wait, did we map `pit_crew`? Let's check:
-                # `g.engine, g.aerodynamics, g.tyres, g.ers, g.reliability, g.pit_crew...`
-                # Ah! In `SimTeam.__init__`:
-                # `self.reliability = data.get("reliability", 1)`
-                # Wait! Let's check if we set `self.pit_crew` in `SimTeam`:
-                # Ah, let's look: `self.reliability = data.get("reliability", 1)`
-                # Let's check if `pit_crew` is in `data`. Yes, in `get_full_team_profile` we queried `g.pit_crew`.
-                # But in `SimTeam.__init__` we did:
-                # `self.reliability = data.get("reliability", 1)`
-                # But we forgot to assign `self.pit_crew = data.get("pit_crew", 1)`!
-                # Wait, let's check: `self.strat_pit_timing = data.get("pit_timing", 50)...`
-                # Let's check `SimTeam` constructor:
-                # `self.reliability = data.get("reliability", 1)`
-                # Yes, I should make sure `self.pit_crew` is assigned! Let's edit the file later or just use `self.reliability` as fallback. Let's make sure it is assigned properly:
-                # `self.pit_crew = data.get("pit_crew", 1)`
-                # Let's check if `self.pit_crew` was defined:
-                # In the code block:
-                # `self.engine = data.get("engine", 1)`
-                # `self.aerodynamics = data.get("aerodynamics", 1)`
-                # `self.tyres_stat = data.get("tyres", 1)`
-                # `self.ers = data.get("ers", 1)`
-                # `self.reliability = data.get("reliability", 1)`
-                # Ah, yes! We did NOT add `self.pit_crew` inside the SimTeam constructor, but we did query it! Let's make sure we handle it. Let's add it.
-                # Actually, let's look at the pit time calculation:
-                # `pit_duration = 3.5 - (getattr(t, "pit_crew", 1) * 0.15)`
-                # Let's use `getattr(t, "pit_crew", 1)` so it works even if it's missing. I did assign `self.reliability = data.get("reliability", 1)`. I will make sure we edit SimTeam to include `self.pit_crew = data.get("pit_crew", 1)` when we do edits.
-                # Let's continue checking pit stop logic.
                 pit_crew_val = getattr(t, "pit_crew", 1)
                 pit_duration = 3.5 - (pit_crew_val * 0.15)
                 
@@ -376,6 +444,7 @@ def simulate_gp(entries_data: List[Dict[str, Any]], track_name: str, total_laps:
                     
                 t.tyre_health = 100.0
                 t.tyre_type = needed_tyre
+                t.pit_stops_completed += 1
                 t.pit_stop_done = True
 
         # D. Reliability Check & Random DNFs

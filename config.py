@@ -43,12 +43,22 @@ ENGINE_UPGRADE_COSTS = {
     2: 500,
     3: 1000,
     4: 2000,
-    5: 3500,
-    6: 5500,
-    7: 8000,
-    8: 11000,
-    9: 15000,
-    10: 20000
+    5: 4000,
+    6: 8000,
+    7: 15000,
+    8: 30000,
+    9: 60000,
+    10: 100000,
+    11: 150000,
+    12: 220000,
+    13: 300000,
+    14: 400000,
+    15: 550000,
+    16: 750000,
+    17: 1000000,
+    18: 1350000,
+    19: 1800000,
+    20: 2500000
 }
 
 # Multipliers relative to engine cost
@@ -66,7 +76,7 @@ REPAIR_COST_PER_PCT = 25  # e.g., 20% damage * 25 credits = 500 credits to repai
 MAX_DAMAGE = 100
 
 # Stat Caps
-MAX_STAT_LEVEL = 10
+MAX_STAT_LEVEL = 20
 
 # Duel Rewards
 DUEL_WIN_CREDITS = 200
@@ -81,7 +91,7 @@ GP_PODIUM_REWARDS = {
     3: 1500
 }
 GP_BASE_PARTICIPATION_REWARD = 500
-GP_POINTS_DISTRIBUTION = [25, 18, 15, 12, 10, 8, 6, 4, 2, 1]  # Top 10 points
+GP_POINTS_DISTRIBUTION = [8, 7, 6, 5, 4, 3, 2, 1]  # Top 8 Sprint points
 
 def get_upgrade_cost(part_name: str, target_level: int) -> int:
     """Calculate credit cost to upgrade a part to target_level."""
