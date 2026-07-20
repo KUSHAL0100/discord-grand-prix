@@ -300,23 +300,26 @@ def simulate_duel(team1_data: Dict[str, Any], team2_data: Dict[str, Any], total_
     
     return w_data, l_data, lap_logs, qual_logs
 
-def simulate_gp(entries_data: List[Dict[str, Any]], track_name: str, total_laps: int = 15) -> Tuple[List[Dict[str, Any]], List[str]]:
+def simulate_gp(entries_data: List[Dict[str, Any]], track_name: str, total_laps: int = 15, weather_timeline: List[str] = None) -> Tuple[List[Dict[str, Any]], List[str], Dict[int, Any]]:
     """
     Simulate a full multi-lap Grand Prix race.
-    Returns (final_standings_data, race_logs).
+    Returns (final_standings_data, race_logs, lap_states).
     """
     teams = [SimTeam(entry) for entry in entries_data]
     logs = [f"🚥 **Grand Prix of {track_name} - Race Start!**"]
+    lap_states = {}
     
     # 1. Setup track details
     track_profile = TRACK_PROFILES.get(track_name, {"sc_chance_mult": 1.0})
     sc_multiplier = track_profile.get("sc_chance_mult", 1.0)
     
     # Initial weather setting
-    current_weather = random.choice(["Sunny", "Sunny", "Sunny", "Mixed", "Rain"])
+    if weather_timeline and len(weather_timeline) > 0:
+        current_weather = weather_timeline[0]
+    else:
+        current_weather = "Sunny"
     logs.append(f"🌤️ **Weather at start:** {current_weather}")
     
-    # Initialize strategies and pit laps
     # Initialize strategies and pit laps
     for t in teams:
         if current_weather == "Rain":
@@ -344,12 +347,19 @@ def simulate_gp(entries_data: List[Dict[str, Any]], track_name: str, total_laps:
     
     # Lap by lap simulation
     for lap in range(1, total_laps + 1):
-        # A. Weather change check (10% chance)
-        if random.random() < 0.10:
-            old_weather = current_weather
-            current_weather = random.choice(["Sunny", "Mixed", "Rain"])
-            if old_weather != current_weather:
+        # A. Weather change check
+        if weather_timeline and lap <= len(weather_timeline):
+            new_weather = weather_timeline[lap - 1]
+            if new_weather != current_weather:
+                old_weather = current_weather
+                current_weather = new_weather
                 logs.append(f"🌧️ **Lap {lap}: Weather change! It is now {current_weather}.**")
+        else:
+            if random.random() < 0.10:
+                old_weather = current_weather
+                current_weather = random.choice(["Sunny", "Mixed", "Rain"])
+                if old_weather != current_weather:
+                    logs.append(f"🌧️ **Lap {lap}: Weather change! It is now {current_weather}.**")
                 
         # B. Calculate performance for all active teams
         for t in teams:
@@ -379,6 +389,8 @@ def simulate_gp(entries_data: List[Dict[str, Any]], track_name: str, total_laps:
             tyre_penalty = 0.0
             if t.tyre_health < 40.0:
                 tyre_penalty = (40.0 - max(0.0, t.tyre_health)) * 0.8
+                if random.random() < 0.2:  # 20% chance to broadcast radio alert per lap when tyres are dead
+                    logs.append(f"📻 *[Radio - {t.team_name}]: Bono, my tyres are dead!*")
                 
             # Weather tire compatibility penalty
             weather_penalty = 0.0
@@ -433,11 +445,9 @@ def simulate_gp(entries_data: List[Dict[str, Any]], track_name: str, total_laps:
             elif current_weather == "Sunny" and t.tyre_type == "Intermediates":
                 wants_pit = True
                 needed_tyre = t.pref_tyres
-                if needed_tyre == "Intermediates":
-                    needed_tyre = "Medium"
             elif lap in t.pit_laps:
                 wants_pit = True
-                needed_tyre = t.pref_tyres
+                needed_tyre = t.pit_tyres_plan.get(lap, t.pref_tyres)
                 
             if wants_pit:
                 # Calculate pit stop duration
@@ -448,15 +458,17 @@ def simulate_gp(entries_data: List[Dict[str, Any]], track_name: str, total_laps:
                 if safety_car_laps_left > 0 or vsc_laps_left > 0:
                     t.performance -= (pit_duration / 3.0)
                     logs.append(f"🔧 **Lap {lap}:** {t.team_name} pits under **Safety Car** (switched to {needed_tyre}, time: {pit_duration:.2f}s).")
+                    logs.append(f"📻 *[Radio - {t.team_name}]: Safety Car is deployed. Pit now for a cheap stop!*")
                 else:
                     t.performance -= (pit_duration / 2.0)
                     logs.append(f"🔧 **Lap {lap}:** {t.team_name} pits (switched to {needed_tyre}, time: {pit_duration:.2f}s).")
+                    logs.append(f"📻 *[Radio - {t.team_name}]: Box, box, box! Fitting {needed_tyre} tyres.*")
                     
                 t.tyre_health = 100.0
                 t.tyre_type = needed_tyre
                 t.pit_stops_completed += 1
                 t.pit_stop_done = True
-
+ 
         # D. Reliability Check & Random DNFs
         for t in teams:
             if t.dnf:
@@ -482,8 +494,12 @@ def simulate_gp(entries_data: List[Dict[str, Any]], track_name: str, total_laps:
                     "retired due to power unit issues",
                     "suffered suspension damage after hitting a curb"
                 ]
-                t.dnf_reason = random.choice(reasons)
-                logs.append(f"💥 **Lap {lap}:** {t.team_name} {t.dnf_reason} and is **OUT** (DNF)!")
+                reason = random.choice(reasons)
+                logs.append(f"💥 **Lap {lap}:** {t.team_name} {reason} and is **DNF**!")
+                if "crash" in reason or "barrier" in reason or "curb" in reason:
+                    logs.append(f"📻 *[Radio - {t.team_name}]: I've crashed! Suspension is broken, I'm out.*")
+                else:
+                    logs.append(f"📻 *[Radio - {t.team_name}]: Engine is losing power! I have lost power, retiring the car.*")
 
         # Count active cars
         active_teams = [t for t in teams if not t.dnf]
@@ -545,12 +561,23 @@ def simulate_gp(entries_data: List[Dict[str, Any]], track_name: str, total_laps:
                 
                 logs.append(f"⚔️ **Lap {lap}:** {back.team_name} overtakes {front.team_name} for **P{pos}**!")
 
+        # Record lap snapshot
+        lap_snapshot = {}
+        for idx, t in enumerate(teams):
+            lap_snapshot[t.user_id] = {
+                "position": idx + 1 if not t.dnf else None,
+                "tyre_health": max(0.0, t.tyre_health),
+                "tyre_type": t.tyre_type,
+                "dnf": t.dnf
+            }
+        lap_states[lap] = lap_snapshot
+        
         # Update laps completed for active teams
         for t in teams:
             if not t.dnf:
                 t.laps_completed += 1
                 
-    # 3. Race finished! Sort teams: active teams sorted by order, DNFs appended at the back by who completed most laps
+    # 3. Race finished! Sort teams: active finishers first
     active_finishers = [t for t in teams if not t.dnf]
     dnf_finishers = [t for t in teams if t.dnf]
     # Sort DNFs by laps completed descending
@@ -584,7 +611,7 @@ def simulate_gp(entries_data: List[Dict[str, Any]], track_name: str, total_laps:
             "dnf": t.dnf
         })
         
-    return results_list, logs
+    return results_list, logs, lap_states
 
 # --- F1 Qualifying Weekend Simulation ---
 TRACK_BASE_LAP_TIMES = {

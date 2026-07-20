@@ -255,10 +255,14 @@ async def garage(interaction: discord.Interaction):
         
     overall_power = utils.calculate_overall_power(prof, prof["pace"])
     
+    engine_bar = utils.make_progress_bar(prof['damage_engine'])
+    tyres_bar = utils.make_progress_bar(prof['damage_tyres'])
+    total_bar = utils.make_progress_bar(prof['damage_total'])
+    
     fields = [
-        {"name": "⚙️ Engine", "value": f"Level {prof['engine']}/{config.MAX_STAT_LEVEL} (Damage: {prof['damage_engine']}%)", "inline": True},
+        {"name": "⚙️ Engine", "value": f"Level {prof['engine']}/{config.MAX_STAT_LEVEL}\nWear: {engine_bar}", "inline": True},
         {"name": "✈️ Aerodynamics", "value": f"Level {prof['aerodynamics']}/{config.MAX_STAT_LEVEL}", "inline": True},
-        {"name": "⭕ Tyres", "value": f"Level {prof['tyres']}/{config.MAX_STAT_LEVEL} (Damage: {prof['damage_tyres']}%)", "inline": True},
+        {"name": "⭕ Tyres", "value": f"Level {prof['tyres']}/{config.MAX_STAT_LEVEL}\nWear: {tyres_bar}", "inline": True},
         {"name": "🔋 ERS", "value": f"Level {prof['ers']}/{config.MAX_STAT_LEVEL}", "inline": True},
         {"name": "🛡️ Reliability", "value": f"Level {prof['reliability']}/{config.MAX_STAT_LEVEL}", "inline": True},
         {"name": "🔧 Pit Crew", "value": f"Level {prof['pit_crew']}/{config.MAX_STAT_LEVEL}", "inline": True}
@@ -266,7 +270,10 @@ async def garage(interaction: discord.Interaction):
     
     embed = utils.create_embed(
         title=f"🛠️ {prof['team_name']}'s Garage",
-        description=f"**Overall Car Power Rating:** {overall_power}\n**Total Pending Damage:** {prof['damage_total']}%",
+        description=(
+            f"**Overall Car Power Rating:** {overall_power}\n"
+            f"**Total Car Damage:** {total_bar}"
+        ),
         color=utils.COLOR_INFO,
         fields=fields
     )
@@ -478,6 +485,55 @@ async def strategy_setup(interaction: discord.Interaction):
         color=utils.COLOR_SUCCESS
     )
     await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+
+@bot.tree.command(name="train", description="Spend 1,000 credits to train a selected Driver or Strategist skill.")
+@app_commands.describe(
+    category="Select whether to train Driver or Strategist",
+    skill="Select the specific skill to train"
+)
+@app_commands.choices(category=[
+    app_commands.Choice(name="Driver", value="driver"),
+    app_commands.Choice(name="Strategist", value="strategist")
+])
+@app_commands.choices(skill=[
+    # Driver skills
+    app_commands.Choice(name="Driver: Race Pace", value="pace"),
+    app_commands.Choice(name="Driver: Qualifying Skill", value="qual"),
+    app_commands.Choice(name="Driver: Wet Weather Skill", value="wet_skill"),
+    app_commands.Choice(name="Driver: Consistency", value="consistency"),
+    app_commands.Choice(name="Driver: Aggression", value="aggression"),
+    app_commands.Choice(name="Driver: Overtaking", value="overtaking"),
+    # Strategist skills
+    app_commands.Choice(name="Strategist: Pit Stop Timing", value="pit_timing"),
+    app_commands.Choice(name="Strategist: Weather Calls", value="weather_call"),
+    app_commands.Choice(name="Strategist: Undercut Execution", value="undercut"),
+    app_commands.Choice(name="Strategist: Safety Car Strategy", value="sc_skill"),
+    app_commands.Choice(name="Strategist: Risk Tolerance", value="risk"),
+    app_commands.Choice(name="Strategist: Communication", value="communication")
+])
+@app_commands.guild_only()
+async def train(interaction: discord.Interaction, category: app_commands.Choice[str], skill: app_commands.Choice[str]):
+    prof = database.get_user_by_discord_id(interaction.user.id, interaction.guild_id)
+    if not prof:
+        await interaction.response.send_message("❌ You do not have a profile. Use `/start`.", ephemeral=True)
+        return
+        
+    cat_val = category.value
+    skill_val = skill.value
+    
+    driver_skills = ["pace", "qual", "wet_skill", "consistency", "aggression", "overtaking"]
+    strategist_skills = ["pit_timing", "weather_call", "undercut", "sc_skill", "risk", "communication"]
+    
+    if cat_val == "driver" and skill_val not in driver_skills:
+        await interaction.response.send_message("❌ Invalid skill. The selected skill belongs to **Strategist** performance, not Driver.", ephemeral=True)
+        return
+    elif cat_val == "strategist" and skill_val not in strategist_skills:
+        await interaction.response.send_message("❌ Invalid skill. The selected skill belongs to **Driver** performance, not Strategist.", ephemeral=True)
+        return
+        
+    success, msg = database.train_personnel_skill(prof['user_id'], cat_val, skill_val, cost=1000)
+    color = utils.COLOR_SUCCESS if success else utils.COLOR_ERROR
+    await interaction.response.send_message(embed=utils.create_embed(title="🏋️ Personnel Training Center", description=msg, color=color))
 
 @bot.tree.command(name="daily", description="Claim your daily credit login bonus (500 credits).")
 @app_commands.guild_only()
@@ -1168,6 +1224,57 @@ class GPStartQualiButton(discord.ui.Button):
             color=utils.COLOR_WARNING
         ), view=GPAdminView(interaction.guild_id))
 
+class GPLapTelemetryView(discord.ui.View):
+    def __init__(self, lap_num, lap_snapshot, entries_list):
+        super().__init__(timeout=86400.0)
+        self.lap_num = lap_num
+        self.lap_snapshot = lap_snapshot
+        self.entries_list = entries_list
+
+    @discord.ui.button(label="📊 Live Telemetry", style=discord.ButtonStyle.secondary, custom_id="gp_lap_telemetry")
+    async def telemetry_click(self, interaction: discord.Interaction, button: discord.ui.Button):
+        user_id = None
+        team_name = None
+        for entry in self.entries_list:
+            if entry['discord_id'] == interaction.user.id:
+                user_id = entry['user_id']
+                team_name = entry['team_name']
+                break
+                
+        if not user_id:
+            await interaction.response.send_message("❌ You are not participating in this Grand Prix.", ephemeral=True)
+            return
+            
+        state = self.lap_snapshot.get(user_id) or self.lap_snapshot.get(str(user_id))
+        if not state:
+            await interaction.response.send_message("❌ Telemetry not found for your team.", ephemeral=True)
+            return
+            
+        if state['dnf']:
+            desc = (
+                f"🏎️ **Driver:** {interaction.user.mention} | **Team:** **{team_name}**\n"
+                f"🛑 **Status:** **DNF (Did Not Finish)**\n"
+                f"⭕ **Tyres:** `{state['tyre_type']}`"
+            )
+            color = utils.COLOR_ERROR
+        else:
+            tyre_bar = utils.make_progress_bar(100.0 - state['tyre_health'])
+            desc = (
+                f"🏎️ **Driver:** {interaction.user.mention} | **Team:** **{team_name}**\n\n"
+                f"📊 **Lap {self.lap_num} Live Telemetry:**\n"
+                f"  • **Position:** `P{state['position']}`\n"
+                f"  • **Tyre Compound:** `{state['tyre_type']}`\n"
+                f"  • **Tyre Wear:** {tyre_bar}"
+            )
+            color = utils.COLOR_SUCCESS
+            
+        embed = utils.create_embed(
+            title=f"📊 Private Telemetry - Lap {self.lap_num}",
+            description=desc,
+            color=color
+        )
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
 class GPStartRaceButton(discord.ui.Button):
     def __init__(self):
         super().__init__(label="🏎️ Start Main GP", style=discord.ButtonStyle.blurple, custom_id="gp_start_race")
@@ -1185,7 +1292,16 @@ class GPStartRaceButton(discord.ui.Button):
             return
 
         try:
-            results, logs = race.simulate_gp(entries, active_gp['track'], active_gp['laps'])
+            import json
+            weather_timeline = None
+            weather_raw = active_gp.get('weather', 'Sunny')
+            try:
+                weather_data = json.loads(weather_raw)
+                weather_timeline = weather_data.get('timeline')
+            except Exception:
+                weather_timeline = [weather_raw] * active_gp['laps']
+                
+            results, logs = race.simulate_gp(entries, active_gp['track'], active_gp['laps'], weather_timeline=weather_timeline)
             
             winner_id = None
             for res in results:
@@ -1254,7 +1370,8 @@ class GPStartRaceButton(discord.ui.Button):
                     description="\n".join(lap_events),
                     color=utils.COLOR_RACE_RESULTS
                 )
-                await interaction.channel.send(embed=lap_embed)
+                view = GPLapTelemetryView(l_num, lap_states.get(l_num, {}), entries)
+                await interaction.channel.send(embed=lap_embed, view=view)
                 await asyncio.sleep(15.0)
                 
             chunks = []
@@ -1412,11 +1529,21 @@ async def gp_admin(interaction: discord.Interaction):
     
     if active_gp:
         entries = database.get_gp_entries_full(active_gp['race_id'])
+        import json
+        weather_raw = active_gp.get('weather', 'Sunny')
+        forecast = "Sunny"
+        try:
+            weather_data = json.loads(weather_raw)
+            forecast = weather_data.get('forecast', 'Sunny')
+        except Exception:
+            forecast = weather_raw
+            
         desc = (
             f"🏁 **Active GP:** **{active_gp['name']}**\n"
             f"🗺️ **Track:** `{active_gp['track']}`\n"
             f"⏱️ **Distance:** `{active_gp['laps']} Laps`\n"
             f"📊 **Stage:** `{active_gp.get('status', 'Created')}`\n"
+            f"🌦️ **Forecast:** `{forecast}`\n"
             f"👥 **Entrants:** `{len(entries)} driver(s) registered`"
         )
     else:
@@ -1445,6 +1572,64 @@ async def leave_race(interaction: discord.Interaction):
     color = utils.COLOR_SUCCESS if success else utils.COLOR_ERROR
     await interaction.response.send_message(embed=utils.create_embed(title="🏁 Race Withdrawal", description=msg, color=color))
 
+class GPGridActionView(discord.ui.View):
+    def __init__(self, guild_id):
+        super().__init__(timeout=600.0)
+        self.guild_id = guild_id
+
+    @discord.ui.button(label="🔍 View My Car Specs", style=discord.ButtonStyle.secondary, custom_id="grid_view_specs")
+    async def view_specs_click(self, interaction: discord.Interaction, button: discord.ui.Button):
+        prof = database.get_full_team_profile(interaction.user.id, self.guild_id)
+        if not prof:
+            await interaction.response.send_message("❌ You do not have a profile. Use `/start` to join the grid!", ephemeral=True)
+            return
+            
+        overall_power = utils.calculate_overall_power(prof, prof["pace"])
+        engine_bar = utils.make_progress_bar(prof['damage_engine'])
+        tyres_bar = utils.make_progress_bar(prof['damage_tyres'])
+        total_bar = utils.make_progress_bar(prof['damage_total'])
+        
+        import json
+        strat_json = {}
+        strategy_str = prof.get('pit_strategy_json')
+        if strategy_str:
+            try:
+                strat_json = json.loads(strategy_str)
+            except Exception:
+                pass
+        pace = strat_json.get("pace", prof.get("pref_strategy", "Balanced"))
+        start_tyre = strat_json.get("start_tyre", prof.get("pref_tyres", "Medium"))
+        stops = strat_json.get("stops", [])
+        
+        if stops:
+            stops_str = ", ".join([f"L{s['lap']}({s['tyre']})" for s in stops])
+        else:
+            stops_str = f"{prof.get('pref_pit_stops', 1)} (Auto)"
+            
+        desc = (
+            f"🏎️ **Driver:** {interaction.user.mention} | **Team:** **{prof['team_name']}** (Level {prof['level']})\n\n"
+            f"📈 **Ratings & Stats:**\n"
+            f"  • **Driver Pace:** `{prof['pace']}/100` | **Qualifying:** `{prof['qual']}/100`\n"
+            f"  • **Wet Skill:** `{prof['wet_skill']}/100` | **Consistency:** `{prof['consistency']}/100`\n"
+            f"  • **Overall Team Power:** `{overall_power}`\n\n"
+            f"⚙️ **Car Specifications & Health:**\n"
+            f"  • **Engine Level:** `Level {prof['engine']}` | Wear: {engine_bar}\n"
+            f"  • **Aero Level:** `Level {prof['aerodynamics']}`\n"
+            f"  • **Tyres Level:** `Level {prof['tyres']}` | Wear: {tyres_bar}\n"
+            f"  • **Overall Damage:** {total_bar}\n\n"
+            f"📋 **Current Strategy:**\n"
+            f"  • **Pacing:** `{pace}` | **Start Tyres:** `{start_tyre}`\n"
+            f"  • **Pit Stops:** `{stops_str}`\n\n"
+            f"*You can use `/strategy` in any channel to privately update your pit window and tyre setups.*"
+        )
+        
+        embed = utils.create_embed(
+            title="🔍 Private Telemetry Dashboard",
+            description=desc,
+            color=utils.COLOR_SUCCESS
+        )
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
 @bot.tree.command(name="grid", description="View the current registration list and qualifying grid.")
 @app_commands.guild_only()
 async def view_grid(interaction: discord.Interaction):
@@ -1459,7 +1644,21 @@ async def view_grid(interaction: discord.Interaction):
         return
         
     status = active_gp.get("status", "Created")
-    desc = f"🏁 **Event:** **{active_gp['name']}** ({active_gp['track']})\n📊 **Stage:** `{status}`\n\n"
+    
+    import json
+    weather_raw = active_gp.get('weather', 'Sunny')
+    forecast = "Sunny"
+    try:
+        weather_data = json.loads(weather_raw)
+        forecast = weather_data.get('forecast', 'Sunny')
+    except Exception:
+        forecast = weather_raw
+        
+    desc = (
+        f"🏁 **Event:** **{active_gp['name']}** ({active_gp['track']})\n"
+        f"📊 **Stage:** `{status}`\n"
+        f"🌦️ **Forecast:** `{forecast}`\n\n"
+    )
     
     if status == "Created":
         desc += "**Registered Entrants:**\n"
@@ -1485,7 +1684,8 @@ async def view_grid(interaction: discord.Interaction):
         description=desc + f"\n*Registration count: {len(entries)}*",
         color=utils.COLOR_INFO
     )
-    await interaction.response.send_message(embed=embed)
+    view = GPGridActionView(interaction.guild_id)
+    await interaction.response.send_message(embed=embed, view=view)
 
 @bot.tree.command(name="standings", description="View current overall Grand Prix points championship standings.")
 @app_commands.guild_only()

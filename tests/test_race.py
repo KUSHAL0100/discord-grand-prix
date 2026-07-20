@@ -87,7 +87,7 @@ def test_simulate_gp():
     ]
     
     # Run GP on Monza track (rewards engine power)
-    results, logs = race.simulate_gp(entries, "Monza", total_laps=5)
+    results, logs, lap_states = race.simulate_gp(entries, "Monza", total_laps=5)
     
     assert len(results) == 4
     assert len(logs) > 0

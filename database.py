@@ -294,6 +294,46 @@ def get_full_team_profile(discord_id: int, guild_id: int) -> Optional[Dict[str, 
     conn.close()
     return dict(row) if row else None
 
+def train_personnel_skill(user_id: int, category: str, skill_name: str, cost: int = 1000) -> Tuple[bool, str]:
+    """Train a specific driver or strategist skill directly by spending credits."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        # Get current balance
+        cursor.execute("SELECT money FROM users WHERE user_id = ?", (user_id,))
+        user_row = cursor.fetchone()
+        if not user_row:
+            return False, "User profile not found."
+            
+        if user_row['money'] < cost:
+            return False, f"Insufficient credits! Training costs {cost}¢ (You have {user_row['money']}¢)."
+            
+        table_name = "drivers" if category == "driver" else "strategists"
+        
+        # Select current value
+        cursor.execute(f"SELECT {skill_name} FROM {table_name} WHERE user_id = ?", (user_id,))
+        skill_row = cursor.fetchone()
+        if not skill_row:
+            return False, "Personnel profile not found."
+            
+        current_val = skill_row[skill_name]
+        if current_val >= 100:
+            return False, f"This skill is already at the maximum level (100)!"
+            
+        new_val = min(100, current_val + 1)
+        
+        # Deduct money and update skill
+        cursor.execute("UPDATE users SET money = money - ? WHERE user_id = ?", (cost, user_id))
+        cursor.execute(f"UPDATE {table_name} SET {skill_name} = ? WHERE user_id = ?", (new_val, user_id))
+        
+        conn.commit()
+        return True, f"Successfully trained **{skill_name.replace('_', ' ').capitalize()}** from `{current_val}` to `{new_val}`! Spent {cost}¢."
+    except sqlite3.Error as e:
+        conn.rollback()
+        return False, f"Database error: {str(e)}"
+    finally:
+        conn.close()
+
 def update_user_balance(user_id: int, amount: int) -> bool:
     """Adjust user credit balance. Amount can be positive or negative."""
     conn = get_db_connection()
@@ -630,10 +670,41 @@ def create_gp_race(guild_id: int, name: str, track: str, laps: int) -> Tuple[boo
         if cursor.fetchone():
             return False, "There is already an active Grand Prix event in progress on this server. Start or cancel it first."
             
+        # Generate weather timeline
+        import json
+        import random
+        weather_modes = ["Sunny", "Rain", "Mixed"]
+        choice = random.choices(weather_modes, weights=[60, 15, 25], k=1)[0]
+        
+        timeline = []
+        if choice == "Sunny":
+            timeline = ["Sunny"] * laps
+            forecast = "Sunny and dry conditions expected throughout the race."
+        elif choice == "Rain":
+            timeline = ["Rain"] * laps
+            forecast = "Heavy rain expected from start to finish. Intermediates highly recommended."
+        else: # Mixed
+            # Mixed weather: Sunny start, rain for a few laps in the middle
+            rain_start = random.randint(max(2, int(laps * 0.3)), max(3, int(laps * 0.7)))
+            rain_duration = random.randint(3, 5)
+            forecast = f"Mixed conditions. Rain showers expected around Lap {rain_start} to {rain_start + rain_duration - 1}."
+            for i in range(1, laps + 1):
+                if rain_start <= i < rain_start + rain_duration:
+                    timeline.append("Rain")
+                else:
+                    timeline.append("Sunny")
+                    
+        weather_data = {
+            "start": timeline[0],
+            "forecast": forecast,
+            "timeline": timeline
+        }
+        weather_json = json.dumps(weather_data)
+        
         today_str = datetime.now().isoformat()
         cursor.execute(
             "INSERT INTO races (guild_id, name, date, track, weather, status, laps) VALUES (?, ?, ?, ?, ?, 'Created', ?)",
-            (guild_id, name, today_str, track, "Sunny", laps)
+            (guild_id, name, today_str, track, weather_json, laps)
         )
         conn.commit()
         return True, f"Grand Prix **{name}** at **{track}** ({laps} laps) has been scheduled! Type `/joinrace` to enter."

@@ -146,3 +146,16 @@ def test_multi_guild_isolation():
     success, msg = database.create_user(discord_id=67890, guild_id=1111, team_name="RedBull")
     assert success is False
     assert "already taken" in msg
+
+def test_personnel_training():
+    success, msg = database.create_user(discord_id=12345, guild_id=9999, team_name="Test Racing", country="US")
+    assert success is True
+    prof = database.get_full_team_profile(12345, 9999)
+    
+    success_train, msg_train = database.train_personnel_skill(prof['user_id'], "driver", "pace", cost=1000)
+    assert success_train is True
+    assert "trained" in msg_train
+    
+    prof_updated = database.get_full_team_profile(12345, 9999)
+    assert prof_updated['money'] == 4000
+    assert prof_updated['pace'] == prof['pace'] + 1

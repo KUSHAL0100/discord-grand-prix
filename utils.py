@@ -73,3 +73,19 @@ def create_embed(
         embed.set_thumbnail(url=thumbnail_url)
         
     return embed
+
+def make_progress_bar(percentage: float, length: int = 10) -> str:
+    """Render a visual progress bar for damage using emojis."""
+    percentage = max(0.0, min(100.0, float(percentage)))
+    filled_len = int(round(length * (percentage / 100.0)))
+    filled_len = max(0, min(length, filled_len))
+    
+    if percentage >= 80.0:
+        fill_emoji = "🔴"
+    elif percentage >= 40.0:
+        fill_emoji = "🟡"
+    else:
+        fill_emoji = "🟩"
+        
+    empty_emoji = "⚪"
+    return f"`[{fill_emoji * filled_len}{empty_emoji * (length - filled_len)}] {percentage:.0f}%`"
