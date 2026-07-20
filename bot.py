@@ -287,8 +287,7 @@ async def stats(interaction: discord.Interaction):
             f"• **Wet Skill:** {prof['wet_skill']}/100\n"
             f"• **Consistency:** {prof['consistency']}/100\n"
             f"• **Aggression:** {prof['aggression']}/100\n"
-            f"• **Overtaking:** {prof['overtaking']}/100\n"
-            f"• **XP/Experience:** {prof['experience']}"
+            f"• **Overtaking:** {prof['overtaking']}/100"
         ), "inline": True},
         {"name": "📋 Strategist Stats", "value": (
             f"• **Pit Timing:** {prof['pit_timing']}/100\n"
@@ -302,7 +301,7 @@ async def stats(interaction: discord.Interaction):
     
     embed = utils.create_embed(
         title=f"📊 Staff Performance Sheet - {prof['team_name']}",
-        description="Your team personnel gain experience and skill ratings after races.",
+        description="Your driver and strategist personnel gain direct skill boosts based on GP race results (P1 gets +8 to all skills, P2 gets +7, down to P8 getting +1).",
         color=utils.COLOR_INFO,
         fields=fields
     )

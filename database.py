@@ -105,6 +105,7 @@ def init_db():
         track TEXT NOT NULL,
         weather TEXT NOT NULL,
         status TEXT NOT NULL, -- 'Registration', 'Qualifying', 'Finished', 'Cancelled'
+        laps INTEGER DEFAULT 15,
         winner_id INTEGER,
         FOREIGN KEY (winner_id) REFERENCES users (user_id) ON DELETE SET NULL
     );
@@ -171,6 +172,11 @@ def init_db():
         
     try:
         cursor.execute("ALTER TABLE race_entries ADD COLUMN quali_q3_time REAL")
+    except sqlite3.OperationalError:
+        pass
+
+    try:
+        cursor.execute("ALTER TABLE races ADD COLUMN laps INTEGER DEFAULT 15")
     except sqlite3.OperationalError:
         pass
 
