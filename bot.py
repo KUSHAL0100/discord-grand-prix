@@ -124,7 +124,7 @@ async def start(interaction: discord.Interaction, team_name: str, country: str =
         await interaction.response.send_message("❌ Team name cannot exceed 32 characters.", ephemeral=True)
         return
         
-    success = database.create_user(interaction.user.id, team_name, country)
+    success, msg = database.create_user(interaction.user.id, team_name, country)
     if success:
         embed = utils.create_embed(
             title=f"🏎️ Welcome to Discord Grand Prix!",
@@ -140,7 +140,7 @@ async def start(interaction: discord.Interaction, team_name: str, country: str =
         await interaction.response.send_message(embed=embed)
     else:
         await interaction.response.send_message(
-            "❌ You have already created a profile! Use `/profile` to view your team.",
+            f"❌ {msg}",
             ephemeral=True
         )
 
