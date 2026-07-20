@@ -122,6 +122,10 @@ def init_db():
         points_earned INTEGER DEFAULT 0,
         credits_won INTEGER DEFAULT 0,
         dnf BOOLEAN DEFAULT 0,
+        current_q_tyre TEXT DEFAULT 'Soft',
+        quali_q1_time REAL,
+        quali_q2_time REAL,
+        quali_q3_time REAL,
         FOREIGN KEY (race_id) REFERENCES races (race_id) ON DELETE CASCADE,
         FOREIGN KEY (user_id) REFERENCES users (user_id) ON DELETE CASCADE,
         UNIQUE(race_id, user_id)
@@ -143,6 +147,32 @@ def init_db():
         FOREIGN KEY (target_id) REFERENCES users (user_id) ON DELETE CASCADE
     );
     """)
+
+    # --- Run schema migrations for existing databases ---
+    try:
+        cursor.execute("ALTER TABLE users ADD COLUMN pit_strategy_json TEXT DEFAULT '{\"pace\":\"Balanced\", \"start_tyre\":\"Medium\", \"stops\":[]}'")
+    except sqlite3.OperationalError:
+        pass  # Column already exists
+        
+    try:
+        cursor.execute("ALTER TABLE race_entries ADD COLUMN current_q_tyre TEXT DEFAULT 'Soft'")
+    except sqlite3.OperationalError:
+        pass
+        
+    try:
+        cursor.execute("ALTER TABLE race_entries ADD COLUMN quali_q1_time REAL")
+    except sqlite3.OperationalError:
+        pass
+        
+    try:
+        cursor.execute("ALTER TABLE race_entries ADD COLUMN quali_q2_time REAL")
+    except sqlite3.OperationalError:
+        pass
+        
+    try:
+        cursor.execute("ALTER TABLE race_entries ADD COLUMN quali_q3_time REAL")
+    except sqlite3.OperationalError:
+        pass
 
     conn.commit()
     conn.close()
@@ -292,6 +322,42 @@ def update_user_strategy(user_id: int, pace: str, tyres: str, pit_stops: int) ->
             SET pref_strategy = ?, pref_tyres = ?, pref_pit_stops = ?
             WHERE user_id = ?
         """, (pace, tyres, pit_stops, user_id))
+        conn.commit()
+        return True
+    except sqlite3.Error:
+        conn.rollback()
+        return False
+    finally:
+        conn.close()
+
+def update_user_pit_strategy(user_id: int, strategy_json: str) -> bool:
+    """Update a user's full pit strategy JSON in the database."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
+            UPDATE users 
+            SET pit_strategy_json = ?
+            WHERE user_id = ?
+        """, (strategy_json, user_id))
+        conn.commit()
+        return True
+    except sqlite3.Error:
+        conn.rollback()
+        return False
+    finally:
+        conn.close()
+
+def update_quali_tyre(user_id: int, race_id: int, tyre: str) -> bool:
+    """Update a user's chosen qualifying tyre compound for an active GP."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
+            UPDATE race_entries 
+            SET current_q_tyre = ?
+            WHERE user_id = ? AND race_id = ?
+        """, (tyre, user_id, race_id))
         conn.commit()
         return True
     except sqlite3.Error:
@@ -549,19 +615,19 @@ def get_leaderboard(guild_id: int, by_type: str = 'points', limit: int = 10) -> 
 # ----------------- Grand Prix & Race Entries Helpers -----------------
 
 def create_gp_race(guild_id: int, name: str, track: str, laps: int) -> Tuple[bool, str]:
-    """Create a new Grand Prix race in Registration status for a specific guild."""
+    """Create a new Grand Prix race in Created status for a specific guild."""
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        # Check if there is already a race in Registration or Qualifying status for this guild
-        cursor.execute("SELECT race_id FROM races WHERE status IN ('Registration', 'Qualifying') AND guild_id = ?", (guild_id,))
+        # Check if there is already an active race
+        cursor.execute("SELECT race_id FROM races WHERE status != 'Finished' AND status != 'Cancelled' AND guild_id = ?", (guild_id,))
         if cursor.fetchone():
             return False, "There is already an active Grand Prix event in progress on this server. Start or cancel it first."
             
         today_str = datetime.now().isoformat()
         cursor.execute(
-            "INSERT INTO races (guild_id, name, date, track, weather, status) VALUES (?, ?, ?, ?, ?, 'Registration')",
-            (guild_id, name, today_str, track, "Sunny")  # Initial weather is Sunny
+            "INSERT INTO races (guild_id, name, date, track, weather, status, laps) VALUES (?, ?, ?, ?, ?, 'Created', ?)",
+            (guild_id, name, today_str, track, "Sunny", laps)
         )
         conn.commit()
         return True, f"Grand Prix **{name}** at **{track}** ({laps} laps) has been scheduled! Type `/joinrace` to enter."
@@ -572,10 +638,10 @@ def create_gp_race(guild_id: int, name: str, track: str, laps: int) -> Tuple[boo
         conn.close()
 
 def get_active_gp_race(guild_id: int) -> Optional[Dict[str, Any]]:
-    """Get the currently active Grand Prix race (Registration or Qualifying status) for a specific guild."""
+    """Get the currently active Grand Prix race (any status other than Finished) for a specific guild."""
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT * FROM races WHERE status IN ('Registration', 'Qualifying') AND guild_id = ?", (guild_id,))
+    cursor.execute("SELECT * FROM races WHERE status != 'Finished' AND status != 'Cancelled' AND guild_id = ?", (guild_id,))
     row = cursor.fetchone()
     conn.close()
     return dict(row) if row else None
@@ -585,7 +651,7 @@ def cancel_active_gp(guild_id: int) -> Tuple[bool, str]:
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        cursor.execute("SELECT race_id FROM races WHERE status IN ('Registration', 'Qualifying') AND guild_id = ?", (guild_id,))
+        cursor.execute("SELECT race_id FROM races WHERE status != 'Finished' AND status != 'Cancelled' AND guild_id = ?", (guild_id,))
         row = cursor.fetchone()
         if not row:
             return False, "There is no active Grand Prix to cancel on this server."
@@ -615,7 +681,7 @@ def register_gp_entry(discord_id: int, guild_id: int) -> Tuple[bool, str]:
     cursor = conn.cursor()
     try:
         # Check active race in this guild
-        cursor.execute("SELECT race_id, status FROM races WHERE status = 'Registration' AND guild_id = ?", (guild_id,))
+        cursor.execute("SELECT race_id, status FROM races WHERE status = 'Created' AND guild_id = ?", (guild_id,))
         race_row = cursor.fetchone()
         if not race_row:
             return False, "There is no Grand Prix currently accepting registrations on this server."
@@ -658,7 +724,7 @@ def unregister_gp_entry(discord_id: int, guild_id: int) -> Tuple[bool, str]:
     cursor = conn.cursor()
     try:
         # Check active race in this guild
-        cursor.execute("SELECT race_id FROM races WHERE status = 'Registration' AND guild_id = ?", (guild_id,))
+        cursor.execute("SELECT race_id FROM races WHERE status = 'Created' AND guild_id = ?", (guild_id,))
         race_row = cursor.fetchone()
         if not race_row:
             return False, "There is no Grand Prix currently accepting registrations on this server."
@@ -696,7 +762,8 @@ def get_gp_entries_full(race_id: int) -> List[Dict[str, Any]]:
     cursor = conn.cursor()
     cursor.execute("""
         SELECT re.entry_id, re.race_id, re.user_id, re.qual_time, re.start_position, re.finish_position, 
-               u.team_name, u.discord_id, u.pref_strategy, u.pref_tyres, u.pref_pit_stops,
+               re.current_q_tyre, re.quali_q1_time, re.quali_q2_time, re.quali_q3_time,
+               u.team_name, u.discord_id, u.level, u.pref_strategy, u.pref_tyres, u.pref_pit_stops, u.pit_strategy_json,
                d.pace, d.qual, d.wet_skill, d.consistency, d.aggression, d.overtaking, d.experience,
                s.pit_timing, s.weather_call, s.undercut, s.sc_skill, s.risk, s.communication,
                g.engine, g.aerodynamics, g.tyres, g.ers, g.reliability, g.pit_crew, 
@@ -748,58 +815,37 @@ def save_gp_results(race_id: int, results: List[Dict[str, Any]], winner_user_id:
             if res["finish_position"] in [1, 2, 3]:
                 xp_to_add = 1500
                 
-            # Calculate F1 Sprint points for XP: 8, 7, 6, 5, 4, 3, 2, 1
+            # Calculate F1 Sprint points for direct stat boost: 8, 7, 6, 5, 4, 3, 2, 1
             finish_pos = res["finish_position"]
             if res["dnf"]:
-                sprint_xp = 0
+                stat_boost = 0
             else:
-                sprint_xp = max(0, 9 - finish_pos) if finish_pos <= 8 else 0
+                stat_boost = max(0, 9 - finish_pos) if finish_pos <= 8 else 0
             
-            # 1. Update Driver Experience & Skills (flat 100 XP threshold)
-            cursor.execute("SELECT experience, pace, qual, wet_skill, consistency, aggression, overtaking FROM drivers WHERE user_id = ?", (res["user_id"],))
-            drv_row = cursor.fetchone()
-            if drv_row:
-                new_drv_xp = drv_row["experience"] + sprint_xp
-                stat_boost = new_drv_xp // 100
-                new_drv_xp %= 100
+            if stat_boost > 0:
+                # 1. Boost Driver Skills Directly (capped at 100)
+                cursor.execute("""
+                    UPDATE drivers 
+                    SET pace = MIN(100, pace + ?),
+                        qual = MIN(100, qual + ?),
+                        wet_skill = MIN(100, wet_skill + ?),
+                        consistency = MIN(100, consistency + ?),
+                        aggression = MIN(100, aggression + ?),
+                        overtaking = MIN(100, overtaking + ?)
+                    WHERE user_id = ?
+                """, (stat_boost, stat_boost, stat_boost, stat_boost, stat_boost, stat_boost, res["user_id"]))
                 
-                if stat_boost > 0:
-                    cursor.execute("""
-                        UPDATE drivers 
-                        SET experience = ?,
-                            pace = MIN(100, pace + ?),
-                            qual = MIN(100, qual + ?),
-                            wet_skill = MIN(100, wet_skill + ?),
-                            consistency = MIN(100, consistency + ?),
-                            aggression = MIN(100, aggression + ?),
-                            overtaking = MIN(100, overtaking + ?)
-                        WHERE user_id = ?
-                    """, (new_drv_xp, stat_boost, stat_boost, stat_boost, stat_boost, stat_boost, stat_boost, res["user_id"]))
-                else:
-                    cursor.execute("UPDATE drivers SET experience = ? WHERE user_id = ?", (new_drv_xp, res["user_id"]))
-                    
-            # 2. Update Strategist Experience & Skills (flat 100 XP threshold)
-            cursor.execute("SELECT experience, pit_timing, weather_call, undercut, sc_skill, risk, communication FROM strategists WHERE user_id = ?", (res["user_id"],))
-            strat_row = cursor.fetchone()
-            if strat_row:
-                new_strat_xp = strat_row["experience"] + sprint_xp
-                stat_boost = new_strat_xp // 100
-                new_strat_xp %= 100
-                
-                if stat_boost > 0:
-                    cursor.execute("""
-                        UPDATE strategists 
-                        SET experience = ?,
-                            pit_timing = MIN(100, pit_timing + ?),
-                            weather_call = MIN(100, weather_call + ?),
-                            undercut = MIN(100, undercut + ?),
-                            sc_skill = MIN(100, sc_skill + ?),
-                            risk = MIN(100, risk + ?),
-                            communication = MIN(100, communication + ?)
-                        WHERE user_id = ?
-                    """, (new_strat_xp, stat_boost, stat_boost, stat_boost, stat_boost, stat_boost, stat_boost, res["user_id"]))
-                else:
-                    cursor.execute("UPDATE strategists SET experience = ? WHERE user_id = ?", (new_strat_xp, res["user_id"]))
+                # 2. Boost Strategist Skills Directly (capped at 100)
+                cursor.execute("""
+                    UPDATE strategists 
+                    SET pit_timing = MIN(100, pit_timing + ?),
+                        weather_call = MIN(100, weather_call + ?),
+                        undercut = MIN(100, undercut + ?),
+                        sc_skill = MIN(100, sc_skill + ?),
+                        risk = MIN(100, risk + ?),
+                        communication = MIN(100, communication + ?)
+                    WHERE user_id = ?
+                """, (stat_boost, stat_boost, stat_boost, stat_boost, stat_boost, stat_boost, res["user_id"]))
 
             # Add XP using add_user_xp logic (internal transaction, so we update manually here)
             cursor.execute("SELECT xp, level FROM users WHERE user_id = ?", (res["user_id"],))
@@ -839,6 +885,55 @@ def save_gp_results(race_id: int, results: List[Dict[str, Any]], winner_user_id:
         conn.rollback()
         print(f"Error saving GP results: {e}")
         raise e
+    finally:
+        conn.close()
+
+def save_quali_results(race_id: int, results: List[Dict[str, Any]], session: str) -> None:
+    """Save qualifying times and starting/elimination positions in the database."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        for entry in results:
+            user_id = entry["user_id"]
+            time_val = entry["quali_time"]
+            start_pos = entry.get("start_position")
+            
+            if session == "Q1":
+                cursor.execute("""
+                    UPDATE race_entries 
+                    SET quali_q1_time = ?, start_position = COALESCE(?, start_position)
+                    WHERE race_id = ? AND user_id = ?
+                """, (time_val, start_pos, race_id, user_id))
+            elif session == "Q2":
+                cursor.execute("""
+                    UPDATE race_entries 
+                    SET quali_q2_time = ?, start_position = COALESCE(?, start_position)
+                    WHERE race_id = ? AND user_id = ?
+                """, (time_val, start_pos, race_id, user_id))
+            elif session == "Q3":
+                cursor.execute("""
+                    UPDATE race_entries 
+                    SET quali_q3_time = ?, start_position = COALESCE(?, start_position)
+                    WHERE race_id = ? AND user_id = ?
+                """, (time_val, start_pos, race_id, user_id))
+        conn.commit()
+    except sqlite3.Error as e:
+        print(f"Error saving qualifying results: {e}")
+        conn.rollback()
+    finally:
+        conn.close()
+
+def update_gp_status(race_id: int, status: str) -> bool:
+    """Update status of a Grand Prix race in the database."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("UPDATE races SET status = ? WHERE race_id = ?", (status, race_id))
+        conn.commit()
+        return True
+    except sqlite3.Error:
+        conn.rollback()
+        return False
     finally:
         conn.close()
 

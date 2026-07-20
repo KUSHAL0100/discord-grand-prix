@@ -290,51 +290,177 @@ async def stats(interaction: discord.Interaction):
     )
     await interaction.response.send_message(embed=embed)
 
+class AddPitStopModal(discord.ui.Modal, title="Add Pit Stop"):
+    lap_num = discord.ui.TextInput(label="Lap Number (e.g. 8)", placeholder="Between 1 and 100", min_length=1, max_length=3)
+    tyre_compound = discord.ui.TextInput(label="Tyre Compound (Soft, Medium, Hard)", placeholder="e.g. Hard", min_length=4, max_length=6)
+
+    def __init__(self, view):
+        super().__init__()
+        self.view = view
+
+    async def on_submit(self, interaction: discord.Interaction):
+        try:
+            lap = int(self.lap_num.value)
+            if lap < 1 or lap > 100:
+                raise ValueError()
+        except ValueError:
+            await interaction.response.send_message("❌ Invalid lap number. Must be a number between 1 and 100.", ephemeral=True)
+            return
+
+        tyre = self.tyre_compound.value.strip().capitalize()
+        if tyre not in ["Soft", "Medium", "Hard"]:
+            await interaction.response.send_message("❌ Invalid tyre compound. Must be Soft, Medium, or Hard.", ephemeral=True)
+            return
+
+        self.view.stops.append({"lap": lap, "tyre": tyre})
+        self.view.stops.sort(key=lambda x: x["lap"])
+        
+        import json
+        strategy_data = {
+            "pace": self.view.pace,
+            "start_tyre": self.view.start_tyre,
+            "stops": self.view.stops
+        }
+        database.update_user_pit_strategy(self.view.user_id, json.dumps(strategy_data))
+        database.update_user_strategy(self.view.user_id, self.view.pace, self.view.start_tyre, len(self.view.stops))
+        await self.view.update_embed(interaction)
+
+class StrategyPaceSelect(discord.ui.Select):
+    def __init__(self, current_pace):
+        options = [
+            discord.SelectOption(label="Aggressive (+pace, ++wear, +crash)", value="Aggressive", default=(current_pace == "Aggressive")),
+            discord.SelectOption(label="Balanced (neutral pace, normal wear)", value="Balanced", default=(current_pace == "Balanced")),
+            discord.SelectOption(label="Conservative (-pace, -wear, -crash)", value="Conservative", default=(current_pace == "Conservative"))
+        ]
+        super().__init__(placeholder="Select Pace Strategy...", min_values=1, max_values=1, options=options)
+
+    async def callback(self, interaction: discord.Interaction):
+        self.view.pace = self.values[0]
+        import json
+        strategy_data = {
+            "pace": self.view.pace,
+            "start_tyre": self.view.start_tyre,
+            "stops": self.view.stops
+        }
+        database.update_user_pit_strategy(self.view.user_id, json.dumps(strategy_data))
+        database.update_user_strategy(self.view.user_id, self.view.pace, self.view.start_tyre, len(self.view.stops))
+        await self.view.update_embed(interaction)
+
+class StrategyTyresSelect(discord.ui.Select):
+    def __init__(self, current_tyres):
+        options = [
+            discord.SelectOption(label="Soft tyres (++pace, ++wear)", value="Soft", default=(current_tyres == "Soft")),
+            discord.SelectOption(label="Medium tyres (+pace, +wear)", value="Medium", default=(current_tyres == "Medium")),
+            discord.SelectOption(label="Hard tyres (neutral pace, very low wear)", value="Hard", default=(current_tyres == "Hard"))
+        ]
+        super().__init__(placeholder="Select Tyre Compound...", min_values=1, max_values=1, options=options)
+
+    async def callback(self, interaction: discord.Interaction):
+        self.view.start_tyre = self.values[0]
+        import json
+        strategy_data = {
+            "pace": self.view.pace,
+            "start_tyre": self.view.start_tyre,
+            "stops": self.view.stops
+        }
+        database.update_user_pit_strategy(self.view.user_id, json.dumps(strategy_data))
+        database.update_user_strategy(self.view.user_id, self.view.pace, self.view.start_tyre, len(self.view.stops))
+        await self.view.update_embed(interaction)
+
+class StrategyConfigView(discord.ui.View):
+    def __init__(self, user_id, guild_id):
+        super().__init__(timeout=180.0)
+        self.user_id = user_id
+        self.guild_id = guild_id
+        
+        prof = database.get_full_team_profile(user_id, guild_id)
+        
+        import json
+        self.strategy_data = {}
+        strategy_str = prof.get('pit_strategy_json')
+        if strategy_str:
+            try:
+                self.strategy_data = json.loads(strategy_str)
+            except Exception:
+                pass
+                
+        self.pace = self.strategy_data.get("pace", prof.get("pref_strategy", "Balanced"))
+        self.start_tyre = self.strategy_data.get("start_tyre", prof.get("pref_tyres", "Medium"))
+        self.stops = self.strategy_data.get("stops", [])
+        
+        self.add_item(StrategyPaceSelect(self.pace))
+        self.add_item(StrategyTyresSelect(self.start_tyre))
+
+    @discord.ui.button(label="➕ Add Pit Stop", style=discord.ButtonStyle.green, custom_id="add_pit_stop")
+    async def add_pit_stop_click(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if len(self.stops) >= 4:
+            await interaction.response.send_message("❌ Maximum of 4 planned pit stops allowed.", ephemeral=True)
+            return
+        await interaction.response.send_modal(AddPitStopModal(self))
+
+    @discord.ui.button(label="🧹 Clear Strategy", style=discord.ButtonStyle.red, custom_id="clear_strategy")
+    async def clear_strategy_click(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.stops = []
+        import json
+        strategy_data = {
+            "pace": self.pace,
+            "start_tyre": self.start_tyre,
+            "stops": self.stops
+        }
+        database.update_user_pit_strategy(self.user_id, json.dumps(strategy_data))
+        database.update_user_strategy(self.user_id, self.pace, self.start_tyre, 0)
+        await self.update_embed(interaction)
+
+    async def update_embed(self, interaction: discord.Interaction):
+        stops_desc = ""
+        if self.stops:
+            for idx, stop in enumerate(self.stops):
+                stops_desc += f"  • Stop {idx + 1}: **Lap {stop['lap']}** ➡️ Switched to `{stop['tyre']}` tyres\n"
+        else:
+            stops_desc = "  • *No pit stops scheduled (1-stop evenly-spaced fallback if no custom stops)*\n"
+            
+        embed = utils.create_embed(
+            title="⚙️ Racing Strategy Configuration",
+            description=(
+                f"Customize your racing setup and pit window schedule below:\n\n"
+                f"• **Pacing Strategy:** `{self.pace}`\n"
+                f"• **Starting Tyres:** `{self.start_tyre}`\n"
+                f"• **Planned Pit Stops Strategy:**\n{stops_desc}\n"
+                f"*Selections are updated and saved in real-time. This menu is hidden from other players.*"
+            ),
+            color=utils.COLOR_SUCCESS
+        )
+        await interaction.response.edit_message(embed=embed, view=self)
+
 @bot.tree.command(name="strategy", description="Configure your preferred race strategy, tyres, and pit stops.")
-@app_commands.describe(
-    pace="Your driving style (Aggressive, Balanced, Conservative)",
-    tyres="Your preferred starting tyre compound (Soft, Medium, Hard)",
-    pit_stops="Number of pit stops to plan (1 to 4)"
-)
-@app_commands.choices(
-    pace=[
-        app_commands.Choice(name="Aggressive (+pace, ++wear, +crash)", value="Aggressive"),
-        app_commands.Choice(name="Balanced (neutral pace, normal wear)", value="Balanced"),
-        app_commands.Choice(name="Conservative (-pace, -wear, -crash)", value="Conservative")
-    ],
-    tyres=[
-        app_commands.Choice(name="Soft tyres (++pace, ++wear)", value="Soft"),
-        app_commands.Choice(name="Medium tyres (+pace, +wear)", value="Medium"),
-        app_commands.Choice(name="Hard tyres (neutral pace, very low wear)", value="Hard")
-    ],
-    pit_stops=[
-        app_commands.Choice(name="1 pit stop", value=1),
-        app_commands.Choice(name="2 pit stops", value=2),
-        app_commands.Choice(name="3 pit stops", value=3),
-        app_commands.Choice(name="4 pit stops", value=4)
-    ]
-)
 @app_commands.guild_only()
-async def strategy_setup(interaction: discord.Interaction, pace: str, tyres: str, pit_stops: int = 1):
+async def strategy_setup(interaction: discord.Interaction):
     prof = database.get_full_team_profile(interaction.user.id, interaction.guild_id)
     if not prof:
         await interaction.response.send_message("❌ You do not have a profile. Use `/start` first.", ephemeral=True)
         return
         
-    database.update_user_strategy(prof['user_id'], pace, tyres, pit_stops)
+    view = StrategyConfigView(interaction.user.id, interaction.guild_id)
     
+    stops_desc = ""
+    if view.stops:
+        for idx, stop in enumerate(view.stops):
+            stops_desc += f"  • Stop {idx + 1}: **Lap {stop['lap']}** ➡️ Switched to `{stop['tyre']}` tyres\n"
+    else:
+        stops_desc = "  • *No pit stops scheduled (1-stop evenly-spaced fallback if no custom stops)*\n"
+
     embed = utils.create_embed(
-        title="⚙️ Strategy Configuration Saved",
+        title="⚙️ Racing Strategy Configuration",
         description=(
-            f"Your racing strategy settings for **{prof['team_name']}** have been updated!\n\n"
-            f"• **Pacing Strategy:** `{pace}`\n"
-            f"• **Starting Tyres:** `{tyres}`\n"
-            f"• **Planned Pit Stops:** `{pit_stops}` stop(s) (spaced evenly)\n\n"
-            f"*These settings will be applied in your next Race Duel and Grand Prix.*"
+            f"Customize your racing setup and pit window schedule below:\n\n"
+            f"• **Pacing Strategy:** `{view.pace}`\n"
+            f"• **Starting Tyres:** `{view.start_tyre}`\n"
+            f"• **Planned Pit Stops Strategy:**\n{stops_desc}\n"
+            f"*Selections are updated and saved in real-time. This menu is hidden from other players.*"
         ),
         color=utils.COLOR_SUCCESS
     )
-    await interaction.response.send_message(embed=embed)
+    await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
 
 @bot.tree.command(name="daily", description="Claim your daily credit login bonus (500 credits).")
 @app_commands.guild_only()
@@ -828,68 +954,231 @@ async def help_command(interaction: discord.Interaction):
 
 # ----------------- Grand Prix Scheduled Event Control -----------------
 
-@bot.tree.command(name="gp", description="Manage Grand Prix events (Admin commands).")
-@app_commands.describe(action="Choose action")
-@app_commands.choices(action=[
-    app_commands.Choice(name="Create GP Event", value="create"),
-    app_commands.Choice(name="Start GP Race", value="start"),
-    app_commands.Choice(name="Cancel Active GP", value="cancel")
-])
-@is_admin()
-@app_commands.guild_only()
-async def gp_admin(interaction: discord.Interaction, action: app_commands.Choice[str], name: str = None, track: str = None, laps: int = 15):
-    act = action.value
-    
-    if act == "create":
-        if not name or not track:
-            await interaction.response.send_message("❌ Please provide a name and track to create a GP. Example: `/gp create name:'Monza GP' track:'Monza'`", ephemeral=True)
-            return
-            
-        success, msg = database.create_gp_race(interaction.guild_id, name, track, laps)
-        color = utils.COLOR_SUCCESS if success else utils.COLOR_ERROR
-        embed = utils.create_embed(title="🏁 Grand Prix Scheduling", description=msg, color=color)
+class QualiTyresSelectView(discord.ui.View):
+    def __init__(self, user_id, race_id):
+        super().__init__(timeout=180.0)
+        self.user_id = user_id
+        self.race_id = race_id
+
+    @discord.ui.button(label="Soft tyres (Fastest)", style=discord.ButtonStyle.green, custom_id="q_soft")
+    async def soft_click(self, interaction: discord.Interaction, button: discord.ui.Button):
+        database.update_quali_tyre(self.user_id, self.race_id, "Soft")
+        await interaction.response.send_message("✅ Selected **Soft** tyres for the upcoming qualifying session!", ephemeral=True)
+        self.stop()
+
+    @discord.ui.button(label="Medium tyres (Balanced)", style=discord.ButtonStyle.blurple, custom_id="q_medium")
+    async def medium_click(self, interaction: discord.Interaction, button: discord.ui.Button):
+        database.update_quali_tyre(self.user_id, self.race_id, "Medium")
+        await interaction.response.send_message("✅ Selected **Medium** tyres for the upcoming qualifying session!", ephemeral=True)
+        self.stop()
+
+    @discord.ui.button(label="Hard tyres (Slowest)", style=discord.ButtonStyle.red, custom_id="q_hard")
+    async def hard_click(self, interaction: discord.Interaction, button: discord.ui.Button):
+        database.update_quali_tyre(self.user_id, self.race_id, "Hard")
+        await interaction.response.send_message("✅ Selected **Hard** tyres for the upcoming qualifying session!", ephemeral=True)
+        self.stop()
+
+class GPTrackSelect(discord.ui.Select):
+    def __init__(self):
+        options = [
+            discord.SelectOption(label="Monza Grand Prix", value="Monza", description="Fast track, rewards high Engine Power"),
+            discord.SelectOption(label="Spa-Francorchamps Grand Prix", value="Spa", description="Medium track, rewards Aerodynamics & ERS"),
+            discord.SelectOption(label="Silverstone Grand Prix", value="Silverstone", description="High speed corners, rewards Aerodynamics"),
+            discord.SelectOption(label="Monaco Grand Prix", value="Monaco", description="Tight street circuit, rewards Reliability & Pit Crew"),
+            discord.SelectOption(label="Suzuka Grand Prix", value="Suzuka", description="Technical track, rewards balanced setups"),
+            discord.SelectOption(label="Bahrain Grand Prix", value="Bahrain", description="Heavy braking, rewards ERS & tyres")
+        ]
+        super().__init__(placeholder="Select a Track to Schedule GP...", min_values=1, max_values=1, options=options)
+
+    async def callback(self, interaction: discord.Interaction):
+        track_choice = self.values[0]
+        gp_name = f"{track_choice} Grand Prix"
+        laps = 15
+        
+        success, msg = database.create_gp_race(interaction.guild_id, gp_name, track_choice, laps)
         if success:
-            embed.description += (
-                f"\n\n📢 **Attention Drivers!**\n"
-                f"A new race event has been scheduled. Type **`/joinrace`** to register and secure your spot on the starting grid!"
+            active_gp = database.get_active_gp_race(interaction.guild_id)
+            view = GPAdminView(interaction.guild_id)
+            desc = (
+                f"🏁 **Active GP:** **{active_gp['name']}**\n"
+                f"🗺️ **Track:** `{active_gp['track']}`\n"
+                f"⏱️ **Distance:** `{active_gp['laps']} Laps`\n"
+                f"📊 **Stage:** `Created (Registration open)`\n"
+                f"👥 **Entrants:** `0 driver(s) registered`"
             )
-        await interaction.response.send_message(embed=embed)
-        
-    elif act == "cancel":
-        success, msg = database.cancel_active_gp(interaction.guild_id)
-        color = utils.COLOR_SUCCESS if success else utils.COLOR_ERROR
-        await interaction.response.send_message(embed=utils.create_embed(title="🏁 Grand Prix Cancelled", description=msg, color=color))
-        
-    elif act == "start":
+            embed = utils.create_embed(title="🏁 Grand Prix Admin Panel", description=desc, color=utils.COLOR_WARNING)
+            
+            announcement = utils.create_embed(
+                title="🏁 Grand Prix Scheduled!",
+                description=(
+                    f"A new event **{gp_name}** has been scheduled at **{track_choice}** ({laps} laps)!\n\n"
+                    f"Type **`/joinrace`** to register and secure your spot on the starting grid!"
+                ),
+                color=utils.COLOR_SUCCESS
+            )
+            await interaction.channel.send(embed=announcement)
+            await interaction.response.edit_message(embed=embed, view=view)
+        else:
+            await interaction.response.send_message(f"❌ {msg}", ephemeral=True)
+
+class GPStartQualiButton(discord.ui.Button):
+    def __init__(self, session_key: str, label: str):
+        super().__init__(label=label, style=discord.ButtonStyle.success, custom_id=f"gp_run_{session_key.lower()}")
+        self.session_key = session_key
+
+    async def callback(self, interaction: discord.Interaction):
+        await interaction.response.defer()
         active_gp = database.get_active_gp_race(interaction.guild_id)
         if not active_gp:
-            await interaction.response.send_message("❌ There is no active Grand Prix scheduled. Run `/gp create` first.", ephemeral=True)
+            await interaction.followup.send("❌ No active GP scheduled.", ephemeral=True)
             return
             
-        # Get entries
         entries = database.get_gp_entries_full(active_gp['race_id'])
         if len(entries) < 2:
-            await interaction.response.send_message("❌ Cannot start the race. Need at least 2 registered entries. Invite members to run `/joinrace`!", ephemeral=True)
+            await interaction.followup.send("❌ Cannot run qualifying. Need at least 2 registered entries.", ephemeral=True)
+            return
+
+        if self.session_key == "Q1":
+            if len(entries) <= 10:
+                database.update_gp_status(active_gp['race_id'], "Q3_Ready")
+                embed = utils.create_embed(
+                    title="⏱️ GP Qualifying Weekend - Q1/Q2 Skipped",
+                    description=(
+                        f"Only **{len(entries)}** drivers registered.\n"
+                        f"Since there are 10 or fewer drivers, all drivers automatically progress to **Q3**!\n\n"
+                        f"Admin, use the `/gp` panel to launch the final **Q3 Qualifying** session next."
+                    ),
+                    color=utils.COLOR_QUALIFYING
+                )
+                await interaction.channel.send(embed=embed)
+            elif len(entries) <= 15:
+                database.update_gp_status(active_gp['race_id'], "Q2_Ready")
+                embed = utils.create_embed(
+                    title="⏱️ GP Qualifying Weekend - Q1 Skipped",
+                    description=(
+                        f"Only **{len(entries)}** drivers registered.\n"
+                        f"Since there are 15 or fewer drivers, all drivers progress to **Q2**!\n\n"
+                        f"Admin, use the `/gp` panel to launch **Q2 Qualifying** next."
+                    ),
+                    color=utils.COLOR_QUALIFYING
+                )
+                await interaction.channel.send(embed=embed)
+            else:
+                results = race.simulate_quali_session(entries, active_gp['track'], "Q1")
+                for idx, res in enumerate(results):
+                    if idx >= 15:
+                        res["start_position"] = idx + 1
+                    else:
+                        res["start_position"] = None
+                database.save_quali_results(active_gp['race_id'], results, "Q1")
+                database.update_gp_status(active_gp['race_id'], "Q2_Ready")
+                
+                desc = "⏱️ **Q1 Results Table:**\n"
+                for idx, res in enumerate(results):
+                    formatted_time = race.format_lap_time(res['quali_time'])
+                    tyre_emoji = "🟢" if res['current_q_tyre'] == "Soft" else ("🟡" if res['current_q_tyre'] == "Medium" else "⚪")
+                    status_txt = "✅ **Q2**" if idx < 15 else f"❌ **P{idx + 1}**"
+                    desc += f"**{idx + 1}.** {res['team_name']} — `{formatted_time}` {tyre_emoji} {status_txt}\n"
+                    
+                embed = utils.create_embed(
+                    title="⏱️ Grand Prix Q1 - Results",
+                    description=desc,
+                    color=utils.COLOR_QUALIFYING
+                )
+                await interaction.channel.send(embed=embed)
+
+        elif self.session_key == "Q2":
+            q2_entrants = [e for e in entries if e['start_position'] is None or e['start_position'] > 99]
+            results = race.simulate_quali_session(q2_entrants, active_gp['track'], "Q2")
+            for idx, res in enumerate(results):
+                if idx >= 10:
+                    res["start_position"] = idx + 11
+                else:
+                    res["start_position"] = None
+            database.save_quali_results(active_gp['race_id'], results, "Q2")
+            database.update_gp_status(active_gp['race_id'], "Q3_Ready")
+            
+            desc = "⏱️ **Q2 Results Table:**\n"
+            for idx, res in enumerate(results):
+                formatted_time = race.format_lap_time(res['quali_time'])
+                tyre_emoji = "🟢" if res['current_q_tyre'] == "Soft" else ("🟡" if res['current_q_tyre'] == "Medium" else "⚪")
+                status_txt = "✅ **Q3**" if idx < 10 else f"❌ **P{idx + 11}**"
+                desc += f"**{idx + 1}.** {res['team_name']} — `{formatted_time}` {tyre_emoji} {status_txt}\n"
+                
+            embed = utils.create_embed(
+                title="⏱️ Grand Prix Q2 - Results",
+                description=desc,
+                color=utils.COLOR_QUALIFYING
+            )
+            await interaction.channel.send(embed=embed)
+
+        elif self.session_key == "Q3":
+            q3_entrants = [e for e in entries if e['start_position'] is None]
+            results = race.simulate_quali_session(q3_entrants, active_gp['track'], "Q3")
+            for idx, res in enumerate(results):
+                res["start_position"] = idx + 1
+            database.save_quali_results(active_gp['race_id'], results, "Q3")
+            database.update_gp_status(active_gp['race_id'], "GridSet")
+            
+            desc = "⏱️ **Q3 Results (Final Starting Grid):**\n"
+            for idx, res in enumerate(results):
+                formatted_time = race.format_lap_time(res['quali_time'])
+                tyre_emoji = "🟢" if res['current_q_tyre'] == "Soft" else ("🟡" if res['current_q_tyre'] == "Medium" else "⚪")
+                if idx == 0:
+                    desc += f"**P{idx + 1}.** {res['team_name']} — `{formatted_time}` {tyre_emoji} (Pole Position! 🏆)\n"
+                else:
+                    desc += f"**P{idx + 1}.** {res['team_name']} — `{formatted_time}` {tyre_emoji}\n"
+                
+            embed = utils.create_embed(
+                title="⏱️ Grand Prix Q3 - Final Grid Standings",
+                description=desc,
+                color=utils.COLOR_QUALIFYING
+            )
+            await interaction.channel.send(embed=embed)
+
+        active_gp = database.get_active_gp_race(interaction.guild_id)
+        entries = database.get_gp_entries_full(active_gp['race_id'])
+        desc = (
+            f"🏁 **Active GP:** **{active_gp['name']}**\n"
+            f"🗺️ **Track:** `{active_gp['track']}`\n"
+            f"⏱️ **Distance:** `{active_gp['laps']} Laps`\n"
+            f"📊 **Stage:** `{active_gp['status']}`\n"
+            f"👥 **Entrants:** `{len(entries)} driver(s) registered`"
+        )
+        await interaction.message.edit(embed=utils.create_embed(
+            title="🏁 Grand Prix Admin Panel",
+            description=desc,
+            color=utils.COLOR_WARNING
+        ), view=GPAdminView(interaction.guild_id))
+
+class GPStartRaceButton(discord.ui.Button):
+    def __init__(self):
+        super().__init__(label="🏎️ Start Main GP", style=discord.ButtonStyle.blurple, custom_id="gp_start_race")
+
+    async def callback(self, interaction: discord.Interaction):
+        await interaction.response.defer()
+        active_gp = database.get_active_gp_race(interaction.guild_id)
+        if not active_gp:
+            await interaction.followup.send("❌ No active GP scheduled.", ephemeral=True)
             return
             
-        await interaction.response.defer()
-        
+        entries = database.get_gp_entries_full(active_gp['race_id'])
+        if len(entries) < 2:
+            await interaction.followup.send("❌ Cannot start the race. Need at least 2 registered entries.", ephemeral=True)
+            return
+
         try:
-            # Defer qualifying and run race
-            results, logs = race.simulate_gp(entries, active_gp['track'], laps)
+            results, logs = race.simulate_gp(entries, active_gp['track'], active_gp['laps'])
             
-            # Determine winner user ID
             winner_id = None
             for res in results:
                 if res['finish_position'] == 1:
                     winner_id = res['user_id']
                     break
                     
-            # Save results in database
             database.save_gp_results(active_gp['race_id'], results, winner_id)
+            database.update_gp_status(active_gp['race_id'], "Finished")
             
-            # Output Live Race Commentary in channel
-            # We will create a live updating embed for maximum immersion (lap by lap updates)
             progress_embed = utils.create_embed(
                 title=f"🏎️ LIVE: Grand Prix of {active_gp['track']}",
                 description="⏱️ **Qualifying and grid setups are initializing...**",
@@ -897,7 +1186,6 @@ async def gp_admin(interaction: discord.Interaction, action: app_commands.Choice
             )
             live_message = await interaction.followup.send(embed=progress_embed)
             
-            # Process logs lap by lap
             qual_logs = []
             race_lap_logs = {}
             finish_logs = []
@@ -910,7 +1198,6 @@ async def gp_admin(interaction: discord.Interaction, action: app_commands.Choice
                     current_section = "race"
                     race_lap_logs["Lights Out"] = [log]
                 elif "Lap " in log:
-                    # Group by Lap number
                     import re
                     lap_match = re.search(r"Lap (\d+)", log)
                     if lap_match:
@@ -927,37 +1214,32 @@ async def gp_admin(interaction: discord.Interaction, action: app_commands.Choice
                     elif current_section == "finish":
                         finish_logs.append(log)
                         
-            # Update qualifying grid
-            grid_desc = "\n".join(qual_logs[:20]) # Limit grid print
+            grid_desc = "\n".join(qual_logs[:20])
             progress_embed.description = f"⏱️ **Grid Positions Set!**\n\n{grid_desc}"
             await live_message.edit(embed=progress_embed)
             await asyncio.sleep(4)
             
-            # Stream race lap-by-lap
-            race_history = []
             if "Lights Out" in race_lap_logs:
-                race_history.extend(race_lap_logs["Lights Out"])
-                progress_embed.description = "\n".join(race_history)
-                progress_embed.color = utils.COLOR_QUALIFYING
-                await live_message.edit(embed=progress_embed)
+                lights_embed = utils.create_embed(
+                    title=f"🏎️ LIVE: Grand Prix of {active_gp['track']}",
+                    description="\n".join(race_lap_logs["Lights Out"]),
+                    color=utils.COLOR_QUALIFYING
+                )
+                await interaction.channel.send(embed=lights_embed)
                 await asyncio.sleep(2)
                 
             sorted_keys = sorted([k for k in race_lap_logs.keys() if isinstance(k, int)])
             
             for l_num in sorted_keys:
                 lap_events = race_lap_logs[l_num]
-                race_history.append(f"\n**🏁 Lap {l_num}:**")
-                race_history.extend(lap_events)
+                lap_embed = utils.create_embed(
+                    title=f"🏎️ Grand Prix Lap {l_num}/{active_gp['laps']}",
+                    description="\n".join(lap_events),
+                    color=utils.COLOR_RACE_RESULTS
+                )
+                await interaction.channel.send(embed=lap_embed)
+                await asyncio.sleep(15.0)
                 
-                # Keep only the last 15 lines of commentary to avoid exceeding Discord limits
-                show_history = race_history[-15:]
-                progress_embed.description = "\n".join(show_history)
-                progress_embed.color = utils.COLOR_RACE_RESULTS
-                await live_message.edit(embed=progress_embed)
-                await asyncio.sleep(15.0) # Time between laps (slowed down for immersion)
-                
-            # Post final standings
-            # Split finish_logs into chunks of max 20 lines to prevent character limits
             chunks = []
             current_chunk = []
             for log in finish_logs:
@@ -973,18 +1255,164 @@ async def gp_admin(interaction: discord.Interaction, action: app_commands.Choice
                 description=f"🏆 **Grand Prix completed successfully!**\n\n" + (chunks[0] if chunks else ""),
                 color=utils.COLOR_SUCCESS
             )
-            await live_message.edit(embed=results_embed)
+            await interaction.channel.send(embed=results_embed)
             
             for c in chunks[1:]:
-                await interaction.followup.send(embed=utils.create_embed(
-                    title=f"🏁 Grand Prix Results (Continued)",
+                await interaction.channel.send(embed=utils.create_embed(
+                    title="🏁 Grand Prix Results (Continued)",
                     description=c,
                     color=utils.COLOR_SUCCESS
                 ))
+                
+            leaderboard_results = database.get_leaderboard(interaction.guild_id, "points")
+            if leaderboard_results:
+                leaderboard_desc = ""
+                for idx, row in enumerate(leaderboard_results[:10]):
+                    leaderboard_desc += f"**{idx + 1}.** {row['team_name']} — **{row['score']} pts**\n"
+                    
+                standings_embed = utils.create_embed(
+                    title="🏆 Season Championship Standings (Updated)",
+                    description=leaderboard_desc,
+                    color=utils.COLOR_WARNING
+                )
+                await interaction.channel.send(embed=standings_embed)
+                
+            await interaction.message.edit(embed=utils.create_embed(
+                title="🏁 Grand Prix Admin Panel",
+                description=f"🏁 **Grand Prix Completed!**\n🗺️ **Track:** `{active_gp['track']}`\n📊 **Stage:** `Finished`",
+                color=utils.COLOR_SUCCESS
+            ), view=None)
         except Exception as e:
             import traceback
             traceback.print_exc()
             await interaction.followup.send(f"❌ **Error starting GP:** `{e}`")
+
+class GPCancelButton(discord.ui.Button):
+    def __init__(self):
+        super().__init__(label="Cancel GP", style=discord.ButtonStyle.red, custom_id="gp_cancel")
+
+    async def callback(self, interaction: discord.Interaction):
+        success, msg = database.cancel_active_gp(interaction.guild_id)
+        if success:
+            view = GPAdminView(interaction.guild_id)
+            desc = "❌ **No active Grand Prix scheduled.**\nUse the **Select a Track** dropdown below to schedule one."
+            embed = utils.create_embed(title="🏁 Grand Prix Admin Panel", description=desc, color=utils.COLOR_WARNING)
+            
+            announcement = utils.create_embed(title="🏁 Grand Prix Cancelled", description="The scheduled Grand Prix event has been cancelled by an administrator.", color=utils.COLOR_ERROR)
+            await interaction.channel.send(embed=announcement)
+            await interaction.response.edit_message(embed=embed, view=view)
+        else:
+            await interaction.response.send_message(f"❌ {msg}", ephemeral=True)
+
+class GPPromptDMsButton(discord.ui.Button):
+    def __init__(self):
+        super().__init__(label="📩 Send DM Tyre Prompts", style=discord.ButtonStyle.secondary, custom_id="gp_prompt_dms")
+
+    async def callback(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        active_gp = database.get_active_gp_race(interaction.guild_id)
+        if not active_gp:
+            await interaction.followup.send("❌ No active GP scheduled.", ephemeral=True)
+            return
+            
+        entries = database.get_gp_entries_full(active_gp['race_id'])
+        if not entries:
+            await interaction.followup.send("❌ No entrants registered yet.", ephemeral=True)
+            return
+            
+        status = active_gp.get("status", "Created")
+        
+        if status in ["Created", "Q1_Ready"]:
+            active_drivers = entries
+            session_name = "Qualifying Q1"
+        elif status == "Q2_Ready":
+            active_drivers = [e for e in entries if e.get("start_position") is None or e.get("start_position") > 99]
+            session_name = "Qualifying Q2"
+        elif status == "Q3_Ready":
+            active_drivers = [e for e in entries if e.get("start_position") is None]
+            session_name = "Qualifying Q3"
+        else:
+            await interaction.followup.send("❌ DM prompts are only sent during qualifying setup stages.", ephemeral=True)
+            return
+
+        sent_count = 0
+        failed_drivers = []
+        for drv in active_drivers:
+            try:
+                user = bot.get_user(drv['discord_id']) or await bot.fetch_user(drv['discord_id'])
+                if user:
+                    embed = utils.create_embed(
+                        title=f"🏎️ Qualifying Tyre Selection - {active_gp['name']}",
+                        description=(
+                            f"Choose your tyre compound for the upcoming **{session_name}** session at **{active_gp['track']}**:\n\n"
+                            f"• **Soft:** Maximum qualifying pace (+6.0s), high wear.\n"
+                            f"• **Medium:** Balanced pace (+3.0s), medium wear.\n"
+                            f"• **Hard:** Minimum pace (+0.0s), low wear.\n\n"
+                            f"*If you do not select a tyre, it will default to Soft compound.*"
+                        ),
+                        color=utils.COLOR_QUALIFYING
+                    )
+                    view = QualiTyresSelectView(drv['user_id'], active_gp['race_id'])
+                    await user.send(embed=embed, view=view)
+                    sent_count += 1
+            except Exception:
+                failed_drivers.append(drv['team_name'])
+                
+        failed_desc = f"\n⚠️ Failed to DM (DMs closed): {', '.join(failed_drivers)}" if failed_drivers else ""
+        await interaction.followup.send(f"✅ Successfully sent qualifying tyre selection DMs to {sent_count} active drivers.{failed_desc}", ephemeral=True)
+
+class GPAdminView(discord.ui.View):
+    def __init__(self, guild_id):
+        super().__init__(timeout=300.0)
+        self.guild_id = guild_id
+        
+        active_gp = database.get_active_gp_race(guild_id)
+        if not active_gp:
+            self.add_item(GPTrackSelect())
+        else:
+            status = active_gp.get("status", "Created")
+            if status in ["Created", "Q1_Ready", "Q2_Ready", "Q3_Ready"]:
+                self.add_item(GPPromptDMsButton())
+                
+            if status == "Created":
+                self.add_item(GPStartQualiButton("Q1", "Start Q1"))
+            elif status == "Q1_Ready":
+                self.add_item(GPStartQualiButton("Q1", "Run Q1 Session"))
+            elif status == "Q2_Ready":
+                self.add_item(GPStartQualiButton("Q2", "Run Q2 Session"))
+            elif status == "Q3_Ready":
+                self.add_item(GPStartQualiButton("Q3", "Run Q3 Session"))
+            elif status == "GridSet":
+                self.add_item(GPStartRaceButton())
+                
+            self.add_item(GPCancelButton())
+
+@bot.tree.command(name="gp", description="Manage Grand Prix events (Admin control panel).")
+@is_admin()
+@app_commands.guild_only()
+async def gp_admin(interaction: discord.Interaction):
+    active_gp = database.get_active_gp_race(interaction.guild_id)
+    
+    if active_gp:
+        entries = database.get_gp_entries_full(active_gp['race_id'])
+        desc = (
+            f"🏁 **Active GP:** **{active_gp['name']}**\n"
+            f"🗺️ **Track:** `{active_gp['track']}`\n"
+            f"⏱️ **Distance:** `{active_gp['laps']} Laps`\n"
+            f"📊 **Stage:** `{active_gp.get('status', 'Created')}`\n"
+            f"👥 **Entrants:** `{len(entries)} driver(s) registered`"
+        )
+    else:
+        desc = "❌ **No active Grand Prix scheduled.**\nUse the **Select a Track** dropdown below to schedule one."
+        
+    embed = utils.create_embed(
+        title="🏁 Grand Prix Admin Panel",
+        description=desc,
+        color=utils.COLOR_WARNING
+    )
+    
+    view = GPAdminView(interaction.guild_id)
+    await interaction.response.send_message(embed=embed, view=view)
 
 @bot.tree.command(name="joinrace", description="Register and pay 1000¢ entry fee to join the upcoming Grand Prix.")
 @app_commands.guild_only()
@@ -1013,10 +1441,28 @@ async def view_grid(interaction: discord.Interaction):
         await interaction.response.send_message(f"There are no entrants registered for **{active_gp['name']}** yet. Run `/joinrace` to be the first!", ephemeral=True)
         return
         
-    desc = f"**Current Entry List for {active_gp['name']} ({active_gp['track']}):**\n\n"
-    for idx, row in enumerate(entries):
-        desc += f"• **{row['team_name']}** (level {row['level']})\n"
+    status = active_gp.get("status", "Created")
+    desc = f"🏁 **Event:** **{active_gp['name']}** ({active_gp['track']})\n📊 **Stage:** `{status}`\n\n"
+    
+    if status == "Created":
+        desc += "**Registered Entrants:**\n"
+        for idx, row in enumerate(entries):
+            desc += f"• **{row['team_name']}** (level {row['level']})\n"
+    else:
+        entries.sort(key=lambda x: (x['start_position'] if x['start_position'] is not None else 999))
         
+        desc += "**Starting Grid / Qualifying Standings:**\n"
+        for idx, row in enumerate(entries):
+            q1 = race.format_lap_time(row['quali_q1_time']) if row['quali_q1_time'] else "—"
+            q2 = race.format_lap_time(row['quali_q2_time']) if row['quali_q2_time'] else "—"
+            q3 = race.format_lap_time(row['quali_q3_time']) if row['quali_q3_time'] else "—"
+            
+            pos = row['start_position']
+            if pos is not None:
+                desc += f"**P{pos}.** {row['team_name']} — Q1: `{q1}` | Q2: `{q2}` | Q3: `{q3}`\n"
+            else:
+                desc += f"• **{row['team_name']}** — Active (Q1: `{q1}` | Q2: `{q2}` | Q3: `{q3}`)\n"
+                
     embed = utils.create_embed(
         title=f"📋 Race Entry Grid - {active_gp['name']}",
         description=desc + f"\n*Registration count: {len(entries)}*",

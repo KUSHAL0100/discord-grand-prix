@@ -56,13 +56,35 @@ class SimTeam:
         self.pref_strategy = data.get("pref_strategy", "Balanced")
         self.pref_tyres = data.get("pref_tyres", "Medium")
         self.pref_pit_stops = data.get("pref_pit_stops", 1)
+        self.start_position = data.get("start_position")
+        self.current_q_tyre = data.get("current_q_tyre", "Soft")
         
-        self.tyre_type = self.pref_tyres
-        self.strategy = self.pref_strategy
+        # Parse custom pit strategy JSON
+        import json
+        self.pit_strategy = {}
+        strategy_str = data.get("pit_strategy_json")
+        if strategy_str:
+            try:
+                self.pit_strategy = json.loads(strategy_str)
+            except Exception:
+                pass
+                
+        self.strategy = self.pit_strategy.get("pace", self.pref_strategy)
+        self.tyre_type = self.pit_strategy.get("start_tyre", self.pref_tyres)
+        
+        self.pit_laps = []
+        self.pit_tyres_plan = {}
+        stops_plan = self.pit_strategy.get("stops", [])
+        if stops_plan:
+            for stop in stops_plan:
+                l_num = int(stop.get("lap", 0))
+                compound = stop.get("tyre", "Medium")
+                if l_num > 0:
+                    self.pit_laps.append(l_num)
+                    self.pit_tyres_plan[l_num] = compound
         
         self.pit_stop_done = False
         self.pit_stops_completed = 0
-        self.pit_lap = 10
         self.grid_position = 0
         self.current_position = 0
         self.laps_completed = 0
@@ -182,8 +204,8 @@ def simulate_duel(team1_data: Dict[str, Any], team2_data: Dict[str, Any], total_
         for t in [leader, trailer]:
             if t.dnf:
                 continue
-            # Pit if scheduled lap or if tyres are critical (< 30%) and total laps > 3
-            if total_laps > 3 and (lap in t.pit_laps or t.tyre_health < 30.0):
+            # Pit ONLY if scheduled lap and total laps > 3
+            if total_laps > 3 and (lap in t.pit_laps):
                 pit_duration = 3.5 - (t.pit_crew * 0.15)
                 if t == leader:
                     gap -= pit_duration
@@ -230,11 +252,11 @@ def simulate_duel(team1_data: Dict[str, Any], team2_data: Dict[str, Any], total_
         elif trailer.strategy == "Conservative":
             t_perf -= 3.0
             
-        # Tyre penalty
+        # Tyre penalty (Steeper penalty when tyres are worn)
         if leader.tyre_health < 40.0:
-            l_perf -= (40.0 - leader.tyre_health) * 0.3
+            l_perf -= (40.0 - max(0.0, leader.tyre_health)) * 0.8
         if trailer.tyre_health < 40.0:
-            t_perf -= (40.0 - trailer.tyre_health) * 0.3
+            t_perf -= (40.0 - max(0.0, trailer.tyre_health)) * 0.8
             
         # Performance difference shifts the gap
         # If leader was faster, gap increases. If trailer was faster, gap decreases.
@@ -295,43 +317,25 @@ def simulate_gp(entries_data: List[Dict[str, Any]], track_name: str, total_laps:
     logs.append(f"🌤️ **Weather at start:** {current_weather}")
     
     # Initialize strategies and pit laps
+    # Initialize strategies and pit laps
     for t in teams:
-        # If weather is Rain, force Intermediates. Otherwise use user's preferred tyres.
         if current_weather == "Rain":
             t.tyre_type = "Intermediates"
-        else:
-            t.tyre_type = t.pref_tyres
             
-        # Determine pit laps (space stops evenly)
-        intervals = total_laps / (t.pref_pit_stops + 1)
-        t.pit_laps = [int(round(intervals * i)) for i in range(1, t.pref_pit_stops + 1)]
+        # Determine pit laps (space stops evenly only if no custom strategy is set)
+        if not t.pit_laps:
+            intervals = total_laps / (t.pref_pit_stops + 1)
+            t.pit_laps = [int(round(intervals * i)) for i in range(1, t.pref_pit_stops + 1)]
 
-    # 2. Qualifying simulation
-    logs.append("⏱️ **Qualifying Sessions complete! Here is the starting grid:**")
-    qual_results = []
-    for t in teams:
-        car_power = t.calculate_base_car_power(track_name)
-        # Qualifying driver bonus
-        qual_bonus = t.driver_qual / 2.0
-        # Aggressive strategy adds qualifying pace
-        strat_bonus = 5.0 if t.strategy == "Aggressive" else 0.0
-        
-        perf = car_power + qual_bonus + strat_bonus + random.uniform(0, 10)
-        qual_results.append((t, perf))
-        
-    qual_results.sort(key=lambda x: x[1], reverse=True)
+    # 2. Setup starting grid positions from qualifying
+    teams.sort(key=lambda x: (x.start_position if x.start_position is not None else 999))
     
-    # Set initial grid positions
-    for idx, (t, _) in enumerate(qual_results):
+    logs.append("⏱️ **Qualifying grid has been established:**")
+    for idx, t in enumerate(teams):
         t.grid_position = idx + 1
         t.current_position = idx + 1
-        
-    # Re-order the teams list to match initial grid (from 1st to last)
-    teams = [x[0] for x in qual_results]
-    
-    for t in teams:
         logs.append(f"P{t.grid_position}: **{t.team_name}** (overall power: {utils.calculate_overall_power({'engine':t.engine, 'aerodynamics':t.aerodynamics, 'tyres':t.tyres_stat, 'ers':t.ers, 'reliability':t.reliability}, t.driver_pace)})")
-
+        
     logs.append("\n🟢 **Lights Out! The race is underway!**")
     
     # Safety Car & VSC states
@@ -371,10 +375,10 @@ def simulate_gp(entries_data: List[Dict[str, Any]], track_name: str, total_laps:
                 
             t.tyre_health -= random.uniform(wear_rate - 2, wear_rate + 2)
             
-            # Apply tire wear penalty if health is below 40%
+            # Apply tire wear penalty if health is below 40% (Steeper penalty when tyres are worn)
             tyre_penalty = 0.0
             if t.tyre_health < 40.0:
-                tyre_penalty = (40.0 - t.tyre_health) * 0.4
+                tyre_penalty = (40.0 - max(0.0, t.tyre_health)) * 0.8
                 
             # Weather tire compatibility penalty
             weather_penalty = 0.0
@@ -432,9 +436,6 @@ def simulate_gp(entries_data: List[Dict[str, Any]], track_name: str, total_laps:
                 if needed_tyre == "Intermediates":
                     needed_tyre = "Medium"
             elif lap in t.pit_laps:
-                wants_pit = True
-                needed_tyre = t.pref_tyres
-            elif t.tyre_health < 30.0:
                 wants_pit = True
                 needed_tyre = t.pref_tyres
                 
@@ -584,3 +585,59 @@ def simulate_gp(entries_data: List[Dict[str, Any]], track_name: str, total_laps:
         })
         
     return results_list, logs
+
+# --- F1 Qualifying Weekend Simulation ---
+TRACK_BASE_LAP_TIMES = {
+    "Monaco": 75.0,
+    "Monza": 80.0,
+    "Spa": 105.0,
+    "Silverstone": 90.0,
+    "Suzuka": 92.0,
+    "Bahrain": 95.0
+}
+
+def format_lap_time(seconds: float) -> str:
+    """Format lap time in seconds into F1 standard format MM:SS.mmm"""
+    minutes = int(seconds // 60)
+    secs = seconds % 60
+    if minutes > 0:
+        return f"{minutes}:{secs:06.3f}"
+    return f"{secs:.3f}"
+
+def simulate_quali_session(entries: List[Dict[str, Any]], track_name: str, session_name: str) -> List[Dict[str, Any]]:
+    """
+    Simulate a qualifying session (Q1, Q2, or Q3).
+    Returns the list of entries with simulated lap times sorted from fastest to slowest.
+    """
+    base_time = TRACK_BASE_LAP_TIMES.get(track_name, 90.0)
+    results = []
+    
+    for entry in entries:
+        t = SimTeam(entry)
+        car_power = t.calculate_base_car_power(track_name)
+        
+        # Qual driver rating bonus
+        qual_bonus = t.driver_qual / 2.0
+        
+        # Tyre compound bonus (Soft/Medium/Hard)
+        q_tyre = entry.get("current_q_tyre", "Soft")
+        if q_tyre == "Soft":
+            tyre_bonus = 6.0
+        elif q_tyre == "Hard":
+            tyre_bonus = 0.0
+        else: # Medium
+            tyre_bonus = 3.0
+            
+        perf = car_power + qual_bonus + tyre_bonus
+        
+        # Base time minus performance reduction plus minor variance
+        lap_time = base_time - (perf * 0.12) + random.uniform(-0.3, 0.3)
+        lap_time = round(lap_time, 3)
+        
+        res_entry = entry.copy()
+        res_entry["quali_time"] = lap_time
+        res_entry["current_q_tyre"] = q_tyre
+        results.append(res_entry)
+        
+    results.sort(key=lambda x: x["quali_time"])
+    return results

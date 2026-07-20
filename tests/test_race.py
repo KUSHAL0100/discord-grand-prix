@@ -134,3 +134,29 @@ def test_strategy_selection():
     intervals = 12 / (t.pref_pit_stops + 1)
     t.pit_laps = [int(round(intervals * i)) for i in range(1, t.pref_pit_stops + 1)]
     assert t.pit_laps == [3, 6, 9]
+
+def test_quali_simulation():
+    entries = [
+        {"user_id": 1, "team_name": "Apex", "discord_id": 1001, "qual": 90, "current_q_tyre": "Soft"},
+        {"user_id": 2, "team_name": "Backmarker", "discord_id": 1002, "qual": 10, "current_q_tyre": "Hard"}
+    ]
+    results = race.simulate_quali_session(entries, "Monza", "Q1")
+    assert len(results) == 2
+    assert results[0]["user_id"] == 1
+    assert "quali_time" in results[0]
+
+def test_custom_pit_strategy():
+    player_data = {
+        "user_id": 1,
+        "team_name": "Ferrari F1",
+        "discord_id": 1001,
+        "pref_strategy": "Balanced",
+        "pref_tyres": "Medium",
+        "pref_pit_stops": 1,
+        "pit_strategy_json": '{"pace": "Conservative", "start_tyre": "Soft", "stops": [{"lap": 5, "tyre": "Hard"}]}'
+    }
+    t = race.SimTeam(player_data)
+    assert t.strategy == "Conservative"
+    assert t.tyre_type == "Soft"
+    assert t.pit_laps == [5]
+    assert t.pit_tyres_plan == {5: "Hard"}
