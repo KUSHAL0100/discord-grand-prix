@@ -140,13 +140,17 @@ def simulate_duel(team1_data: Dict[str, Any], team2_data: Dict[str, Any], total_
         for t in [leader, trailer]:
             if t.dnf:
                 continue
-            dnf_chance = max(1.0, 16.0 - t.reliability * 1.5)
+            # Extremely rare and random crashes: base of 4% scaled by reliability
+            dnf_chance = max(0.1, 4.0 - t.reliability * 0.2)
             if t.strategy == "Aggressive":
-                dnf_chance += 10.0
+                dnf_chance += 2.0
             elif t.strategy == "Conservative":
-                dnf_chance = max(0.5, dnf_chance - 5.0)
+                dnf_chance = max(0.05, dnf_chance - 1.5)
                 
-            if random.uniform(0, 100) < dnf_chance:
+            # Scaled down per-lap (since dnf_chance is per-race)
+            per_lap_dnf_chance = dnf_chance / total_laps
+                
+            if random.uniform(0, 100) < per_lap_dnf_chance:
                 t.dnf = True
                 reasons = ["spun off into the barriers", "suffered an engine blowup", "had a gearbox failure", "collided with a competitor"]
                 t.dnf_reason = random.choice(reasons)
@@ -264,8 +268,13 @@ def simulate_duel(team1_data: Dict[str, Any], team2_data: Dict[str, Any], total_
         lap_logs.append(current_lap_events)
         
     # Map back SimTeam object dicts
-    w_data = team1_data if winner.user_id == team1_data["user_id"] else team2_data
-    l_data = team1_data if loser.user_id == team1_data["user_id"] else team2_data
+    w_data = team1_data.copy() if winner.user_id == team1_data["user_id"] else team2_data.copy()
+    l_data = team1_data.copy() if loser.user_id == team1_data["user_id"] else team2_data.copy()
+    
+    w_data["dnf"] = winner.dnf
+    l_data["dnf"] = loser.dnf
+    w_data["tyre_health"] = winner.tyre_health
+    l_data["tyre_health"] = loser.tyre_health
     
     return w_data, l_data, lap_logs, qual_logs
 
@@ -452,14 +461,14 @@ def simulate_gp(entries_data: List[Dict[str, Any]], track_name: str, total_laps:
             if t.dnf:
                 continue
                 
-            # Base crash chance
-            dnf_chance = max(1.0, 16.0 - t.reliability * 1.5)
+            # Extremely rare and random crashes: base of 4% scaled by reliability
+            dnf_chance = max(0.1, 4.0 - t.reliability * 0.2)
             
             # Strategy adjustments
             if t.strategy == "Aggressive":
-                dnf_chance += 10.0
+                dnf_chance += 2.0
             elif t.strategy == "Conservative":
-                dnf_chance = max(0.5, dnf_chance - 5.0)
+                dnf_chance = max(0.05, dnf_chance - 1.5)
                 
             # Scaled down per-lap (since base is per-race, e.g. divide by total_laps)
             per_lap_dnf_chance = dnf_chance / total_laps

@@ -131,7 +131,7 @@ def init_db():
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS bets (
         bet_id INTEGER PRIMARY KEY AUTOINCREMENT,
-        race_id INTEGER NOT NULL,
+        race_id INTEGER,
         bettor_id INTEGER NOT NULL,
         target_id INTEGER NOT NULL,
         amount INTEGER NOT NULL,
@@ -695,7 +695,7 @@ def get_gp_entries_full(race_id: int) -> List[Dict[str, Any]]:
     cursor = conn.cursor()
     cursor.execute("""
         SELECT re.entry_id, re.race_id, re.user_id, re.qual_time, re.start_position, re.finish_position, 
-               u.team_name, u.discord_id,
+               u.team_name, u.discord_id, u.pref_strategy, u.pref_tyres, u.pref_pit_stops,
                d.pace, d.qual, d.wet_skill, d.consistency, d.aggression, d.overtaking, d.experience,
                s.pit_timing, s.weather_call, s.undercut, s.sc_skill, s.risk, s.communication,
                g.engine, g.aerodynamics, g.tyres, g.ers, g.reliability, g.pit_crew, 
@@ -832,11 +832,12 @@ def save_gp_results(race_id: int, results: List[Dict[str, Any]], winner_user_id:
             damages = cursor.fetchone()
             new_total = damages['damage_engine'] + damages['damage_tyres']
             cursor.execute("UPDATE garage SET damage_total = ? WHERE user_id = ?", (new_total, res["user_id"]))
-
+        
         conn.commit()
-    except sqlite3.Error as e:
+    except Exception as e:
         conn.rollback()
         print(f"Error saving GP results: {e}")
+        raise e
     finally:
         conn.close()
 

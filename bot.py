@@ -396,8 +396,8 @@ async def run_duel_simulation(channel, p1_member: discord.Member, p2_member: dis
             payout = wager_amount * 2
             cursor.execute("UPDATE users SET money = money + ? WHERE user_id = ?", (payout, w_uid))
             
-            # Insert bet record
-            cursor.execute("INSERT INTO bets (race_id, bettor_id, target_id, amount, outcome, payout) VALUES (0, ?, ?, ?, ?, ?)",
+            # Insert bet record (race_id is nullable, insert NULL for duels to avoid foreign key errors)
+            cursor.execute("INSERT INTO bets (race_id, bettor_id, target_id, amount, outcome, payout) VALUES (NULL, ?, ?, ?, ?, ?)",
                            (p1_prof['user_id'], p2_prof['user_id'], wager_amount, "win" if w_uid == p1_prof['user_id'] else "lose", payout))
         else:
             # Standard duel rewards
@@ -409,19 +409,36 @@ async def run_duel_simulation(channel, p1_member: discord.Member, p2_member: dis
         cursor.execute("UPDATE users SET wins = wins + 1 WHERE user_id = ?", (w_uid,))
         cursor.execute("UPDATE users SET losses = losses + 1 WHERE user_id = ?", (l_uid,))
         
-        # Add slight car damage
+        # Calculate car damage based on whether they crashed (DNF)
+        # Winner DNF check
+        if winner.get("dnf", False):
+            w_dmg_eng = random.randint(15, 30)
+            w_dmg_tyr = random.randint(30, 60)
+        else:
+            w_dmg_eng = random.randint(1, 4)
+            w_dmg_tyr = random.randint(2, 8)
+            
+        # Loser DNF check
+        if loser.get("dnf", False):
+            l_dmg_eng = random.randint(15, 30)
+            l_dmg_tyr = random.randint(30, 60)
+        else:
+            l_dmg_eng = random.randint(2, 6)
+            l_dmg_tyr = random.randint(4, 12)
+            
         cursor.execute("""
             UPDATE garage 
             SET damage_engine = MIN(100, damage_engine + ?),
                 damage_tyres = MIN(100, damage_tyres + ?)
             WHERE user_id = ?
-        """, (random.randint(1, 4), random.randint(2, 8), w_uid))
+        """, (w_dmg_eng, w_dmg_tyr, w_uid))
+        
         cursor.execute("""
             UPDATE garage 
             SET damage_engine = MIN(100, damage_engine + ?),
                 damage_tyres = MIN(100, damage_tyres + ?)
             WHERE user_id = ?
-        """, (random.randint(2, 6), random.randint(4, 12), l_uid))
+        """, (l_dmg_eng, l_dmg_tyr, l_uid))
         
         # Recalculate totals
         for uid in [w_uid, l_uid]:
@@ -430,30 +447,32 @@ async def run_duel_simulation(channel, p1_member: discord.Member, p2_member: dis
             cursor.execute("UPDATE garage SET damage_total = ? WHERE user_id = ?", (d['damage_engine'] + d['damage_tyres'], uid))
             
         conn.commit()
+        
+        # Post summary ONLY if commit succeeds
+        if wager_amount > 0:
+            desc = (
+                f"🏆 **Winner:** **{winner['team_name']}** takes the pot of **{wager_amount * 2}¢**!\n"
+                f"📉 **{loser['team_name']}** loses **{wager_amount}¢**."
+            )
+        else:
+            desc = (
+                f"🏆 **Winner:** **{winner['team_name']}** (+{config.DUEL_WIN_CREDITS}¢)\n"
+                f"🏎️ **Runner-up:** **{loser['team_name']}** (+{config.DUEL_LOSS_CREDITS}¢)"
+            )
+            
+        final_embed = utils.create_embed(
+            title="🏁 Race Duel: Checkered Flag",
+            description=desc,
+            color=utils.COLOR_SUCCESS
+        )
+        await channel.send(embed=final_embed)
+        
     except Exception as e:
         conn.rollback()
         print(f"Error saving duel results: {e}")
+        await channel.send("❌ **Error:** An operational database error occurred while saving the duel results.")
     finally:
         conn.close()
-        
-    # 4. Final summary embed
-    if wager_amount > 0:
-        desc = (
-            f"🏆 **Winner:** **{winner['team_name']}** takes the pot of **{wager_amount * 2}¢**!\n"
-            f"📉 **{loser['team_name']}** loses **{wager_amount}¢**."
-        )
-    else:
-        desc = (
-            f"🏆 **Winner:** **{winner['team_name']}** (+{config.DUEL_WIN_CREDITS}¢)\n"
-            f"🏎️ **Runner-up:** **{loser['team_name']}** (+{config.DUEL_LOSS_CREDITS}¢)"
-        )
-        
-    final_embed = utils.create_embed(
-        title="🏁 Race Duel: Checkered Flag",
-        description=desc,
-        color=utils.COLOR_SUCCESS
-    )
-    await channel.send(embed=final_embed)
 
 
 class RaceAcceptView(discord.ui.View):
@@ -840,112 +859,117 @@ async def gp_admin(interaction: discord.Interaction, action: app_commands.Choice
             
         await interaction.response.defer()
         
-        # Defer qualifying and run race
-        results, logs = race.simulate_gp(entries, active_gp['track'], laps)
-        
-        # Determine winner user ID
-        winner_id = None
-        for res in results:
-            if res['finish_position'] == 1:
-                winner_id = res['user_id']
-                break
-                
-        # Save results in database
-        database.save_gp_results(active_gp['race_id'], results, winner_id)
-        
-        # Output Live Race Commentary in channel
-        # We will create a live updating embed for maximum immersion (lap by lap updates)
-        progress_embed = utils.create_embed(
-            title=f"🏎️ LIVE: Grand Prix of {active_gp['track']}",
-            description="⏱️ **Qualifying and grid setups are initializing...**",
-            color=utils.COLOR_QUALIFYING
-        )
-        live_message = await interaction.followup.send(embed=progress_embed)
-        
-        # Process logs lap by lap
-        qual_logs = []
-        race_lap_logs = {}
-        finish_logs = []
-        
-        current_section = "qual"
-        for log in logs:
-            if "Qualifying" in log or "P1:" in log or "P2:" in log or "P3:" in log or "P4:" in log or "P5:" in log or "P6:" in log or "P7:" in log or "P8:" in log or "P9:" in log or "P10:" in log:
-                qual_logs.append(log)
-            elif "Lights Out!" in log:
-                current_section = "race"
-                race_lap_logs["Lights Out"] = [log]
-            elif "Lap " in log:
-                # Group by Lap number
-                import re
-                lap_match = re.search(r"Lap (\d+)", log)
-                if lap_match:
-                    lap_num = int(lap_match.group(1))
-                    if lap_num not in race_lap_logs:
-                        race_lap_logs[lap_num] = []
-                    race_lap_logs[lap_num].append(log)
-            elif "Checkered Flag!" in log or "P1:" in log or "Points:" in log or "Winner:" in log:
-                current_section = "finish"
-                finish_logs.append(log)
-            else:
-                if current_section == "qual":
-                    qual_logs.append(log)
-                elif current_section == "finish":
-                    finish_logs.append(log)
+        try:
+            # Defer qualifying and run race
+            results, logs = race.simulate_gp(entries, active_gp['track'], laps)
+            
+            # Determine winner user ID
+            winner_id = None
+            for res in results:
+                if res['finish_position'] == 1:
+                    winner_id = res['user_id']
+                    break
                     
-        # Update qualifying grid
-        grid_desc = "\n".join(qual_logs[:20]) # Limit grid print
-        progress_embed.description = f"⏱️ **Grid Positions Set!**\n\n{grid_desc}"
-        await live_message.edit(embed=progress_embed)
-        await asyncio.sleep(4)
-        
-        # Stream race lap-by-lap
-        race_history = []
-        if "Lights Out" in race_lap_logs:
-            race_history.extend(race_lap_logs["Lights Out"])
-            progress_embed.description = "\n".join(race_history)
-            progress_embed.color = utils.COLOR_QUALIFYING
+            # Save results in database
+            database.save_gp_results(active_gp['race_id'], results, winner_id)
+            
+            # Output Live Race Commentary in channel
+            # We will create a live updating embed for maximum immersion (lap by lap updates)
+            progress_embed = utils.create_embed(
+                title=f"🏎️ LIVE: Grand Prix of {active_gp['track']}",
+                description="⏱️ **Qualifying and grid setups are initializing...**",
+                color=utils.COLOR_QUALIFYING
+            )
+            live_message = await interaction.followup.send(embed=progress_embed)
+            
+            # Process logs lap by lap
+            qual_logs = []
+            race_lap_logs = {}
+            finish_logs = []
+            
+            current_section = "qual"
+            for log in logs:
+                if "Qualifying" in log or "P1:" in log or "P2:" in log or "P3:" in log or "P4:" in log or "P5:" in log or "P6:" in log or "P7:" in log or "P8:" in log or "P9:" in log or "P10:" in log:
+                    qual_logs.append(log)
+                elif "Lights Out!" in log:
+                    current_section = "race"
+                    race_lap_logs["Lights Out"] = [log]
+                elif "Lap " in log:
+                    # Group by Lap number
+                    import re
+                    lap_match = re.search(r"Lap (\d+)", log)
+                    if lap_match:
+                        lap_num = int(lap_match.group(1))
+                        if lap_num not in race_lap_logs:
+                            race_lap_logs[lap_num] = []
+                        race_lap_logs[lap_num].append(log)
+                elif "Checkered Flag!" in log or "P1:" in log or "Points:" in log or "Winner:" in log:
+                    current_section = "finish"
+                    finish_logs.append(log)
+                else:
+                    if current_section == "qual":
+                        qual_logs.append(log)
+                    elif current_section == "finish":
+                        finish_logs.append(log)
+                        
+            # Update qualifying grid
+            grid_desc = "\n".join(qual_logs[:20]) # Limit grid print
+            progress_embed.description = f"⏱️ **Grid Positions Set!**\n\n{grid_desc}"
             await live_message.edit(embed=progress_embed)
-            await asyncio.sleep(2)
+            await asyncio.sleep(4)
             
-        sorted_keys = sorted([k for k in race_lap_logs.keys() if isinstance(k, int)])
-        
-        for l_num in sorted_keys:
-            lap_events = race_lap_logs[l_num]
-            race_history.append(f"\n**🏁 Lap {l_num}:**")
-            race_history.extend(lap_events)
+            # Stream race lap-by-lap
+            race_history = []
+            if "Lights Out" in race_lap_logs:
+                race_history.extend(race_lap_logs["Lights Out"])
+                progress_embed.description = "\n".join(race_history)
+                progress_embed.color = utils.COLOR_QUALIFYING
+                await live_message.edit(embed=progress_embed)
+                await asyncio.sleep(2)
+                
+            sorted_keys = sorted([k for k in race_lap_logs.keys() if isinstance(k, int)])
             
-            # Keep only the last 15 lines of commentary to avoid exceeding Discord limits
-            show_history = race_history[-15:]
-            progress_embed.description = "\n".join(show_history)
-            progress_embed.color = utils.COLOR_RACE_RESULTS
-            await live_message.edit(embed=progress_embed)
-            await asyncio.sleep(15.0) # Time between laps (slowed down for immersion)
-            
-        # Post final standings
-        # Split finish_logs into chunks of max 20 lines to prevent character limits
-        chunks = []
-        current_chunk = []
-        for log in finish_logs:
-            current_chunk.append(log)
-            if len(current_chunk) == 20:
+            for l_num in sorted_keys:
+                lap_events = race_lap_logs[l_num]
+                race_history.append(f"\n**🏁 Lap {l_num}:**")
+                race_history.extend(lap_events)
+                
+                # Keep only the last 15 lines of commentary to avoid exceeding Discord limits
+                show_history = race_history[-15:]
+                progress_embed.description = "\n".join(show_history)
+                progress_embed.color = utils.COLOR_RACE_RESULTS
+                await live_message.edit(embed=progress_embed)
+                await asyncio.sleep(15.0) # Time between laps (slowed down for immersion)
+                
+            # Post final standings
+            # Split finish_logs into chunks of max 20 lines to prevent character limits
+            chunks = []
+            current_chunk = []
+            for log in finish_logs:
+                current_chunk.append(log)
+                if len(current_chunk) == 20:
+                    chunks.append("\n".join(current_chunk))
+                    current_chunk = []
+            if current_chunk:
                 chunks.append("\n".join(current_chunk))
-                current_chunk = []
-        if current_chunk:
-            chunks.append("\n".join(current_chunk))
-            
-        results_embed = utils.create_embed(
-            title=f"🏁 RESULTS: Grand Prix of {active_gp['track']} Finished",
-            description=f"🏆 **Grand Prix completed successfully!**\n\n" + (chunks[0] if chunks else ""),
-            color=utils.COLOR_SUCCESS
-        )
-        await live_message.edit(embed=results_embed)
-        
-        for c in chunks[1:]:
-            await interaction.followup.send(embed=utils.create_embed(
-                title=f"🏁 Grand Prix Results (Continued)",
-                description=c,
+                
+            results_embed = utils.create_embed(
+                title=f"🏁 RESULTS: Grand Prix of {active_gp['track']} Finished",
+                description=f"🏆 **Grand Prix completed successfully!**\n\n" + (chunks[0] if chunks else ""),
                 color=utils.COLOR_SUCCESS
-            ))
+            )
+            await live_message.edit(embed=results_embed)
+            
+            for c in chunks[1:]:
+                await interaction.followup.send(embed=utils.create_embed(
+                    title=f"🏁 Grand Prix Results (Continued)",
+                    description=c,
+                    color=utils.COLOR_SUCCESS
+                ))
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            await interaction.followup.send(f"❌ **Error starting GP:** `{e}`")
 
 @bot.tree.command(name="joinrace", description="Register and pay 1000¢ entry fee to join the upcoming Grand Prix.")
 @app_commands.guild_only()
