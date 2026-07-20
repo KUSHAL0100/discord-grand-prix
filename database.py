@@ -506,9 +506,9 @@ def get_leaderboard(by_type: str = 'points', limit: int = 10) -> List[Dict[str, 
         """, (limit,))
     else:  # Default to championship points
         cursor.execute("""
-            SELECT u.team_name, SUM(re.points_earned) as score, u.level
+            SELECT u.team_name, COALESCE(SUM(re.points_earned), 0) as score, u.level
             FROM users u
-            JOIN race_entries re ON u.user_id = re.user_id
+            LEFT JOIN race_entries re ON u.user_id = re.user_id
             GROUP BY u.user_id
             ORDER BY score DESC
             LIMIT ?
