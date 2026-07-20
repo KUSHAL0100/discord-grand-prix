@@ -144,6 +144,15 @@ async def start(interaction: discord.Interaction, team_name: str, country: str =
         
     success, msg = database.create_user(interaction.user.id, interaction.guild_id, team_name, country)
     if success:
+        # Check if there is an active GP scheduled in the server
+        active_gp = database.get_active_gp_race(interaction.guild_id)
+        gp_suggestion = ""
+        if active_gp:
+            gp_suggestion = (
+                f"\n\n🏁 **Active Event:** The **{active_gp['name']}** is scheduled at **{active_gp['track']}**!\n"
+                f"Type **`/joinrace`** to register your team and participate in the championship."
+            )
+            
         embed = utils.create_embed(
             title=f"🏎️ Welcome to Discord Grand Prix!",
             description=(
@@ -151,7 +160,7 @@ async def start(interaction: discord.Interaction, team_name: str, country: str =
                 f"💰 **Starting Balance:** {config.STARTING_MONEY}¢\n"
                 f"🛠️ **Garage:** Level 1 components installed\n\n"
                 f"Earn credits by text chatting and hanging out in voice. "
-                f"Upgrade your car parts using `/upgrade` and duel other players via `/race`!"
+                f"Upgrade your car parts using `/upgrade` and duel other players via `/race`!{gp_suggestion}"
             ),
             color=utils.COLOR_SUCCESS
         )
@@ -838,7 +847,13 @@ async def gp_admin(interaction: discord.Interaction, action: app_commands.Choice
             
         success, msg = database.create_gp_race(interaction.guild_id, name, track, laps)
         color = utils.COLOR_SUCCESS if success else utils.COLOR_ERROR
-        await interaction.response.send_message(embed=utils.create_embed(title="🏁 Grand Prix Scheduling", description=msg, color=color))
+        embed = utils.create_embed(title="🏁 Grand Prix Scheduling", description=msg, color=color)
+        if success:
+            embed.description += (
+                f"\n\n📢 **Attention Drivers!**\n"
+                f"A new race event has been scheduled. Type **`/joinrace`** to register and secure your spot on the starting grid!"
+            )
+        await interaction.response.send_message(embed=embed)
         
     elif act == "cancel":
         success, msg = database.cancel_active_gp(interaction.guild_id)
