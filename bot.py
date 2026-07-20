@@ -58,7 +58,7 @@ async def on_message(message: discord.Message):
         return
         
     # Check if user has a profile
-    user = database.get_user_by_discord_id(message.author.id)
+    user = database.get_user_by_discord_id(message.author.id, message.guild.id)
     if user:
         now = datetime.now()
         last_award = chat_cooldowns.get(message.author.id)
@@ -96,7 +96,7 @@ async def on_voice_state_update(member: discord.Member, before: discord.VoiceSta
             minutes = duration.total_seconds() / 60.0
             
             if minutes >= 1.0:
-                user = database.get_user_by_discord_id(member.id)
+                user = database.get_user_by_discord_id(member.id, member.guild.id)
                 if user:
                     earned = database.award_daily_activity_credits(
                         user['user_id'], 
@@ -127,13 +127,14 @@ def is_admin():
 
 @bot.tree.command(name="start", description="Initialize your Discord Grand Prix racing team!")
 @app_commands.describe(team_name="Your racing team name", country="Your home country flag or name (optional)")
+@app_commands.guild_only()
 async def start(interaction: discord.Interaction, team_name: str, country: str = None):
     # Enforce team name length limit
     if len(team_name) > 32:
         await interaction.response.send_message("❌ Team name cannot exceed 32 characters.", ephemeral=True)
         return
         
-    success, msg = database.create_user(interaction.user.id, team_name, country)
+    success, msg = database.create_user(interaction.user.id, interaction.guild_id, team_name, country)
     if success:
         embed = utils.create_embed(
             title=f"🏎️ Welcome to Discord Grand Prix!",
@@ -155,15 +156,16 @@ async def start(interaction: discord.Interaction, team_name: str, country: str =
 
 @bot.tree.command(name="profile", description="View your team profile and overall standings.")
 @app_commands.describe(member="Select another team owner to view their profile (optional)")
+@app_commands.guild_only()
 async def profile(interaction: discord.Interaction, member: discord.Member = None):
     target = member or interaction.user
-    prof = database.get_full_team_profile(target.id)
+    prof = database.get_full_team_profile(target.id, interaction.guild_id)
     
     if not prof:
         if member:
-            await interaction.response.send_message("❌ That user does not have a team profile yet.", ephemeral=True)
+            await interaction.response.send_message("❌ That user does not have a team profile yet in this server.", ephemeral=True)
         else:
-            await interaction.response.send_message("❌ You haven't registered a profile yet! Run `/start` to begin.", ephemeral=True)
+            await interaction.response.send_message("❌ You haven't registered a profile yet in this server! Run `/start` to begin.", ephemeral=True)
         return
         
     # Calculate overall power
@@ -202,13 +204,15 @@ async def profile(interaction: discord.Interaction, member: discord.Member = Non
 
 @bot.tree.command(name="team", description="Show detailed summary of a team.")
 @app_commands.describe(member="Select another team owner (optional)")
+@app_commands.guild_only()
 async def team_info(interaction: discord.Interaction, member: discord.Member = None):
     # Map to profile command directly as required by PRD
     await profile(interaction, member)
 
 @bot.tree.command(name="garage", description="View your current car component levels and damage.")
+@app_commands.guild_only()
 async def garage(interaction: discord.Interaction):
-    prof = database.get_full_team_profile(interaction.user.id)
+    prof = database.get_full_team_profile(interaction.user.id, interaction.guild_id)
     if not prof:
         await interaction.response.send_message("❌ You do not have a profile. Use `/start`.", ephemeral=True)
         return
@@ -233,8 +237,9 @@ async def garage(interaction: discord.Interaction):
     await interaction.response.send_message(embed=embed)
 
 @bot.tree.command(name="stats", description="View detailed Driver and Strategist statistics.")
+@app_commands.guild_only()
 async def stats(interaction: discord.Interaction):
-    prof = database.get_full_team_profile(interaction.user.id)
+    prof = database.get_full_team_profile(interaction.user.id, interaction.guild_id)
     if not prof:
         await interaction.response.send_message("❌ You do not have a profile. Use `/start`.", ephemeral=True)
         return
@@ -268,8 +273,9 @@ async def stats(interaction: discord.Interaction):
     await interaction.response.send_message(embed=embed)
 
 @bot.tree.command(name="daily", description="Claim your daily credit login bonus (500 credits).")
+@app_commands.guild_only()
 async def daily(interaction: discord.Interaction):
-    prof = database.get_user_by_discord_id(interaction.user.id)
+    prof = database.get_user_by_discord_id(interaction.user.id, interaction.guild_id)
     if not prof:
         await interaction.response.send_message("❌ You do not have a profile. Use `/start`.", ephemeral=True)
         return
@@ -279,8 +285,9 @@ async def daily(interaction: discord.Interaction):
     await interaction.response.send_message(embed=utils.create_embed(title="📅 Daily Bonus", description=msg, color=color))
 
 @bot.tree.command(name="work", description="Perform a daily odd-job for your racing team to earn credits.")
+@app_commands.guild_only()
 async def work(interaction: discord.Interaction):
-    prof = database.get_user_by_discord_id(interaction.user.id)
+    prof = database.get_user_by_discord_id(interaction.user.id, interaction.guild_id)
     if not prof:
         await interaction.response.send_message("❌ You do not have a profile. Use `/start`.", ephemeral=True)
         return
@@ -293,13 +300,14 @@ async def work(interaction: discord.Interaction):
 
 @bot.tree.command(name="race", description="Challenge another user to a 1-lap racing duel!")
 @app_commands.describe(opponent="The player you want to challenge")
+@app_commands.guild_only()
 async def race_duel(interaction: discord.Interaction, opponent: discord.Member):
     if opponent.id == interaction.user.id:
         await interaction.response.send_message("❌ You cannot race against yourself!", ephemeral=True)
         return
         
-    p1_prof = database.get_full_team_profile(interaction.user.id)
-    p2_prof = database.get_full_team_profile(opponent.id)
+    p1_prof = database.get_full_team_profile(interaction.user.id, interaction.guild_id)
+    p2_prof = database.get_full_team_profile(opponent.id, interaction.guild_id)
     
     if not p1_prof:
         await interaction.response.send_message("❌ You do not have a profile. Use `/start` first.", ephemeral=True)
@@ -465,6 +473,7 @@ class BetAcceptView(discord.ui.View):
 
 @bot.tree.command(name="bet", description="Challenge another user to a race with a credit wager!")
 @app_commands.describe(opponent="The player you want to wager against", amount="Credits amount to bet")
+@app_commands.guild_only()
 async def race_bet(interaction: discord.Interaction, opponent: discord.Member, amount: int):
     if opponent.id == interaction.user.id:
         await interaction.response.send_message("❌ You cannot bet against yourself!", ephemeral=True)
@@ -473,8 +482,8 @@ async def race_bet(interaction: discord.Interaction, opponent: discord.Member, a
         await interaction.response.send_message("❌ Bet amount must be positive.", ephemeral=True)
         return
         
-    p1_prof = database.get_full_team_profile(interaction.user.id)
-    p2_prof = database.get_full_team_profile(opponent.id)
+    p1_prof = database.get_full_team_profile(interaction.user.id, interaction.guild_id)
+    p2_prof = database.get_full_team_profile(opponent.id, interaction.guild_id)
     
     if not p1_prof:
         await interaction.response.send_message("❌ You do not have a profile. Use `/start` first.", ephemeral=True)
@@ -501,8 +510,9 @@ async def race_bet(interaction: discord.Interaction, opponent: discord.Member, a
 # ----------------- Upgrades & Shops -----------------
 
 @bot.tree.command(name="shop", description="Browse available upgrades and costs.")
+@app_commands.guild_only()
 async def shop(interaction: discord.Interaction):
-    prof = database.get_full_team_profile(interaction.user.id)
+    prof = database.get_full_team_profile(interaction.user.id, interaction.guild_id)
     if not prof:
         await interaction.response.send_message("❌ You do not have a profile. Use `/start`.", ephemeral=True)
         return
@@ -539,8 +549,9 @@ async def shop(interaction: discord.Interaction):
     app_commands.Choice(name="Reliability", value="reliability"),
     app_commands.Choice(name="Pit Crew", value="pit_crew")
 ])
+@app_commands.guild_only()
 async def upgrade(interaction: discord.Interaction, part: app_commands.Choice[str]):
-    prof = database.get_user_by_discord_id(interaction.user.id)
+    prof = database.get_user_by_discord_id(interaction.user.id, interaction.guild_id)
     if not prof:
         await interaction.response.send_message("❌ You do not have a profile. Use `/start`.", ephemeral=True)
         return
@@ -550,8 +561,9 @@ async def upgrade(interaction: discord.Interaction, part: app_commands.Choice[st
     await interaction.response.send_message(embed=utils.create_embed(title="🛒 Shop Upgrade", description=msg, color=color))
 
 @bot.tree.command(name="repairs", description="View damaged components and repair costs.")
+@app_commands.guild_only()
 async def repairs(interaction: discord.Interaction):
-    prof = database.get_full_team_profile(interaction.user.id)
+    prof = database.get_full_team_profile(interaction.user.id, interaction.guild_id)
     if not prof:
         await interaction.response.send_message("❌ You do not have a profile. Use `/start`.", ephemeral=True)
         return
@@ -576,8 +588,9 @@ async def repairs(interaction: discord.Interaction):
     app_commands.Choice(name="Engine", value="engine"),
     app_commands.Choice(name="Tyres", value="tyres")
 ])
+@app_commands.guild_only()
 async def repair(interaction: discord.Interaction, part: app_commands.Choice[str]):
-    prof = database.get_user_by_discord_id(interaction.user.id)
+    prof = database.get_user_by_discord_id(interaction.user.id, interaction.guild_id)
     if not prof:
         await interaction.response.send_message("❌ You do not have a profile. Use `/start`.", ephemeral=True)
         return
@@ -592,9 +605,10 @@ async def repair(interaction: discord.Interaction, part: app_commands.Choice[str
     app_commands.Choice(name="Championship Points", value="points"),
     app_commands.Choice(name="Money / Balance", value="money")
 ])
+@app_commands.guild_only()
 async def leaderboard(interaction: discord.Interaction, sort_by: app_commands.Choice[str] = None):
     criteria = sort_by.value if sort_by else "points"
-    results = database.get_leaderboard(criteria)
+    results = database.get_leaderboard(interaction.guild_id, criteria)
     
     if not results:
         await interaction.response.send_message("The leaderboard is currently empty.", ephemeral=True)
@@ -610,6 +624,7 @@ async def leaderboard(interaction: discord.Interaction, sort_by: app_commands.Ch
     await interaction.response.send_message(embed=embed)
 
 @bot.tree.command(name="help", description="Show detailed guide on how to play Discord Grand Prix.")
+@app_commands.guild_only()
 async def help_command(interaction: discord.Interaction):
     desc = (
         "🏎️ **Discord Grand Prix — Quick Guide**\n\n"
@@ -644,6 +659,7 @@ async def help_command(interaction: discord.Interaction):
     app_commands.Choice(name="Cancel Active GP", value="cancel")
 ])
 @is_admin()
+@app_commands.guild_only()
 async def gp_admin(interaction: discord.Interaction, action: app_commands.Choice[str], name: str = None, track: str = None, laps: int = 15):
     act = action.value
     
@@ -652,17 +668,17 @@ async def gp_admin(interaction: discord.Interaction, action: app_commands.Choice
             await interaction.response.send_message("❌ Please provide a name and track to create a GP. Example: `/gp create name:'Monza GP' track:'Monza'`", ephemeral=True)
             return
             
-        success, msg = database.create_gp_race(name, track, laps)
+        success, msg = database.create_gp_race(interaction.guild_id, name, track, laps)
         color = utils.COLOR_SUCCESS if success else utils.COLOR_ERROR
         await interaction.response.send_message(embed=utils.create_embed(title="🏁 Grand Prix Scheduling", description=msg, color=color))
         
     elif act == "cancel":
-        success, msg = database.cancel_active_gp()
+        success, msg = database.cancel_active_gp(interaction.guild_id)
         color = utils.COLOR_SUCCESS if success else utils.COLOR_ERROR
         await interaction.response.send_message(embed=utils.create_embed(title="🏁 Grand Prix Cancelled", description=msg, color=color))
         
     elif act == "start":
-        active_gp = database.get_active_gp_race()
+        active_gp = database.get_active_gp_race(interaction.guild_id)
         if not active_gp:
             await interaction.response.send_message("❌ There is no active Grand Prix scheduled. Run `/gp create` first.", ephemeral=True)
             return
@@ -766,20 +782,23 @@ async def gp_admin(interaction: discord.Interaction, action: app_commands.Choice
         await live_message.edit(embed=results_embed)
 
 @bot.tree.command(name="joinrace", description="Register and pay 1000¢ entry fee to join the upcoming Grand Prix.")
+@app_commands.guild_only()
 async def join_race(interaction: discord.Interaction):
-    success, msg = database.register_gp_entry(interaction.user.id)
+    success, msg = database.register_gp_entry(interaction.user.id, interaction.guild_id)
     color = utils.COLOR_SUCCESS if success else utils.COLOR_ERROR
     await interaction.response.send_message(embed=utils.create_embed(title="🏁 Race Entry", description=msg, color=color))
 
 @bot.tree.command(name="leaverace", description="Leave the upcoming Grand Prix and receive a refund of your 1000¢ entry fee.")
+@app_commands.guild_only()
 async def leave_race(interaction: discord.Interaction):
-    success, msg = database.unregister_gp_entry(interaction.user.id)
+    success, msg = database.unregister_gp_entry(interaction.user.id, interaction.guild_id)
     color = utils.COLOR_SUCCESS if success else utils.COLOR_ERROR
     await interaction.response.send_message(embed=utils.create_embed(title="🏁 Race Withdrawal", description=msg, color=color))
 
 @bot.tree.command(name="grid", description="View the current registration list and qualifying grid.")
+@app_commands.guild_only()
 async def view_grid(interaction: discord.Interaction):
-    active_gp = database.get_active_gp_race()
+    active_gp = database.get_active_gp_race(interaction.guild_id)
     if not active_gp:
         await interaction.response.send_message("❌ There is no active Grand Prix scheduled.", ephemeral=True)
         return
@@ -801,12 +820,14 @@ async def view_grid(interaction: discord.Interaction):
     await interaction.response.send_message(embed=embed)
 
 @bot.tree.command(name="standings", description="View current overall Grand Prix points championship standings.")
+@app_commands.guild_only()
 async def standings(interaction: discord.Interaction):
     await leaderboard(interaction)
 
 @bot.tree.command(name="results", description="View final standings of the last completed Grand Prix.")
+@app_commands.guild_only()
 async def results(interaction: discord.Interaction):
-    race_info, results_rows = database.get_last_finished_gp_results()
+    race_info, results_rows = database.get_last_finished_gp_results(interaction.guild_id)
     if not race_info:
         await interaction.response.send_message("❌ No Grand Prix races have finished yet.", ephemeral=True)
         return
@@ -828,12 +849,13 @@ async def results(interaction: discord.Interaction):
 @bot.tree.command(name="give", description="Give credits to a player (Admin only).")
 @app_commands.describe(member="The target player", amount="Credits amount to give")
 @is_admin()
+@app_commands.guild_only()
 async def admin_give(interaction: discord.Interaction, member: discord.Member, amount: int):
     if amount <= 0:
         await interaction.response.send_message("❌ Amount must be positive.", ephemeral=True)
         return
         
-    user = database.get_user_by_discord_id(member.id)
+    user = database.get_user_by_discord_id(member.id, interaction.guild_id)
     if not user:
         await interaction.response.send_message("❌ User has no profile.", ephemeral=True)
         return
@@ -850,12 +872,13 @@ async def admin_give(interaction: discord.Interaction, member: discord.Member, a
 @bot.tree.command(name="remove", description="Deduct credits from a player (Admin only).")
 @app_commands.describe(member="The target player", amount="Credits amount to deduct")
 @is_admin()
+@app_commands.guild_only()
 async def admin_remove(interaction: discord.Interaction, member: discord.Member, amount: int):
     if amount <= 0:
         await interaction.response.send_message("❌ Amount must be positive.", ephemeral=True)
         return
         
-    user = database.get_user_by_discord_id(member.id)
+    user = database.get_user_by_discord_id(member.id, interaction.guild_id)
     if not user:
         await interaction.response.send_message("❌ User has no profile.", ephemeral=True)
         return
@@ -875,8 +898,9 @@ async def admin_remove(interaction: discord.Interaction, member: discord.Member,
 @bot.tree.command(name="reset", description="Reset a player's profile and delete all upgrades/ratings (Admin only).")
 @app_commands.describe(member="The target player")
 @is_admin()
+@app_commands.guild_only()
 async def admin_reset(interaction: discord.Interaction, member: discord.Member):
-    user = database.get_user_by_discord_id(member.id)
+    user = database.get_user_by_discord_id(member.id, interaction.guild_id)
     if not user:
         await interaction.response.send_message("❌ User has no profile to reset.", ephemeral=True)
         return
@@ -902,6 +926,7 @@ async def admin_reset(interaction: discord.Interaction, member: discord.Member):
 @bot.tree.command(name="broadcast", description="Broadcast an announcement message to a designated channel (Admin only).")
 @app_commands.describe(message="The announcement message content")
 @is_admin()
+@app_commands.guild_only()
 async def admin_broadcast(interaction: discord.Interaction, message: str):
     channel_id = config.ANNOUNCEMENT_CHANNEL_ID or interaction.channel_id
     channel = bot.get_channel(channel_id)
@@ -922,6 +947,7 @@ async def admin_broadcast(interaction: discord.Interaction, message: str):
 
 @bot.tree.command(name="dbbackup", description="Trigger manual backup copy of SQLite DB (Admin only).")
 @is_admin()
+@app_commands.guild_only()
 async def admin_dbbackup(interaction: discord.Interaction):
     if not os.path.exists(config.DATABASE_PATH):
         await interaction.response.send_message("❌ Database file does not exist yet.", ephemeral=True)
@@ -943,6 +969,7 @@ async def admin_dbbackup(interaction: discord.Interaction):
 @bot.tree.command(name="debug", description="Toggle verbose terminal logs (Admin only).")
 @app_commands.describe(toggle="Turn debug logs on/off")
 @is_admin()
+@app_commands.guild_only()
 async def admin_debug(interaction: discord.Interaction, toggle: bool):
     global debug_mode
     debug_mode = toggle

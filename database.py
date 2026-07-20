@@ -23,7 +23,8 @@ def init_db():
     cursor.execute(f"""
     CREATE TABLE IF NOT EXISTS users (
         user_id INTEGER PRIMARY KEY AUTOINCREMENT,
-        discord_id BIGINT UNIQUE NOT NULL,
+        discord_id BIGINT NOT NULL,
+        guild_id BIGINT NOT NULL,
         team_name TEXT NOT NULL,
         country TEXT,
         money INTEGER NOT NULL DEFAULT {config.STARTING_MONEY},
@@ -36,7 +37,8 @@ def init_db():
         last_credits_reset TEXT DEFAULT (date('now')),
         last_daily_claim TEXT,
         last_work_claim TEXT,
-        created_at TEXT DEFAULT (datetime('now'))
+        created_at TEXT DEFAULT (datetime('now')),
+        UNIQUE(discord_id, guild_id)
     );
     """)
 
@@ -92,6 +94,7 @@ def init_db():
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS races (
         race_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        guild_id BIGINT NOT NULL,
         name TEXT NOT NULL,
         date TEXT NOT NULL,
         track TEXT NOT NULL,
@@ -141,7 +144,7 @@ def init_db():
 
 # ----------------- User and Profile Management Helpers -----------------
 
-def create_user(discord_id: int, team_name: str, country: Optional[str] = None) -> Tuple[bool, str]:
+def create_user(discord_id: int, guild_id: int, team_name: str, country: Optional[str] = None) -> Tuple[bool, str]:
     """
     Create a new user, initializing their driver, strategist, and garage levels.
     Returns (success, message).
@@ -166,20 +169,20 @@ def create_user(discord_id: int, team_name: str, country: Optional[str] = None) 
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        # Check if user already exists
-        cursor.execute("SELECT user_id FROM users WHERE discord_id = ?", (discord_id,))
+        # Check if user already exists in this guild
+        cursor.execute("SELECT user_id FROM users WHERE discord_id = ? AND guild_id = ?", (discord_id, guild_id))
         if cursor.fetchone():
-            return False, "You have already created a profile! Use `/profile` to view your team."
+            return False, "You have already created a profile in this server! Use `/profile` to view your team."
 
-        # Check if team name already exists (case-insensitive)
-        cursor.execute("SELECT user_id FROM users WHERE LOWER(team_name) = LOWER(?)", (team_name_clean,))
+        # Check if team name already exists in this guild (case-insensitive)
+        cursor.execute("SELECT user_id FROM users WHERE LOWER(team_name) = LOWER(?) AND guild_id = ?", (team_name_clean, guild_id))
         if cursor.fetchone():
-            return False, f"The team name '**{team_name_clean}**' is already taken! Please choose a unique team name."
+            return False, f"The team name '**{team_name_clean}**' is already taken in this server! Please choose a unique team name."
 
         # Insert user
         cursor.execute(
-            "INSERT INTO users (discord_id, team_name, country) VALUES (?, ?, ?)",
-            (discord_id, team_name_clean, country)
+            "INSERT INTO users (discord_id, guild_id, team_name, country) VALUES (?, ?, ?, ?)",
+            (discord_id, guild_id, team_name_clean, country)
         )
         user_id = cursor.lastrowid
 
@@ -209,11 +212,11 @@ def create_user(discord_id: int, team_name: str, country: Optional[str] = None) 
     finally:
         conn.close()
 
-def get_user_by_discord_id(discord_id: int) -> Optional[Dict[str, Any]]:
-    """Get user profile details by discord_id."""
+def get_user_by_discord_id(discord_id: int, guild_id: int) -> Optional[Dict[str, Any]]:
+    """Get user profile details by discord_id and guild_id."""
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT * FROM users WHERE discord_id = ?", (discord_id,))
+    cursor.execute("SELECT * FROM users WHERE discord_id = ? AND guild_id = ?", (discord_id, guild_id))
     row = cursor.fetchone()
     conn.close()
     return dict(row) if row else None
@@ -227,7 +230,7 @@ def get_user_by_id(user_id: int) -> Optional[Dict[str, Any]]:
     conn.close()
     return dict(row) if row else None
 
-def get_full_team_profile(discord_id: int) -> Optional[Dict[str, Any]]:
+def get_full_team_profile(discord_id: int, guild_id: int) -> Optional[Dict[str, Any]]:
     """Retrieve user, driver, strategist, and garage details as a single dictionary."""
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -243,8 +246,8 @@ def get_full_team_profile(discord_id: int) -> Optional[Dict[str, Any]]:
         LEFT JOIN drivers d ON u.user_id = d.user_id
         LEFT JOIN strategists s ON u.user_id = s.user_id
         LEFT JOIN garage g ON u.user_id = g.user_id
-        WHERE u.discord_id = ?
-    """, (discord_id,))
+        WHERE u.discord_id = ? AND u.guild_id = ?
+    """, (discord_id, guild_id))
     
     row = cursor.fetchone()
     conn.close()
@@ -489,9 +492,9 @@ def repair_part(user_id: int, part_name: str) -> Tuple[bool, str]:
 
 # ----------------- Leaderboard -----------------
 
-def get_leaderboard(by_type: str = 'points', limit: int = 10) -> List[Dict[str, Any]]:
+def get_leaderboard(guild_id: int, by_type: str = 'points', limit: int = 10) -> List[Dict[str, Any]]:
     """
-    Get leaderboard top lists.
+    Get leaderboard top lists filtered by guild_id.
     by_type can be 'points' (sum of race entries points) or 'money' (user's credit balance).
     """
     conn = get_db_connection()
@@ -501,18 +504,20 @@ def get_leaderboard(by_type: str = 'points', limit: int = 10) -> List[Dict[str, 
         cursor.execute("""
             SELECT team_name, money as score, level
             FROM users
+            WHERE guild_id = ?
             ORDER BY money DESC
             LIMIT ?
-        """, (limit,))
+        """, (guild_id, limit))
     else:  # Default to championship points
         cursor.execute("""
             SELECT u.team_name, COALESCE(SUM(re.points_earned), 0) as score, u.level
             FROM users u
             LEFT JOIN race_entries re ON u.user_id = re.user_id
+            WHERE u.guild_id = ?
             GROUP BY u.user_id
             ORDER BY score DESC
             LIMIT ?
-        """, (limit,))
+        """, (guild_id, limit))
         
     rows = cursor.fetchall()
     conn.close()
@@ -520,20 +525,20 @@ def get_leaderboard(by_type: str = 'points', limit: int = 10) -> List[Dict[str, 
 
 # ----------------- Grand Prix & Race Entries Helpers -----------------
 
-def create_gp_race(name: str, track: str, laps: int) -> Tuple[bool, str]:
-    """Create a new Grand Prix race in Registration status."""
+def create_gp_race(guild_id: int, name: str, track: str, laps: int) -> Tuple[bool, str]:
+    """Create a new Grand Prix race in Registration status for a specific guild."""
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        # Check if there is already a race in Registration or Qualifying status
-        cursor.execute("SELECT race_id FROM races WHERE status IN ('Registration', 'Qualifying')")
+        # Check if there is already a race in Registration or Qualifying status for this guild
+        cursor.execute("SELECT race_id FROM races WHERE status IN ('Registration', 'Qualifying') AND guild_id = ?", (guild_id,))
         if cursor.fetchone():
-            return False, "There is already an active Grand Prix event in progress. Start or cancel it first."
+            return False, "There is already an active Grand Prix event in progress on this server. Start or cancel it first."
             
         today_str = datetime.now().isoformat()
         cursor.execute(
-            "INSERT INTO races (name, date, track, weather, status) VALUES (?, ?, ?, ?, 'Registration')",
-            (name, today_str, track, "Sunny")  # Initial weather is Sunny
+            "INSERT INTO races (guild_id, name, date, track, weather, status) VALUES (?, ?, ?, ?, ?, 'Registration')",
+            (guild_id, name, today_str, track, "Sunny")  # Initial weather is Sunny
         )
         conn.commit()
         return True, f"Grand Prix **{name}** at **{track}** ({laps} laps) has been scheduled! Type `/joinrace` to enter."
@@ -543,24 +548,24 @@ def create_gp_race(name: str, track: str, laps: int) -> Tuple[bool, str]:
     finally:
         conn.close()
 
-def get_active_gp_race() -> Optional[Dict[str, Any]]:
-    """Get the currently active Grand Prix race (Registration or Qualifying status)."""
+def get_active_gp_race(guild_id: int) -> Optional[Dict[str, Any]]:
+    """Get the currently active Grand Prix race (Registration or Qualifying status) for a specific guild."""
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT * FROM races WHERE status IN ('Registration', 'Qualifying')")
+    cursor.execute("SELECT * FROM races WHERE status IN ('Registration', 'Qualifying') AND guild_id = ?", (guild_id,))
     row = cursor.fetchone()
     conn.close()
     return dict(row) if row else None
 
-def cancel_active_gp() -> Tuple[bool, str]:
-    """Cancel the active Grand Prix and refund entry fees."""
+def cancel_active_gp(guild_id: int) -> Tuple[bool, str]:
+    """Cancel the active Grand Prix and refund entry fees for a specific guild."""
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        cursor.execute("SELECT race_id FROM races WHERE status IN ('Registration', 'Qualifying')")
+        cursor.execute("SELECT race_id FROM races WHERE status IN ('Registration', 'Qualifying') AND guild_id = ?", (guild_id,))
         row = cursor.fetchone()
         if not row:
-            return False, "There is no active Grand Prix to cancel."
+            return False, "There is no active Grand Prix to cancel on this server."
             
         race_id = row['race_id']
         
@@ -581,21 +586,21 @@ def cancel_active_gp() -> Tuple[bool, str]:
     finally:
         conn.close()
 
-def register_gp_entry(discord_id: int) -> Tuple[bool, str]:
-    """Register a user for the upcoming Grand Prix. Deducts entry fee."""
+def register_gp_entry(discord_id: int, guild_id: int) -> Tuple[bool, str]:
+    """Register a user for the upcoming Grand Prix in a specific guild. Deducts entry fee."""
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        # Check active race
-        cursor.execute("SELECT race_id, status FROM races WHERE status = 'Registration'")
+        # Check active race in this guild
+        cursor.execute("SELECT race_id, status FROM races WHERE status = 'Registration' AND guild_id = ?", (guild_id,))
         race_row = cursor.fetchone()
         if not race_row:
-            return False, "There is no Grand Prix currently accepting registrations."
+            return False, "There is no Grand Prix currently accepting registrations on this server."
             
         race_id = race_row['race_id']
         
-        # Get user details
-        cursor.execute("SELECT user_id, money FROM users WHERE discord_id = ?", (discord_id,))
+        # Get user details for this guild
+        cursor.execute("SELECT user_id, money FROM users WHERE discord_id = ? AND guild_id = ?", (discord_id, guild_id))
         user_row = cursor.fetchone()
         if not user_row:
             return False, "You need to create a profile first! Use `/start`."
@@ -624,24 +629,24 @@ def register_gp_entry(discord_id: int) -> Tuple[bool, str]:
     finally:
         conn.close()
 
-def unregister_gp_entry(discord_id: int) -> Tuple[bool, str]:
-    """Unregister a user from the upcoming Grand Prix. Refunds entry fee."""
+def unregister_gp_entry(discord_id: int, guild_id: int) -> Tuple[bool, str]:
+    """Unregister a user from the upcoming Grand Prix in a specific guild. Refunds entry fee."""
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        # Check active race
-        cursor.execute("SELECT race_id FROM races WHERE status = 'Registration'")
+        # Check active race in this guild
+        cursor.execute("SELECT race_id FROM races WHERE status = 'Registration' AND guild_id = ?", (guild_id,))
         race_row = cursor.fetchone()
         if not race_row:
-            return False, "There is no Grand Prix currently accepting registrations."
+            return False, "There is no Grand Prix currently accepting registrations on this server."
             
         race_id = race_row['race_id']
         
-        # Get user details
-        cursor.execute("SELECT user_id FROM users WHERE discord_id = ?", (discord_id,))
+        # Get user details for this guild
+        cursor.execute("SELECT user_id FROM users WHERE discord_id = ? AND guild_id = ?", (discord_id, guild_id))
         user_row = cursor.fetchone()
         if not user_row:
-            return False, "You do not have a profile. Use `/start`."
+            return False, "You do not have a profile on this server. Use `/start`."
             
         user_id = user_row['user_id']
         
@@ -766,12 +771,12 @@ def save_gp_results(race_id: int, results: List[Dict[str, Any]], winner_user_id:
     finally:
         conn.close()
 
-def get_last_finished_gp_results() -> Tuple[Optional[Dict[str, Any]], List[Dict[str, Any]]]:
-    """Retrieve details of the last completed Grand Prix and its results."""
+def get_last_finished_gp_results(guild_id: int) -> Tuple[Optional[Dict[str, Any]], List[Dict[str, Any]]]:
+    """Retrieve details of the last completed Grand Prix and its results for a specific guild."""
     conn = get_db_connection()
     cursor = conn.cursor()
     
-    cursor.execute("SELECT * FROM races WHERE status = 'Finished' ORDER BY race_id DESC LIMIT 1")
+    cursor.execute("SELECT * FROM races WHERE status = 'Finished' AND guild_id = ? ORDER BY race_id DESC LIMIT 1", (guild_id,))
     race_row = cursor.fetchone()
     if not race_row:
         conn.close()

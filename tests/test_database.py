@@ -36,37 +36,37 @@ def setup_teardown_db():
                     pass
 
 def test_user_creation():
-    # Test new user creation
-    success, msg = database.create_user(discord_id=12345, team_name="Test Racing", country="US")
+    # Test new user creation (guild_id = 9999)
+    success, msg = database.create_user(discord_id=12345, guild_id=9999, team_name="Test Racing", country="US")
     assert success is True
     
-    # Try duplicate user
-    success_duplicate, msg = database.create_user(discord_id=12345, team_name="Other Name")
+    # Try duplicate user in same guild
+    success_duplicate, msg = database.create_user(discord_id=12345, guild_id=9999, team_name="Other Name")
     assert success_duplicate is False
     assert "already created a profile" in msg
     
-    # Try duplicate team name (case-insensitive)
-    success_dup_name, msg = database.create_user(discord_id=67890, team_name="TEST RACING")
+    # Try duplicate team name in same guild (case-insensitive)
+    success_dup_name, msg = database.create_user(discord_id=67890, guild_id=9999, team_name="TEST RACING")
     assert success_dup_name is False
     assert "already taken" in msg
     
     # Try invalid team name: too short
-    success_short, msg = database.create_user(discord_id=67890, team_name="Go")
+    success_short, msg = database.create_user(discord_id=67890, guild_id=9999, team_name="Go")
     assert success_short is False
     assert "at least 3 characters" in msg
     
     # Try invalid team name: no letters
-    success_no_letters, msg = database.create_user(discord_id=67890, team_name="123456")
+    success_no_letters, msg = database.create_user(discord_id=67890, guild_id=9999, team_name="123456")
     assert success_no_letters is False
     assert "contain at least one letter" in msg
     
     # Try invalid team name: illegal symbols
-    success_symbols, msg = database.create_user(discord_id=67890, team_name="Ferrari#$@")
+    success_symbols, msg = database.create_user(discord_id=67890, guild_id=9999, team_name="Ferrari#$@")
     assert success_symbols is False
     assert "can only contain letters" in msg
     
     # Verify profile contents
-    profile = database.get_full_team_profile(12345)
+    profile = database.get_full_team_profile(12345, guild_id=9999)
     assert profile is not None
     assert profile["team_name"] == "Test Racing"
     assert profile["country"] == "US"
@@ -75,36 +75,36 @@ def test_user_creation():
     assert profile["aerodynamics"] == 1
 
 def test_balance_update():
-    database.create_user(discord_id=12345, team_name="Test Racing")
-    user = database.get_user_by_discord_id(12345)
+    database.create_user(discord_id=12345, guild_id=9999, team_name="Test Racing")
+    user = database.get_user_by_discord_id(12345, guild_id=9999)
     
     # Add money
     success = database.update_user_balance(user["user_id"], 1000)
     assert success is True
-    updated_user = database.get_user_by_discord_id(12345)
+    updated_user = database.get_user_by_discord_id(12345, guild_id=9999)
     assert updated_user["money"] == config.STARTING_MONEY + 1000
     
     # Deduct money (success case)
     success = database.update_user_balance(user["user_id"], -500)
     assert success is True
-    updated_user = database.get_user_by_discord_id(12345)
+    updated_user = database.get_user_by_discord_id(12345, guild_id=9999)
     assert updated_user["money"] == config.STARTING_MONEY + 500
     
     # Deduct money (failure case - negative balance)
     success = database.update_user_balance(user["user_id"], -10000)
     assert success is False
-    updated_user = database.get_user_by_discord_id(12345)
+    updated_user = database.get_user_by_discord_id(12345, guild_id=9999)
     assert updated_user["money"] == config.STARTING_MONEY + 500  # unchanged
 
 def test_part_upgrades():
-    database.create_user(discord_id=12345, team_name="Test Racing")
-    user = database.get_user_by_discord_id(12345)
+    database.create_user(discord_id=12345, guild_id=9999, team_name="Test Racing")
+    user = database.get_user_by_discord_id(12345, guild_id=9999)
     
     # Upgrade engine: level 1 -> 2 (costs 500)
     success, msg = database.upgrade_part(user["user_id"], "engine")
     assert success is True
     
-    profile = database.get_full_team_profile(12345)
+    profile = database.get_full_team_profile(12345, guild_id=9999)
     assert profile["engine"] == 2
     assert profile["money"] == config.STARTING_MONEY - 500
     
@@ -119,3 +119,30 @@ def test_part_upgrades():
     success, msg = database.upgrade_part(user["user_id"], "engine")
     assert success is False
     assert "Insufficient credits" in msg
+
+def test_multi_guild_isolation():
+    # User 12345 registers team "RedBull" in Guild A (1111)
+    success, msg = database.create_user(discord_id=12345, guild_id=1111, team_name="RedBull")
+    assert success is True
+    
+    # User 12345 registers team "Ferrari" in Guild B (2222)
+    success, msg = database.create_user(discord_id=12345, guild_id=2222, team_name="Ferrari")
+    assert success is True
+    
+    # Verify profiles are isolated
+    prof_a = database.get_full_team_profile(12345, guild_id=1111)
+    assert prof_a is not None
+    assert prof_a["team_name"] == "RedBull"
+    
+    prof_b = database.get_full_team_profile(12345, guild_id=2222)
+    assert prof_b is not None
+    assert prof_b["team_name"] == "Ferrari"
+    
+    # Check that another user can register "RedBull" in Guild B (since it is only taken in Guild A)
+    success, msg = database.create_user(discord_id=67890, guild_id=2222, team_name="RedBull")
+    assert success is True
+    
+    # Check that trying to register "RedBull" in Guild A fails (already taken in Guild A)
+    success, msg = database.create_user(discord_id=67890, guild_id=1111, team_name="RedBull")
+    assert success is False
+    assert "already taken" in msg
