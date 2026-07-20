@@ -145,10 +145,10 @@ def simulate_duel(team1_data: Dict[str, Any], team2_data: Dict[str, Any]) -> Tup
     if t1.dnf and t2.dnf:
         # Both DNF, choose one randomly or tie, let's say the one who survived longer wins
         if random.random() < 0.5:
-            winner, loser = t1_data, team2_data
+            winner, loser = team1_data, team2_data
             logs.append(f"Both crashed! But {t1.team_name} classified ahead of {t2.team_name}.")
         else:
-            winner, loser = t2_data, team1_data
+            winner, loser = team2_data, team1_data
             logs.append(f"Both crashed! But {t2.team_name} classified ahead of {t1.team_name}.")
     elif t1.dnf:
         winner, loser = team2_data, team1_data

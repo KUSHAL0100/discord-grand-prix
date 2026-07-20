@@ -141,23 +141,45 @@ def init_db():
 
 # ----------------- User and Profile Management Helpers -----------------
 
-def create_user(discord_id: int, team_name: str, country: Optional[str] = None) -> bool:
+def create_user(discord_id: int, team_name: str, country: Optional[str] = None) -> Tuple[bool, str]:
     """
     Create a new user, initializing their driver, strategist, and garage levels.
-    Returns True if user was created, False if user already exists.
+    Returns (success, message).
     """
+    import re
+    team_name_clean = team_name.strip()
+    
+    # 1. Basic Format Validation
+    if len(team_name_clean) < 3:
+        return False, "Team name must be at least 3 characters long."
+    if len(team_name_clean) > 32:
+        return False, "Team name cannot exceed 32 characters."
+    
+    # Must contain at least one alphabetical letter
+    if not any(char.isalpha() for char in team_name_clean):
+        return False, "Team name must contain at least one letter."
+        
+    # Prevent spammy special characters (only allow alphanumeric, spaces, hyphens, underscores, apostrophes)
+    if not re.match(r"^[a-zA-Z0-9\s\-_']+$", team_name_clean):
+        return False, "Team name can only contain letters, numbers, spaces, hyphens (-), underscores (_), and apostrophes (')."
+
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
         # Check if user already exists
         cursor.execute("SELECT user_id FROM users WHERE discord_id = ?", (discord_id,))
         if cursor.fetchone():
-            return False
+            return False, "You have already created a profile! Use `/profile` to view your team."
+
+        # Check if team name already exists (case-insensitive)
+        cursor.execute("SELECT user_id FROM users WHERE LOWER(team_name) = LOWER(?)", (team_name_clean,))
+        if cursor.fetchone():
+            return False, f"The team name '**{team_name_clean}**' is already taken! Please choose a unique team name."
 
         # Insert user
         cursor.execute(
             "INSERT INTO users (discord_id, team_name, country) VALUES (?, ?, ?)",
-            (discord_id, team_name, country)
+            (discord_id, team_name_clean, country)
         )
         user_id = cursor.lastrowid
 
@@ -180,10 +202,10 @@ def create_user(discord_id: int, team_name: str, country: Optional[str] = None) 
         )
 
         conn.commit()
-        return True
-    except sqlite3.Error:
+        return True, "Success"
+    except sqlite3.Error as e:
         conn.rollback()
-        return False
+        return False, f"Database error: {str(e)}"
     finally:
         conn.close()
 

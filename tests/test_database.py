@@ -37,12 +37,33 @@ def setup_teardown_db():
 
 def test_user_creation():
     # Test new user creation
-    success = database.create_user(discord_id=12345, team_name="Test Racing", country="US")
+    success, msg = database.create_user(discord_id=12345, team_name="Test Racing", country="US")
     assert success is True
     
     # Try duplicate user
-    success_duplicate = database.create_user(discord_id=12345, team_name="Other Name")
+    success_duplicate, msg = database.create_user(discord_id=12345, team_name="Other Name")
     assert success_duplicate is False
+    assert "already created a profile" in msg
+    
+    # Try duplicate team name (case-insensitive)
+    success_dup_name, msg = database.create_user(discord_id=67890, team_name="TEST RACING")
+    assert success_dup_name is False
+    assert "already taken" in msg
+    
+    # Try invalid team name: too short
+    success_short, msg = database.create_user(discord_id=67890, team_name="Go")
+    assert success_short is False
+    assert "at least 3 characters" in msg
+    
+    # Try invalid team name: no letters
+    success_no_letters, msg = database.create_user(discord_id=67890, team_name="123456")
+    assert success_no_letters is False
+    assert "contain at least one letter" in msg
+    
+    # Try invalid team name: illegal symbols
+    success_symbols, msg = database.create_user(discord_id=67890, team_name="Ferrari#$@")
+    assert success_symbols is False
+    assert "can only contain letters" in msg
     
     # Verify profile contents
     profile = database.get_full_team_profile(12345)
