@@ -911,18 +911,6 @@ def save_gp_results(race_id: int, results: List[Dict[str, Any]], winner_user_id:
                         overtaking = MIN(100, overtaking + ?)
                     WHERE user_id = ?
                 """, (stat_boost, stat_boost, stat_boost, stat_boost, stat_boost, stat_boost, res["user_id"]))
-                
-                # 2. Boost Strategist Skills Directly (capped at 100)
-                cursor.execute("""
-                    UPDATE strategists 
-                    SET pit_timing = MIN(100, pit_timing + ?),
-                        weather_call = MIN(100, weather_call + ?),
-                        undercut = MIN(100, undercut + ?),
-                        sc_skill = MIN(100, sc_skill + ?),
-                        risk = MIN(100, risk + ?),
-                        communication = MIN(100, communication + ?)
-                    WHERE user_id = ?
-                """, (stat_boost, stat_boost, stat_boost, stat_boost, stat_boost, stat_boost, res["user_id"]))
 
             # Add XP using add_user_xp logic (internal transaction, so we update manually here)
             cursor.execute("SELECT xp, level FROM users WHERE user_id = ?", (res["user_id"],))

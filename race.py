@@ -9,7 +9,9 @@ TRACK_PROFILES = {
     "Monza": {"description": "The Temple of Speed, engine power dominates.", "aero_mod": 0.8, "engine_mod": 1.5},
     "Spa": {"description": "Legendary fast corners and long straights, balanced requirements.", "aero_mod": 1.2, "engine_mod": 1.2},
     "Silverstone": {"description": "High speed sweeping corners, tests tyres and aerodynamics.", "aero_mod": 1.3, "tyre_mod": 1.3},
-    "Singapore": {"description": "Hot, humid street circuit. High wear and high safety car risk.", "tyre_mod": 1.4, "sc_chance_mult": 1.5}
+    "Singapore": {"description": "Hot, humid street circuit. High wear and high safety car risk.", "tyre_mod": 1.4, "sc_chance_mult": 1.5},
+    "Suzuka": {"description": "Technical track, rewards balanced setups.", "aero_mod": 1.1, "engine_mod": 1.1, "tyre_mod": 1.1},
+    "Bahrain": {"description": "Heavy braking, rewards ERS & tyres.", "engine_mod": 1.2, "tyre_mod": 1.3}
 }
 
 class SimTeam:
@@ -51,6 +53,14 @@ class SimTeam:
         self.dnf = False
         self.dnf_reason = ""
         self.tyre_health = 100.0
+        self.total_time = 0.0
+        self.last_lap_time = 0.0
+        self.gap_to_leader = 0.0
+        self.gap_to_front = 0.0
+        
+        self.next_block_strategy = None
+        self.pit_next_lap = False
+        self.pit_next_lap_tyre = "Medium"
         
         # Load user strategy preferences
         self.pref_strategy = data.get("pref_strategy", "Balanced")
@@ -299,26 +309,28 @@ def simulate_duel(team1_data: Dict[str, Any], team2_data: Dict[str, Any], total_
     l_data["tyre_health"] = loser.tyre_health
     
     return w_data, l_data, lap_logs, qual_logs
-
-def simulate_gp(entries_data: List[Dict[str, Any]], track_name: str, total_laps: int = 15, weather_timeline: List[str] = None) -> Tuple[List[Dict[str, Any]], List[str], Dict[int, Any]]:
+def simulate_gp_generator(entries_data: List[Dict[str, Any]], track_name: str, total_laps: int = 15, weather_timeline: List[str] = None):
     """
-    Simulate a full multi-lap Grand Prix race.
-    Returns (final_standings_data, race_logs, lap_states).
+    Generator that simulates a Grand Prix lap-by-lap, yielding intermediate states.
+    Yields:
+      ('setup', teams, setup_logs, current_weather)
+      ('lap', lap_number, lap_logs, lap_snapshot, current_weather)
+      ('finish', results_list, finish_logs)
     """
     teams = [SimTeam(entry) for entry in entries_data]
-    logs = [f"🚥 **Grand Prix of {track_name} - Race Start!**"]
-    lap_states = {}
+    setup_logs = [f"🚥 **Grand Prix of {track_name} - Race Start!**"]
     
     # 1. Setup track details
     track_profile = TRACK_PROFILES.get(track_name, {"sc_chance_mult": 1.0})
     sc_multiplier = track_profile.get("sc_chance_mult", 1.0)
+    T_base = TRACK_BASE_LAP_TIMES.get(track_name, 45.0)
     
     # Initial weather setting
     if weather_timeline and len(weather_timeline) > 0:
         current_weather = weather_timeline[0]
     else:
         current_weather = "Sunny"
-    logs.append(f"🌤️ **Weather at start:** {current_weather}")
+    setup_logs.append(f"🌤️ **Weather at start:** {current_weather}")
     
     # Initialize strategies and pit laps
     for t in teams:
@@ -333,42 +345,74 @@ def simulate_gp(entries_data: List[Dict[str, Any]], track_name: str, total_laps:
     # 2. Setup starting grid positions from qualifying
     teams.sort(key=lambda x: (x.start_position if x.start_position is not None else 999))
     
-    logs.append("⏱️ **Qualifying grid has been established:**")
+    setup_logs.append("⏱️ **Qualifying grid has been established:**")
     for idx, t in enumerate(teams):
         t.grid_position = idx + 1
         t.current_position = idx + 1
-        logs.append(f"P{t.grid_position}: **{t.team_name}** (overall power: {utils.calculate_overall_power({'engine':t.engine, 'aerodynamics':t.aerodynamics, 'tyres':t.tyres_stat, 'ers':t.ers, 'reliability':t.reliability}, t.driver_pace)})")
+        t.total_time = idx * 0.4  # Cars start with a minor staggered gap (0.4s)
+        setup_logs.append(f"P{t.grid_position}: **{t.team_name}**")
         
-    logs.append("\n🟢 **Lights Out! The race is underway!**")
+    setup_logs.append("\n🟢 **Lights Out! The race is underway!**")
     
     # Safety Car & VSC states
     safety_car_laps_left = 0
     vsc_laps_left = 0
     
+    yield ("setup", teams, setup_logs, current_weather)
+    
     # Lap by lap simulation
     for lap in range(1, total_laps + 1):
+        lap_logs = []
+        
+        # Stint strategy update check (runs at start of laps 1, 11, 21, etc.)
+        if (lap - 1) % 10 == 0:
+            for t in teams:
+                if t.dnf:
+                    continue
+                if lap > 1 and t.next_block_strategy:
+                    t.strategy = t.next_block_strategy
+                    lap_logs.append(f"📻 *[Radio - {t.team_name}]: Stint update! Switching pacing mode to {t.strategy}.*")
+        
+        # Weather Radar Alerts (runs at start of lap)
+        if weather_timeline:
+            if lap + 1 < len(weather_timeline):
+                next_weather_2 = weather_timeline[lap + 1]
+                next_weather_1 = weather_timeline[lap]
+                if next_weather_2 == "Rain" and next_weather_1 != "Rain" and current_weather != "Rain":
+                    lap_logs.append(f"⛈️ **WEATHER RADAR:** Radar indicates rain clouds approaching! Expected to hit the track in 2 laps (Lap {lap + 2}).")
+                elif next_weather_1 == "Rain" and current_weather != "Rain" and (lap == 1 or weather_timeline[lap - 2] != "Rain"):
+                    lap_logs.append(f"⛈️ **WEATHER RADAR:** Rain clouds are directly overhead! Expected to hit the track next lap (Lap {lap + 1}).")
+        
         # A. Weather change check
         if weather_timeline and lap <= len(weather_timeline):
             new_weather = weather_timeline[lap - 1]
             if new_weather != current_weather:
-                old_weather = current_weather
+                lap_logs.append(f"🌧️ **Lap {lap}: Weather change! It is now {new_weather}.**")
                 current_weather = new_weather
-                logs.append(f"🌧️ **Lap {lap}: Weather change! It is now {current_weather}.**")
         else:
             if random.random() < 0.10:
                 old_weather = current_weather
                 current_weather = random.choice(["Sunny", "Mixed", "Rain"])
                 if old_weather != current_weather:
-                    logs.append(f"🌧️ **Lap {lap}: Weather change! It is now {current_weather}.**")
+                    lap_logs.append(f"🌧️ **Lap {lap}: Weather change! It is now {current_weather}.**")
                 
-        # B. Calculate performance for all active teams
+        # B. Calculate lap times for active teams
         for t in teams:
             if t.dnf:
                 continue
                 
-            car_power = t.calculate_base_car_power(track_name)
+            # Base lap time: T_base
+            lap_time = T_base
             
-            # Tyre wear simulation
+            # Car upgrades bonus (shaves time)
+            car_bonus = (t.engine * 0.12) + (t.aerodynamics * 0.08) + (t.ers * 0.08)
+            lap_time -= car_bonus
+            
+            # Driver pace bonus (shaves time)
+            driver_bonus = (t.driver_pace / 100.0) * 2.0
+            lap_time -= driver_bonus
+            
+            # Tyre wear rate & simulation
             if t.tyre_type == "Soft":
                 base_wear = 12.0
             elif t.tyre_type == "Hard":
@@ -376,66 +420,72 @@ def simulate_gp(entries_data: List[Dict[str, Any]], track_name: str, total_laps:
             else: # Medium or Intermediates
                 base_wear = 7.0
                 
-            if t.strategy == "Aggressive":
-                wear_rate = base_wear * 1.3
-            elif t.strategy == "Conservative":
-                wear_rate = base_wear * 0.7
-            else:
-                wear_rate = base_wear
-                
-            t.tyre_health -= random.uniform(wear_rate - 2, wear_rate + 2)
+            # Pace strategy multipliers
+            strategy_wear_mult = 1.0
+            strategy_lap_delta = 0.0
             
-            # Apply tire wear penalty if health is below 40% (Steeper penalty when tyres are worn)
-            tyre_penalty = 0.0
-            if t.tyre_health < 40.0:
-                tyre_penalty = (40.0 - max(0.0, t.tyre_health)) * 0.8
-                if random.random() < 0.2:  # 20% chance to broadcast radio alert per lap when tyres are dead
-                    logs.append(f"📻 *[Radio - {t.team_name}]: Bono, my tyres are dead!*")
-                
-            # Weather tire compatibility penalty
-            weather_penalty = 0.0
-            if current_weather == "Rain" and t.tyre_type != "Intermediates":
-                # Dry tyres in rain is a massive penalty
-                weather_penalty = 25.0 - (t.driver_wet_skill / 10.0) # Wet skill reduces penalty
-            elif current_weather == "Sunny" and t.tyre_type == "Intermediates":
-                # Wet tyres in sunny is a moderate penalty & high tyre wear
-                weather_penalty = 12.0
-                t.tyre_health -= 10.0 # Extra wear
-                
-            # Driver pace bonus
-            driver_bonus = t.driver_pace / 4.0
-            if current_weather == "Rain":
-                # Wet skill is added in rain
-                driver_bonus += t.driver_wet_skill / 5.0
-                
-            # Strategy bonus
-            strat_bonus = 0.0
-            if t.strategy == "Aggressive":
-                strat_bonus = car_power * 0.06
-            elif t.strategy == "Conservative":
-                strat_bonus = -car_power * 0.04
-                
-            # Tyre pace bonus
-            tyre_bonus = 8.0 if t.tyre_type == "Soft" else (0.0 if t.tyre_type == "Hard" else 4.0)
-            
-            # Combine stats
-            t.performance = car_power + driver_bonus + strat_bonus + tyre_bonus - tyre_penalty - weather_penalty + random.uniform(0, 8)
-            
-            # If Safety Car or VSC is active, bunch the pack (equalize performance)
+            # Safety Car / VSC pace override and wear reduction
             if safety_car_laps_left > 0:
-                t.performance = 30.0 + random.uniform(0, 2)
+                lap_time = T_base * 1.6 + random.uniform(-0.1, 0.1)
+                strategy_wear_mult = 0.1
             elif vsc_laps_left > 0:
-                t.performance = 40.0 + random.uniform(0, 1.5)
- 
+                lap_time = T_base * 1.3 + random.uniform(-0.15, 0.15)
+                strategy_wear_mult = 0.3
+            else:
+                if t.strategy == "Aggressive":
+                    strategy_wear_mult = 1.4
+                    strategy_lap_delta = -0.8
+                elif t.strategy == "Conservative":
+                    strategy_wear_mult = 0.7
+                    strategy_lap_delta = 1.0
+                    
+                lap_time += strategy_lap_delta
+                
+                # Driver aggression boost
+                aggression_pace_boost = (t.driver_aggression - 50.0) / 10.0
+                lap_time -= aggression_pace_boost
+                
+                # Consistency random variance
+                variance_range = 0.4 * (1.5 - (t.driver_consistency / 100.0))
+                lap_time += random.uniform(-variance_range, variance_range)
+                
+                # Driver mistake (spin)
+                if random.random() < 0.02 * (1.5 - (t.driver_consistency / 100.0)):
+                    spin_loss = random.uniform(8.0, 15.0)
+                    lap_time += spin_loss
+                    lap_logs.append(f"⚠️ **Lap {lap}:** {t.team_name} made a lockup and went wide! Lost {spin_loss:.1f}s.")
+                
+            # Visual progression driver aggression wear scaling
+            aggression_wear_mult = 1.0 + (t.driver_aggression - 50.0) / 250.0
+            t.tyre_health -= random.uniform(base_wear - 1.5, base_wear + 1.5) * strategy_wear_mult * aggression_wear_mult
+            t.tyre_health = max(0.0, t.tyre_health)
+            
+            # Tyre wear penalty (slower as tyres degrade, bypassed during SC/VSC speed limit)
+            wear_penalty = 0.0
+            if t.tyre_health < 80.0 and safety_car_laps_left == 0 and vsc_laps_left == 0:
+                wear_penalty = ((80.0 - t.tyre_health) ** 1.5) * 0.005
+            lap_time += wear_penalty
+            
+            if t.tyre_health < 40.0 and random.random() < 0.15:
+                lap_logs.append(f"📻 *[Radio - {t.team_name}]: Bono, my tyres are dead!*")
+                
+            # Weather tire compatibility penalty (bypassed during SC/VSC speed limit)
+            weather_penalty = 0.0
+            if safety_car_laps_left == 0 and vsc_laps_left == 0:
+                if current_weather == "Rain" and t.tyre_type != "Intermediates":
+                    weather_penalty = 15.0 - (t.driver_wet_skill / 10.0)
+                elif current_weather == "Sunny" and t.tyre_type == "Intermediates":
+                    weather_penalty = 5.0
+                    t.tyre_health -= 15.0  # Extra wear
+            lap_time += weather_penalty
+            
+            t.last_lap_time = round(lap_time, 3)
+
         # C. Pit stop logic
         for t in teams:
             if t.dnf:
                 continue
                 
-            # Determine if team wants to pit:
-            # - Scheduled pit lap
-            # - Tyres are worn out (< 30%)
-            # - Weather changed and tyres don't match
             wants_pit = False
             needed_tyre = t.tyre_type
             
@@ -445,161 +495,214 @@ def simulate_gp(entries_data: List[Dict[str, Any]], track_name: str, total_laps:
             elif current_weather == "Sunny" and t.tyre_type == "Intermediates":
                 wants_pit = True
                 needed_tyre = t.pref_tyres
-            elif lap in t.pit_laps:
+            elif t.pit_next_lap:
                 wants_pit = True
-                needed_tyre = t.pit_tyres_plan.get(lap, t.pref_tyres)
+                needed_tyre = t.pit_next_lap_tyre
+                t.pit_next_lap = False  # Reset scheduled flag
                 
             if wants_pit:
-                # Calculate pit stop duration
+                # Scaled pit stop cost (8s base + crew time for 45s laps)
                 pit_crew_val = getattr(t, "pit_crew", 1)
                 pit_duration = 3.5 - (pit_crew_val * 0.15)
                 
-                # If pitting under safety car, pit stop takes less relative track position time loss
                 if safety_car_laps_left > 0 or vsc_laps_left > 0:
-                    t.performance -= (pit_duration / 3.0)
-                    logs.append(f"🔧 **Lap {lap}:** {t.team_name} pits under **Safety Car** (switched to {needed_tyre}, time: {pit_duration:.2f}s).")
-                    logs.append(f"📻 *[Radio - {t.team_name}]: Safety Car is deployed. Pit now for a cheap stop!*")
+                    pit_loss = 3.0 + pit_duration
+                    t.last_lap_time += pit_loss
+                    lap_logs.append(f"🔧 **Lap {lap}:** {t.team_name} pits under **Safety Car** (switched to {needed_tyre}, pit duration: {pit_duration:.2f}s).")
+                    lap_logs.append(f"📻 *[Radio - {t.team_name}]: Safety Car is deployed. Pit now for a cheap stop!*")
                 else:
-                    t.performance -= (pit_duration / 2.0)
-                    logs.append(f"🔧 **Lap {lap}:** {t.team_name} pits (switched to {needed_tyre}, time: {pit_duration:.2f}s).")
-                    logs.append(f"📻 *[Radio - {t.team_name}]: Box, box, box! Fitting {needed_tyre} tyres.*")
-                    
+                    pit_loss = 8.0 + pit_duration
+                    t.last_lap_time += pit_loss
+                    lap_logs.append(f"🔧 **Lap {lap}:** {t.team_name} pits (switched to {needed_tyre}, pit duration: {pit_duration:.2f}s).")
+                    lap_logs.append(f"📻 *[Radio - {t.team_name}]: Box, box, box! Fitting {needed_tyre} tyres.*")
+                
                 t.tyre_health = 100.0
                 t.tyre_type = needed_tyre
                 t.pit_stops_completed += 1
-                t.pit_stop_done = True
- 
-        # D. Reliability Check & Random DNFs
-        for t in teams:
-            if t.dnf:
-                continue
-                
-            # Extremely rare and random crashes: base of 4% scaled by reliability
-            dnf_chance = max(0.1, 4.0 - t.reliability * 0.2)
-            
-            # Strategy adjustments
-            if t.strategy == "Aggressive":
-                dnf_chance += 2.0
-            elif t.strategy == "Conservative":
-                dnf_chance = max(0.05, dnf_chance - 1.5)
-                
-            # Scaled down per-lap (since base is per-race, e.g. divide by total_laps)
-            per_lap_dnf_chance = dnf_chance / total_laps
-            
-            if random.uniform(0, 100) < per_lap_dnf_chance:
-                t.dnf = True
-                reasons = [
-                    "suffered a catastrophic gearbox failure",
-                    "crashed into the barriers after lockup",
-                    "retired due to power unit issues",
-                    "suffered suspension damage after hitting a curb"
-                ]
-                reason = random.choice(reasons)
-                logs.append(f"💥 **Lap {lap}:** {t.team_name} {reason} and is **DNF**!")
-                if "crash" in reason or "barrier" in reason or "curb" in reason:
-                    logs.append(f"📻 *[Radio - {t.team_name}]: I've crashed! Suspension is broken, I'm out.*")
-                else:
-                    logs.append(f"📻 *[Radio - {t.team_name}]: Engine is losing power! I have lost power, retiring the car.*")
 
-        # Count active cars
+        # D. Reliability & DNF Checks (Disabled behind Safety Car)
+        if safety_car_laps_left == 0 and vsc_laps_left == 0:
+            for t in teams:
+                if t.dnf:
+                    continue
+                    
+                dnf_chance = max(0.1, 4.0 - t.reliability * 0.2)
+                aggression_mult = 1.0 + (t.driver_aggression - 50.0) / 100.0
+                dnf_chance *= aggression_mult
+                
+                if t.strategy == "Aggressive":
+                    dnf_chance += 2.0
+                elif t.strategy == "Conservative":
+                    dnf_chance = max(0.05, dnf_chance - 1.5)
+                    
+                per_lap_dnf_chance = dnf_chance / total_laps
+                
+                if random.uniform(0, 100) < per_lap_dnf_chance:
+                    t.dnf = True
+                    reasons = [
+                        "suffered a catastrophic gearbox failure",
+                        "crashed into the barriers after lockup",
+                        "retired due to power unit issues",
+                        "suffered suspension damage after hitting a curb"
+                    ]
+                    reason = random.choice(reasons)
+                    t.dnf_reason = reason
+                    lap_logs.append(f"💥 **Lap {lap}:** {t.team_name} {reason} and is **DNF**!")
+                    if "crash" in reason or "barrier" in reason or "curb" in reason:
+                        lap_logs.append(f"📻 *[Radio - {t.team_name}]: I've crashed! Suspension is broken, I'm out.*")
+                    else:
+                        lap_logs.append(f"📻 *[Radio - {t.team_name}]: Engine is losing power! I have lost power, retiring the car.*")
+
+        # E. Accumulated time update and Safety Car / VSC Compression
         active_teams = [t for t in teams if not t.dnf]
         if len(active_teams) == 0:
-            logs.append(f"💀 **Lap {lap}:** All cars have retired from the race!")
+            lap_logs.append(f"💀 **Lap {lap}:** All cars have retired from the race!")
+            yield ("lap", lap, lap_logs, {}, current_weather)
             break
             
-        # E. Safety Car / VSC Triggers
-        # If there's an active SC/VSC, decrement the lap count
+        for t in active_teams:
+            t.total_time += t.last_lap_time
+            
+        # Sort by total time elapsed to establish position order
+        teams.sort(key=lambda x: (x.total_time if not x.dnf else 9999999.0))
+        
+        # Recalculate active teams reference after sorting
+        active_teams = [t for t in teams if not t.dnf]
+        
+        # Check if DNF occurred this lap
+        dnf_this_lap_teams = [t for t in teams if t.dnf and t.laps_completed == lap]
+        
+        # Handle SC / VSC timers
         if safety_car_laps_left > 0:
             safety_car_laps_left -= 1
+            # Pack compression: Cars are bunched up behind safety car (maximum 0.5s gaps)
+            for idx in range(1, len(active_teams)):
+                gap = active_teams[idx].total_time - active_teams[idx-1].total_time
+                if gap > 0.5:
+                    active_teams[idx].total_time = active_teams[idx-1].total_time + 0.5
             if safety_car_laps_left == 0:
-                logs.append(f"🟢 **Lap {lap}: Safety Car in this lap! Green flag racing resumes!**")
+                lap_logs.append(f"🟢 **Lap {lap}: Safety Car in this lap! Green flag racing resumes!**")
         elif vsc_laps_left > 0:
             vsc_laps_left -= 1
             if vsc_laps_left == 0:
-                logs.append(f"🟢 **Lap {lap}: VSC ending! Green flag!**")
+                lap_logs.append(f"🟢 **Lap {lap}: Virtual Safety Car (VSC) ending! Green flag!**")
         else:
-            # Check for new Safety Car trigger (5% chance, boosted if there was a DNF this lap)
-            # Let's check how many DNFs happened this lap
-            # (simplification: if a DNF just happened, there's a higher chance)
-            sc_chance = 0.05 * sc_multiplier
-            # If any active team is DNF this lap and it was logged, increase chance
-            # Let's say if any crash occurred, safety car chance becomes 25%
-            crashed_this_lap = any(t.dnf and t.laps_completed == lap for t in teams) # wait, we didn't update laps_completed yet. Let's just track it.
-            # Let's simplify: if random roll is triggered
-            if random.random() < sc_chance:
-                if random.random() < 0.4:
-                    safety_car_laps_left = 2
-                    logs.append(f"🚨 **Lap {lap}: Safety Car deployed! Field bunched up.**")
+            # Trigger VSC/SC logic
+            if dnf_this_lap_teams:
+                # Check if it was a crash or mechanical failure
+                any_crash = any("crash" in getattr(t, 'dnf_reason', '') or "barrier" in getattr(t, 'dnf_reason', '') or "curb" in getattr(t, 'dnf_reason', '') for t in dnf_this_lap_teams)
+                if any_crash:
+                    # Crash always triggers Safety Car (60% chance) or VSC (40% chance)
+                    if random.random() < 0.6:
+                        safety_car_laps_left = 2
+                        lap_logs.append(f"🚨 **Lap {lap}: Safety Car deployed due to track blockage! Field bunching up.**")
+                    else:
+                        vsc_laps_left = 1
+                        lap_logs.append(f"🟡 **Lap {lap}: Virtual Safety Car (VSC) deployed to clear debris.**")
                 else:
-                    vsc_laps_left = 1
-                    logs.append(f"🟡 **Lap {lap}: Virtual Safety Car (VSC) deployed.**")
+                    # Mechanical failure has 25% chance of VSC
+                    if random.random() < 0.25:
+                        vsc_laps_left = 1
+                        lap_logs.append(f"🟡 **Lap {lap}: Virtual Safety Car (VSC) deployed to recover stranded car.**")
+                    else:
+                        lap_logs.append(f"🟨 **Lap {lap}: Local Yellow Flags deployed while marshals recover the retired car.**")
+            else:
+                # Random incident/debris can trigger VSC/SC (5% base chance)
+                if random.random() < 0.05 * sc_multiplier:
+                    if random.random() < 0.4:
+                        safety_car_laps_left = 2
+                        lap_logs.append(f"🚨 **Lap {lap}: Safety Car deployed! Debris on track.**")
+                    else:
+                        vsc_laps_left = 1
+                        lap_logs.append(f"🟡 **Lap {lap}: Virtual Safety Car (VSC) deployed.**")
 
-        # F. Overtaking loop
-        # Iterate grid from back to front (bottom of list to top)
-        # Note: list is sorted by positions, so index 0 is P1, index len-1 is last.
-        for pos in range(len(teams) - 1, 0, -1):
-            back = teams[pos]
-            front = teams[pos-1]
-            
-            if back.dnf or front.dnf:
-                continue
+        # F. DRS zone and Overtaking passes (Disabled under SC/VSC)
+        if safety_car_laps_left == 0 and vsc_laps_left == 0:
+            for pos in range(len(active_teams) - 1, 0, -1):
+                back = active_teams[pos]
+                front = active_teams[pos-1]
                 
-            # Formula: back.performance - front.performance + random.uniform(-5, 5)
-            overtake_chance = back.performance - front.performance + random.uniform(-3, 3)
-            
-            # Overtaking skill adds small bonus
-            skill_bonus = (back.driver_overtaking - front.driver_consistency) / 20.0
-            overtake_chance += skill_bonus
-            
-            if overtake_chance > 2.0:  # Threshold of 2.0 points advantage to overtake
-                # Swap positions in teams list
-                teams[pos], teams[pos-1] = teams[pos-1], teams[pos]
+                gap = back.total_time - front.total_time
                 
-                # Update current positions
-                back.current_position = pos
-                front.current_position = pos + 1
-                
-                logs.append(f"⚔️ **Lap {lap}:** {back.team_name} overtakes {front.team_name} for **P{pos}**!")
+                # Within 0.6s dirty air/DRS window
+                if gap <= 0.6:
+                    overtake_chance = 0.3 + (back.driver_overtaking - front.driver_consistency) / 200.0 + (back.driver_aggression / 250.0)
+                    
+                    # Check for successful pass
+                    if random.random() < overtake_chance:
+                        # Swap positions in sorted array
+                        active_teams[pos], active_teams[pos-1] = active_teams[pos-1], active_teams[pos]
+                        
+                        # Adjust times: overtaking car is placed 0.2s ahead of the overtaken car
+                        back.total_time = front.total_time - 0.2
+                        lap_logs.append(f"⚔️ **Lap {lap}:** {back.team_name} overtakes {front.team_name} for **P{pos}**!")
+                    else:
+                        # Dirty air restriction: back car cannot finish ahead, cap time behind front car
+                        if back.total_time < front.total_time + 0.2:
+                            back.total_time = front.total_time + 0.2
 
-        # Record lap snapshot
+        # Re-sort list after overtaking adjustments
+        teams.sort(key=lambda x: (x.total_time if not x.dnf else 9999999.0))
+        active_teams = [t for t in teams if not t.dnf]
+        leader_time = active_teams[0].total_time if active_teams else 0.0
+        
+        # G. Update gap statistics and write lap snapshot
         lap_snapshot = {}
         for idx, t in enumerate(teams):
-            lap_snapshot[t.user_id] = {
-                "position": idx + 1 if not t.dnf else None,
-                "tyre_health": max(0.0, t.tyre_health),
-                "tyre_type": t.tyre_type,
-                "dnf": t.dnf
-            }
-        lap_states[lap] = lap_snapshot
-        
-        # Update laps completed for active teams
-        for t in teams:
-            if not t.dnf:
-                t.laps_completed += 1
+            if t.dnf:
+                t.gap_to_leader = 999.9
+                t.gap_to_front = 999.9
+                lap_snapshot[t.user_id] = {
+                    "position": None,
+                    "tyre_health": 0.0,
+                    "tyre_type": t.tyre_type,
+                    "dnf": True,
+                    "gap_to_leader": "DNF",
+                    "gap_to_front": "DNF"
+                }
+            else:
+                pos = idx + 1
+                t.current_position = pos
+                t.gap_to_leader = t.total_time - leader_time
+                if idx == 0:
+                    t.gap_to_front = 0.0
+                else:
+                    t.gap_to_front = t.total_time - active_teams[idx-1].total_time
+                    
+                lap_snapshot[t.user_id] = {
+                    "position": pos,
+                    "tyre_health": max(0.0, t.tyre_health),
+                    "tyre_type": t.tyre_type,
+                    "dnf": False,
+                    "gap_to_leader": f"+{t.gap_to_leader:.3f}s" if pos > 1 else "Leader",
+                    "gap_to_front": f"+{t.gap_to_front:.3f}s" if pos > 1 else "—"
+                }
                 
+        # Increment lap counter
+        for t in active_teams:
+            t.laps_completed += 1
+            
+        yield ("lap", lap, lap_logs, lap_snapshot, current_weather)
+        
     # 3. Race finished! Sort teams: active finishers first
     active_finishers = [t for t in teams if not t.dnf]
     dnf_finishers = [t for t in teams if t.dnf]
-    # Sort DNFs by laps completed descending
     dnf_finishers.sort(key=lambda x: x.laps_completed, reverse=True)
     
     final_order = active_finishers + dnf_finishers
     
-    # Update positions and format final list of output data
     results_list = []
-    logs.append("\n🏁 **Checkered Flag! The race is finished!**")
+    finish_logs = ["\n🏁 **Checkered Flag! The race is finished!**"]
     
     for idx, t in enumerate(final_order):
         pos = idx + 1
         points = utils.get_points_for_position(pos) if not t.dnf else 0
         
-        # Calculate credits won
-        # Winner gets 5000 (podium) or 2500 base. Let's use config.GP_PODIUM_REWARDS and participation
         credits_won = config.GP_BASE_PARTICIPATION_REWARD
         if not t.dnf and pos in config.GP_PODIUM_REWARDS:
             credits_won += config.GP_PODIUM_REWARDS[pos]
             
-        logs.append(f"P{pos}: **{t.team_name}** {'(DNF)' if t.dnf else ''} - Points: +{points}, Credits: +{credits_won}¢")
+        finish_logs.append(f"P{pos}: **{t.team_name}** {'(DNF)' if t.dnf else ''} - Points: +{points}, Credits: +{credits_won}¢")
         
         results_list.append({
             "user_id": t.user_id,
@@ -611,16 +714,46 @@ def simulate_gp(entries_data: List[Dict[str, Any]], track_name: str, total_laps:
             "dnf": t.dnf
         })
         
-    return results_list, logs, lap_states
+    yield ("finish", results_list, finish_logs)
+
+def simulate_gp(entries_data: List[Dict[str, Any]], track_name: str, total_laps: int = 15, weather_timeline: List[str] = None) -> Tuple[List[Dict[str, Any]], List[str], Dict[int, Any]]:
+    """
+    Backward-compatible wrapper around simulate_gp_generator.
+    """
+    generator = simulate_gp_generator(entries_data, track_name, total_laps, weather_timeline)
+    
+    setup_event = next(generator)
+    setup_logs = setup_event[2]
+    
+    all_logs = []
+    all_logs.extend(setup_logs)
+    
+    lap_states = {}
+    results_list = []
+    
+    for item in generator:
+        if item[0] == "lap":
+            lap_num = item[1]
+            lap_logs = item[2]
+            lap_snapshot = item[3]
+            lap_states[lap_num] = lap_snapshot
+            all_logs.extend(lap_logs)
+        elif item[0] == "finish":
+            results_list = item[1]
+            finish_logs = item[2]
+            all_logs.extend(finish_logs)
+            
+    return results_list, all_logs, lap_states
 
 # --- F1 Qualifying Weekend Simulation ---
 TRACK_BASE_LAP_TIMES = {
-    "Monaco": 75.0,
-    "Monza": 80.0,
-    "Spa": 105.0,
-    "Silverstone": 90.0,
-    "Suzuka": 92.0,
-    "Bahrain": 95.0
+    "Monaco": 47.0,
+    "Monza": 43.0,
+    "Spa": 49.0,
+    "Silverstone": 45.0,
+    "Singapore": 48.0,
+    "Suzuka": 46.0,
+    "Bahrain": 44.0
 }
 
 def format_lap_time(seconds: float) -> str:

@@ -160,3 +160,55 @@ def test_custom_pit_strategy():
     assert t.tyre_type == "Soft"
     assert t.pit_laps == [5]
     assert t.pit_tyres_plan == {5: "Hard"}
+
+def test_generator_simulation():
+    entries = [
+        {
+            "user_id": 1, "team_name": "Apex", "discord_id": 1001,
+            "engine": 10, "aerodynamics": 10, "tyres": 10, "ers": 10, "reliability": 10,
+            "pace": 90, "qual": 90, "wet_skill": 90, "consistency": 90, "aggression": 90, "overtaking": 90
+        },
+        {
+            "user_id": 2, "team_name": "Backmarker", "discord_id": 1002,
+            "engine": 1, "aerodynamics": 1, "tyres": 1, "ers": 1, "reliability": 1,
+            "pace": 10, "qual": 10, "wet_skill": 10, "consistency": 10, "aggression": 10, "overtaking": 10
+        }
+    ]
+    generator = race.simulate_gp_generator(entries, "Monza", total_laps=3, weather_timeline=["Sunny", "Sunny", "Rain"])
+    
+    # 1. Setup Event
+    setup_event = next(generator)
+    assert setup_event[0] == "setup"
+    teams = setup_event[1]
+    assert len(teams) == 2
+    assert teams[0].team_name == "Apex"
+    
+    # Check that we can change strategy on the fly
+    teams[0].reliability = 20
+    teams[0].strategy = "Conservative"
+    
+    # Schedule a pit stop for lap 2
+    teams[0].pit_next_lap = True
+    teams[0].pit_next_lap_tyre = "Hard"
+    
+    # 2. Lap 1 Event (should log weather radar warnings since Rain is on Lap 3, index 2)
+    lap1_event = next(generator)
+    assert lap1_event[0] == "lap"
+    assert lap1_event[1] == 1
+    lap_logs = lap1_event[2]
+    
+    # Verify weather radar warning logged (Rain is on Lap 3, which is 2 laps from start of Lap 1)
+    has_warning = any("approaching" in l for l in lap_logs)
+    assert has_warning is True, "Expected weather radar warning for approaching rain."
+    
+    # Verify pit stop was executed
+    assert teams[0].tyre_type == "Hard"
+    assert teams[0].pit_stops_completed == 1
+    
+    # Run to finish
+    for item in generator:
+        if item[0] == "finish":
+            results = item[1]
+            assert len(results) == 2
+            assert results[0]["finish_position"] == 1
+            assert results[0]["user_id"] == 1
