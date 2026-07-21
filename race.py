@@ -542,17 +542,31 @@ def simulate_gp_generator(entries_data: List[Dict[str, Any]], track_name: str, t
                 elif t.strategy == "Conservative":
                     dnf_chance = max(0.05, dnf_chance - 2.0)
                     
+                # Rain crash risk multiplier
+                is_slipping = False
+                if current_weather == "Rain":
+                    if t.tyre_type != "Intermediates":
+                        # Dry slicks on wet track: 3.5x crash chance!
+                        dnf_chance *= 3.5
+                        is_slipping = True
+                    else:
+                        # Correct wet weather tyres: 1.5x crash chance
+                        dnf_chance *= 1.5
+                    
                 per_lap_dnf_chance = dnf_chance / total_laps
                 
                 if random.uniform(0, 100) < per_lap_dnf_chance:
                     t.dnf = True
-                    reasons = [
-                        "suffered a catastrophic gearbox failure",
-                        "crashed into the barriers after lockup",
-                        "retired due to power unit issues",
-                        "suffered suspension damage after hitting a curb"
-                    ]
-                    reason = random.choice(reasons)
+                    if is_slipping:
+                        reason = "spun out on dry slick tyres in the wet and hit the barrier"
+                    else:
+                        reasons = [
+                            "suffered a catastrophic gearbox failure",
+                            "crashed into the barriers after lockup",
+                            "retired due to power unit issues",
+                            "suffered suspension damage after hitting a curb"
+                        ]
+                        reason = random.choice(reasons)
                     t.dnf_reason = reason
                     lap_logs.append(f"💥 **Lap {lap}:** {t.team_name} {reason} and is **DNF**!")
                     if "crash" in reason or "barrier" in reason or "curb" in reason:
@@ -633,7 +647,17 @@ def simulate_gp_generator(entries_data: List[Dict[str, Any]], track_name: str, t
                 
                 # Within 0.6s dirty air/DRS window
                 if gap <= 0.6:
-                    overtake_chance = 0.3 + (back.driver_overtaking - front.driver_consistency) / 200.0 + (back.driver_aggression / 250.0)
+                    # Calculate tyre health advantage
+                    tyre_adv = max(-0.25, min(0.4, (back.tyre_health - front.tyre_health) / 100.0))
+                    
+                    # Calculate raw car power delta
+                    power_back = back.engine * 1.5 + back.aerodynamics * 1.0 + back.ers * 1.0
+                    power_front = front.engine * 1.5 + front.aerodynamics * 1.0 + front.ers * 1.0
+                    power_adv = max(-0.2, min(0.3, (power_back - power_front) / 50.0))
+                    
+                    # DRS slipstream base is 0.45
+                    overtake_chance = 0.45 + (back.driver_overtaking - front.driver_consistency) / 200.0 + (back.driver_aggression / 250.0) + tyre_adv + power_adv
+                    overtake_chance = max(0.1, min(0.95, overtake_chance))
                     
                     # Check for successful pass
                     if random.random() < overtake_chance:

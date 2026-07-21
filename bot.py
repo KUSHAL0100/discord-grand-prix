@@ -23,96 +23,6 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 admin_group = app_commands.Group(name="admin", description="Game administrator controls for economy and stats.")
 bot.tree.add_command(admin_group)
 
-# 2. Set stats / parts admin command
-@admin_group.command(name="setstat", description="Set a driver skill level or garage part level for a user.")
-@app_commands.describe(
-    user="Select the user/driver to edit",
-    category="Select Category (driver or garage)",
-    stat_name="Enter the exact stat or part column name (e.g. pace, engine, reliability)",
-    value="Enter the target value (e.g. 1 to 100 for driver, 1 to 20 for garage)"
-)
-@app_commands.choices(category=[
-    app_commands.Choice(name="Driver Skill", value="driver"),
-    app_commands.Choice(name="Garage Part Upgrade", value="garage")
-])
-@is_admin()
-@app_commands.guild_only()
-async def admin_set_stat(interaction: discord.Interaction, user: discord.Member, category: app_commands.Choice[str], stat_name: str, value: int):
-    prof = database.get_user_by_discord_id(user.id, interaction.guild_id)
-    if not prof:
-        await interaction.response.send_message(f"❌ User {user.display_name} does not have a profile.", ephemeral=True)
-        return
-        
-    category_val = category.value
-    stat_name_clean = stat_name.strip().lower()
-    
-    if category_val == "driver":
-        valid_stats = ["pace", "qual", "wet_skill", "consistency", "aggression", "overtaking"]
-        if stat_name_clean not in valid_stats:
-            await interaction.response.send_message(f"❌ Invalid driver skill name. Must be one of: {', '.join(valid_stats)}", ephemeral=True)
-            return
-        if value < 1 or value > 100:
-            await interaction.response.send_message("❌ Driver skill value must be between 1 and 100.", ephemeral=True)
-            return
-        table_name = "drivers"
-    else:
-        valid_parts = ["engine", "aerodynamics", "tyres", "ers", "reliability", "pit_crew"]
-        if stat_name_clean not in valid_parts:
-            await interaction.response.send_message(f"❌ Invalid garage part name. Must be one of: {', '.join(valid_parts)}", ephemeral=True)
-            return
-        if value < 1 or value > 20:
-            await interaction.response.send_message("❌ Garage part level must be between 1 and 20.", ephemeral=True)
-            return
-        table_name = "garage"
-        
-    conn = database.get_db_connection()
-    cursor = conn.cursor()
-    try:
-        cursor.execute(f"UPDATE {table_name} SET {stat_name_clean} = ? WHERE user_id = ?", (value, prof['user_id']))
-        conn.commit()
-        await interaction.response.send_message(embed=utils.create_embed(
-            title="⚙️ Admin Stat Override",
-            description=f"✅ Successfully set **{stat_name_clean.capitalize()}** to **{value}** for **{prof['team_name']}** (Driver: {user.mention})!",
-            color=utils.COLOR_SUCCESS
-        ))
-    except Exception as e:
-        conn.rollback()
-        await interaction.response.send_message(f"❌ Database error: {e}", ephemeral=True)
-    finally:
-        conn.close()
-
-# 3. Reset profile admin command
-@admin_group.command(name="resetprofile", description="Completely reset a user's racing profile (reinitializes back to rookie levels).")
-@app_commands.describe(user="Select the user to reset")
-@is_admin()
-@app_commands.guild_only()
-async def admin_reset_profile(interaction: discord.Interaction, user: discord.Member):
-    prof = database.get_user_by_discord_id(user.id, interaction.guild_id)
-    if not prof:
-        await interaction.response.send_message(f"❌ User {user.display_name} does not have a profile.", ephemeral=True)
-        return
-        
-    conn = database.get_db_connection()
-    cursor = conn.cursor()
-    try:
-        # Delete entry records
-        cursor.execute("DELETE FROM users WHERE user_id = ?", (prof['user_id'],))
-        conn.commit()
-        conn.close()
-        
-        # Recreate profile using standard create_user method
-        success, msg = database.create_user(user.id, interaction.guild_id, f"Rookie Team {random.randint(100, 999)}")
-        if success:
-            await interaction.response.send_message(embed=utils.create_embed(
-                title="🔄 Admin Profile Reset",
-                description=f"✅ Successfully reset and reinitialized racing profile for {user.mention}!",
-                color=utils.COLOR_SUCCESS
-            ))
-        else:
-            await interaction.response.send_message(f"❌ Reset failed on reinitialization: {msg}", ephemeral=True)
-    except Exception as e:
-        await interaction.response.send_message(f"❌ Error resetting profile: {e}", ephemeral=True)
-
 # In-memory dict to track when voice members joined: {member_id: join_time}
 voice_tracking = {}
 
@@ -226,6 +136,96 @@ def is_admin():
         )
         return False
     return app_commands.check(predicate)
+
+# ----------------- Admin Commands -----------------
+
+@admin_group.command(name="setstat", description="Set a driver skill level or garage part level for a user.")
+@app_commands.describe(
+    user="Select the user/driver to edit",
+    category="Select Category (driver or garage)",
+    stat_name="Enter the exact stat or part column name (e.g. pace, engine, reliability)",
+    value="Enter the target value (e.g. 1 to 100 for driver, 1 to 20 for garage)"
+)
+@app_commands.choices(category=[
+    app_commands.Choice(name="Driver Skill", value="driver"),
+    app_commands.Choice(name="Garage Part Upgrade", value="garage")
+])
+@is_admin()
+@app_commands.guild_only()
+async def admin_set_stat(interaction: discord.Interaction, user: discord.Member, category: app_commands.Choice[str], stat_name: str, value: int):
+    prof = database.get_user_by_discord_id(user.id, interaction.guild_id)
+    if not prof:
+        await interaction.response.send_message(f"❌ User {user.display_name} does not have a profile.", ephemeral=True)
+        return
+        
+    category_val = category.value
+    stat_name_clean = stat_name.strip().lower()
+    
+    if category_val == "driver":
+        valid_stats = ["pace", "qual", "wet_skill", "consistency", "aggression", "overtaking"]
+        if stat_name_clean not in valid_stats:
+            await interaction.response.send_message(f"❌ Invalid driver skill name. Must be one of: {', '.join(valid_stats)}", ephemeral=True)
+            return
+        if value < 1 or value > 100:
+            await interaction.response.send_message("❌ Driver skill value must be between 1 and 100.", ephemeral=True)
+            return
+        table_name = "drivers"
+    else:
+        valid_parts = ["engine", "aerodynamics", "tyres", "ers", "reliability", "pit_crew"]
+        if stat_name_clean not in valid_parts:
+            await interaction.response.send_message(f"❌ Invalid garage part name. Must be one of: {', '.join(valid_parts)}", ephemeral=True)
+            return
+        if value < 1 or value > 20:
+            await interaction.response.send_message("❌ Garage part level must be between 1 and 20.", ephemeral=True)
+            return
+        table_name = "garage"
+        
+    conn = database.get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute(f"UPDATE {table_name} SET {stat_name_clean} = ? WHERE user_id = ?", (value, prof['user_id']))
+        conn.commit()
+        await interaction.response.send_message(embed=utils.create_embed(
+            title="⚙️ Admin Stat Override",
+            description=f"✅ Successfully set **{stat_name_clean.capitalize()}** to **{value}** for **{prof['team_name']}** (Driver: {user.mention})!",
+            color=utils.COLOR_SUCCESS
+        ))
+    except Exception as e:
+        conn.rollback()
+        await interaction.response.send_message(f"❌ Database error: {e}", ephemeral=True)
+    finally:
+        conn.close()
+
+@admin_group.command(name="resetprofile", description="Completely reset a user's racing profile (reinitializes back to rookie levels).")
+@app_commands.describe(user="Select the user to reset")
+@is_admin()
+@app_commands.guild_only()
+async def admin_reset_profile(interaction: discord.Interaction, user: discord.Member):
+    prof = database.get_user_by_discord_id(user.id, interaction.guild_id)
+    if not prof:
+        await interaction.response.send_message(f"❌ User {user.display_name} does not have a profile.", ephemeral=True)
+        return
+        
+    conn = database.get_db_connection()
+    cursor = conn.cursor()
+    try:
+        # Delete entry records
+        cursor.execute("DELETE FROM users WHERE user_id = ?", (prof['user_id'],))
+        conn.commit()
+        conn.close()
+        
+        # Recreate profile using standard create_user method
+        success, msg = database.create_user(user.id, interaction.guild_id, f"Rookie Team {random.randint(100, 999)}")
+        if success:
+            await interaction.response.send_message(embed=utils.create_embed(
+                title="🔄 Admin Profile Reset",
+                description=f"✅ Successfully reset and reinitialized racing profile for {user.mention}!",
+                color=utils.COLOR_SUCCESS
+            ))
+        else:
+            await interaction.response.send_message(f"❌ Reset failed on reinitialization: {msg}", ephemeral=True)
+    except Exception as e:
+        await interaction.response.send_message(f"❌ Error resetting profile: {e}", ephemeral=True)
 
 # ----------------- Slash Commands -----------------
 
