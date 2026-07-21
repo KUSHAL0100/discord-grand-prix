@@ -24,7 +24,7 @@ if ANNOUNCEMENT_CHANNEL_ID:
         ANNOUNCEMENT_CHANNEL_ID = None
 
 # Onboarding Settings
-STARTING_MONEY = 5000
+STARTING_MONEY = 1500
 STARTING_LEVEL = 1
 STARTING_XP = 0
 
@@ -40,25 +40,25 @@ WORK_MAX_CREDITS = 500
 # Parts & Upgrades configuration
 # Upgrade level costs for Engine (Level 1 -> 2, etc.)
 ENGINE_UPGRADE_COSTS = {
-    2: 500,
-    3: 1000,
-    4: 3000,
-    5: 5000,
-    6: 6000,
-    7: 7000,
-    8: 8000,
-    9: 9000,
-    10: 10000,
-    11: 11000,
-    12: 12000,
-    13: 13000,
-    14: 14000,
-    15: 15000,
-    16: 16000,
-    17: 17000,
-    18: 18000,
-    19: 19000,
-    20: 20000
+    2: 200,
+    3: 400,
+    4: 700,
+    5: 1100,
+    6: 1600,
+    7: 2200,
+    8: 2900,
+    9: 3700,
+    10: 4700,
+    11: 5900,
+    12: 7300,
+    13: 8900,
+    14: 10700,
+    15: 12700,
+    16: 15000,
+    17: 17500,
+    18: 20300,
+    19: 23400,
+    20: 26800
 }
 
 # Multipliers relative to engine cost

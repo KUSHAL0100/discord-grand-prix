@@ -100,13 +100,13 @@ def test_part_upgrades():
     database.create_user(discord_id=12345, guild_id=9999, team_name="Test Racing")
     user = database.get_user_by_discord_id(12345, guild_id=9999)
     
-    # Upgrade engine: level 1 -> 2 (costs 500)
+    # Upgrade engine: level 1 -> 2 (costs 200)
     success, msg = database.upgrade_part(user["user_id"], "engine")
     assert success is True
     
     profile = database.get_full_team_profile(12345, guild_id=9999)
     assert profile["engine"] == 2
-    assert profile["money"] == config.STARTING_MONEY - 500
+    assert profile["money"] == config.STARTING_MONEY - 200
     
     # Artificially set money to 0 to test insufficient funds
     conn = database.get_db_connection()
@@ -157,5 +157,5 @@ def test_personnel_training():
     assert "trained" in msg_train
     
     prof_updated = database.get_full_team_profile(12345, 9999)
-    assert prof_updated['money'] == 4600
+    assert prof_updated['money'] == 1100
     assert prof_updated['pace'] == prof['pace'] + 1

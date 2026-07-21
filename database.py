@@ -180,6 +180,21 @@ def init_db():
     except sqlite3.OperationalError:
         pass
 
+    try:
+        cursor.execute("ALTER TABLE garage ADD COLUMN damage_engine INTEGER NOT NULL DEFAULT 0")
+    except sqlite3.OperationalError:
+        pass
+
+    try:
+        cursor.execute("ALTER TABLE garage ADD COLUMN damage_tyres INTEGER NOT NULL DEFAULT 0")
+    except sqlite3.OperationalError:
+        pass
+
+    try:
+        cursor.execute("ALTER TABLE garage ADD COLUMN damage_total INTEGER NOT NULL DEFAULT 0")
+    except sqlite3.OperationalError:
+        pass
+
     conn.commit()
     conn.close()
 
@@ -438,6 +453,8 @@ def add_user_xp(user_id: int, xp_to_add: int) -> Tuple[int, int, bool]:
             new_xp -= new_level * 1000
             new_level += 1
             leveled_up = True
+            # Level up reward: new_level * 500¢
+            cursor.execute("UPDATE users SET money = money + ? WHERE user_id = ?", (new_level * 500, user_id))
             
         cursor.execute("UPDATE users SET xp = ?, level = ? WHERE user_id = ?", (new_xp, new_level, user_id))
         conn.commit()
@@ -956,6 +973,8 @@ def save_gp_results(race_id: int, results: List[Dict[str, Any]], winner_user_id:
                 while new_xp >= new_level * 1000:
                     new_xp -= new_level * 1000
                     new_level += 1
+                    # Level up reward: new_level * 500¢
+                    cursor.execute("UPDATE users SET money = money + ? WHERE user_id = ?", (new_level * 500, res["user_id"]))
                 cursor.execute("UPDATE users SET xp = ?, level = ? WHERE user_id = ?", (new_xp, new_level, res["user_id"]))
                 
             # Apply race damage to garage

@@ -20,6 +20,99 @@ intents.voice_states = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
+admin_group = app_commands.Group(name="admin", description="Game administrator controls for economy and stats.")
+bot.tree.add_command(admin_group)
+
+# 2. Set stats / parts admin command
+@admin_group.command(name="setstat", description="Set a driver skill level or garage part level for a user.")
+@app_commands.describe(
+    user="Select the user/driver to edit",
+    category="Select Category (driver or garage)",
+    stat_name="Enter the exact stat or part column name (e.g. pace, engine, reliability)",
+    value="Enter the target value (e.g. 1 to 100 for driver, 1 to 20 for garage)"
+)
+@app_commands.choices(category=[
+    app_commands.Choice(name="Driver Skill", value="driver"),
+    app_commands.Choice(name="Garage Part Upgrade", value="garage")
+])
+@is_admin()
+@app_commands.guild_only()
+async def admin_set_stat(interaction: discord.Interaction, user: discord.Member, category: app_commands.Choice[str], stat_name: str, value: int):
+    prof = database.get_user_by_discord_id(user.id, interaction.guild_id)
+    if not prof:
+        await interaction.response.send_message(f"❌ User {user.display_name} does not have a profile.", ephemeral=True)
+        return
+        
+    category_val = category.value
+    stat_name_clean = stat_name.strip().lower()
+    
+    if category_val == "driver":
+        valid_stats = ["pace", "qual", "wet_skill", "consistency", "aggression", "overtaking"]
+        if stat_name_clean not in valid_stats:
+            await interaction.response.send_message(f"❌ Invalid driver skill name. Must be one of: {', '.join(valid_stats)}", ephemeral=True)
+            return
+        if value < 1 or value > 100:
+            await interaction.response.send_message("❌ Driver skill value must be between 1 and 100.", ephemeral=True)
+            return
+        table_name = "drivers"
+    else:
+        valid_parts = ["engine", "aerodynamics", "tyres", "ers", "reliability", "pit_crew"]
+        if stat_name_clean not in valid_parts:
+            await interaction.response.send_message(f"❌ Invalid garage part name. Must be one of: {', '.join(valid_parts)}", ephemeral=True)
+            return
+        if value < 1 or value > 20:
+            await interaction.response.send_message("❌ Garage part level must be between 1 and 20.", ephemeral=True)
+            return
+        table_name = "garage"
+        
+    conn = database.get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute(f"UPDATE {table_name} SET {stat_name_clean} = ? WHERE user_id = ?", (value, prof['user_id']))
+        conn.commit()
+        await interaction.response.send_message(embed=utils.create_embed(
+            title="⚙️ Admin Stat Override",
+            description=f"✅ Successfully set **{stat_name_clean.capitalize()}** to **{value}** for **{prof['team_name']}** (Driver: {user.mention})!",
+            color=utils.COLOR_SUCCESS
+        ))
+    except Exception as e:
+        conn.rollback()
+        await interaction.response.send_message(f"❌ Database error: {e}", ephemeral=True)
+    finally:
+        conn.close()
+
+# 3. Reset profile admin command
+@admin_group.command(name="resetprofile", description="Completely reset a user's racing profile (reinitializes back to rookie levels).")
+@app_commands.describe(user="Select the user to reset")
+@is_admin()
+@app_commands.guild_only()
+async def admin_reset_profile(interaction: discord.Interaction, user: discord.Member):
+    prof = database.get_user_by_discord_id(user.id, interaction.guild_id)
+    if not prof:
+        await interaction.response.send_message(f"❌ User {user.display_name} does not have a profile.", ephemeral=True)
+        return
+        
+    conn = database.get_db_connection()
+    cursor = conn.cursor()
+    try:
+        # Delete entry records
+        cursor.execute("DELETE FROM users WHERE user_id = ?", (prof['user_id'],))
+        conn.commit()
+        conn.close()
+        
+        # Recreate profile using standard create_user method
+        success, msg = database.create_user(user.id, interaction.guild_id, f"Rookie Team {random.randint(100, 999)}")
+        if success:
+            await interaction.response.send_message(embed=utils.create_embed(
+                title="🔄 Admin Profile Reset",
+                description=f"✅ Successfully reset and reinitialized racing profile for {user.mention}!",
+                color=utils.COLOR_SUCCESS
+            ))
+        else:
+            await interaction.response.send_message(f"❌ Reset failed on reinitialization: {msg}", ephemeral=True)
+    except Exception as e:
+        await interaction.response.send_message(f"❌ Error resetting profile: {e}", ephemeral=True)
+
 # In-memory dict to track when voice members joined: {member_id: join_time}
 voice_tracking = {}
 
@@ -217,6 +310,7 @@ async def profile(interaction: discord.Interaction, member: discord.Member = Non
         
     desc = (
         f"💰 **Money:** {prof['money']:,} credits\n"
+        f"⭐ **XP:** {prof['xp']:,} / {prof['level'] * 1000:,} XP\n"
         f"🏆 **Wins:** {prof['wins']} | 🚫 **Losses:** {prof['losses']}\n"
         f"⚡ **Power:** {overall_power}\n"
         f"📋 **Strategy:** `{pace}` | 🛞 **Start Tyres:** `{start_tyre}` | 🔧 **Stops:** `{stops_str}`"
@@ -553,6 +647,18 @@ async def run_duel_simulation(channel, p1_member: discord.Member, p2_member: dis
         cursor.execute("UPDATE users SET wins = wins + 1 WHERE user_id = ?", (w_uid,))
         cursor.execute("UPDATE users SET losses = losses + 1 WHERE user_id = ?", (l_uid,))
         
+        # Award XP for duels: +150 XP for winning, +50 XP for losing
+        for uid, xp_to_add in [(w_uid, 150), (l_uid, 50)]:
+            cursor.execute("SELECT xp, level FROM users WHERE user_id = ?", (uid,))
+            user_row = cursor.fetchone()
+            if user_row:
+                new_xp = user_row['xp'] + xp_to_add
+                new_level = user_row['level']
+                while new_xp >= new_level * 1000:
+                    new_xp -= new_level * 1000
+                    new_level += 1
+                cursor.execute("UPDATE users SET xp = ?, level = ? WHERE user_id = ?", (new_xp, new_level, uid))
+        
         # Calculate car damage based on whether they crashed (DNF)
         # Winner DNF check
         if winner.get("dnf", False):
@@ -621,13 +727,14 @@ async def run_duel_simulation(channel, p1_member: discord.Member, p2_member: dis
 
 class RaceAcceptView(discord.ui.View):
     """View handling Duel Race requests."""
-    def __init__(self, bettor: discord.Member, target: discord.Member, laps: int, bettor_prof: dict, target_prof: dict):
+    def __init__(self, bettor: discord.Member, target: discord.Member, laps: int, bettor_prof: dict, target_prof: dict, wager: int = 0):
         super().__init__(timeout=60.0)
         self.bettor = bettor
         self.target = target
         self.laps = laps
         self.bettor_prof = bettor_prof
         self.target_prof = target_prof
+        self.wager = wager
         
     async def on_timeout(self):
         for child in self.children:
@@ -647,6 +754,13 @@ class RaceAcceptView(discord.ui.View):
             self.stop()
             return
             
+        # Balance check if there is a wager
+        if self.wager > 0:
+            if p1['money'] < self.wager or p2['money'] < self.wager:
+                await interaction.response.send_message(f"❌ One of you no longer has enough credits to cover the challenge fee of {self.wager}¢!", ephemeral=True)
+                self.stop()
+                return
+            
         if p1['damage_total'] >= 80 or p2['damage_total'] >= 80:
             await interaction.response.send_message("❌ One of the cars is too damaged to race (must be < 80% damage)!", ephemeral=True)
             self.stop()
@@ -658,7 +772,7 @@ class RaceAcceptView(discord.ui.View):
         self.stop()
         
         # Run simulation in channel
-        await run_duel_simulation(interaction.channel, self.bettor, self.target, p1, p2, self.laps, wager_amount=0)
+        await run_duel_simulation(interaction.channel, self.bettor, self.target, p1, p2, self.laps, wager_amount=self.wager)
 
     @discord.ui.button(label="Decline Duel", style=discord.ButtonStyle.red)
     async def decline(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -737,11 +851,14 @@ class BetAcceptView(discord.ui.View):
 
 
 @bot.tree.command(name="race", description="Challenge another user to a racing duel!")
-@app_commands.describe(opponent="The player you want to challenge", laps="Number of laps (1-20)")
+@app_commands.describe(opponent="The player you want to challenge", wager="Optional credit wager (both players contribute this amount)", laps="Number of laps (1-20)")
 @app_commands.guild_only()
-async def race_duel(interaction: discord.Interaction, opponent: discord.Member, laps: int = 1):
+async def race_duel(interaction: discord.Interaction, opponent: discord.Member, wager: int = 0, laps: int = 1):
     if opponent.id == interaction.user.id:
         await interaction.response.send_message("❌ You cannot race against yourself!", ephemeral=True)
+        return
+    if wager < 0:
+        await interaction.response.send_message("❌ Wager amount cannot be negative.", ephemeral=True)
         return
     if laps < 1 or laps > 20:
         await interaction.response.send_message("❌ Laps must be between 1 and 20.", ephemeral=True)
@@ -757,6 +874,15 @@ async def race_duel(interaction: discord.Interaction, opponent: discord.Member, 
         await interaction.response.send_message("❌ Your opponent does not have a profile yet.", ephemeral=True)
         return
         
+    # Check if either player lacks the wager funds
+    if wager > 0:
+        if p1_prof['money'] < wager:
+            await interaction.response.send_message(f"❌ You do not have enough credits! You need {wager}¢ (You have {p1_prof['money']}¢).", ephemeral=True)
+            return
+        if p2_prof['money'] < wager:
+            await interaction.response.send_message(f"❌ Opponent does not have enough credits to cover the challenge fee of {wager}¢ (They have {p2_prof['money']}¢).", ephemeral=True)
+            return
+        
     if p1_prof['damage_total'] >= 80:
         await interaction.response.send_message("❌ Your car is heavily damaged! Run `/repairs` and `/repair` before racing.", ephemeral=True)
         return
@@ -764,10 +890,16 @@ async def race_duel(interaction: discord.Interaction, opponent: discord.Member, 
         await interaction.response.send_message("❌ Opponent's car is too damaged to race.", ephemeral=True)
         return
         
-    view = RaceAcceptView(interaction.user, opponent, laps, p1_prof, p2_prof)
+    view = RaceAcceptView(interaction.user, opponent, laps, p1_prof, p2_prof, wager=wager)
+    
+    if wager > 0:
+        desc = f"**{interaction.user.name}** has challenged **{opponent.name}** to a **{laps}-lap** racing duel for a wager of **{wager}¢** each!\n💰 *Total pool: **{wager * 2}¢** (Winner takes all, loser gets nothing!)*"
+    else:
+        desc = f"**{interaction.user.name}** has challenged **{opponent.name}** to a friendly **{laps}-lap** racing duel!"
+        
     embed = utils.create_embed(
         title="🏎️ Racing Duel Challenge!",
-        description=f"**{interaction.user.name}** has challenged **{opponent.name}** to a **{laps}-lap** racing duel!",
+        description=desc,
         color=utils.COLOR_WARNING
     )
     await interaction.response.send_message(content=opponent.mention, embed=embed, view=view)
