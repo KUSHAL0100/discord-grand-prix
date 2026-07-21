@@ -52,6 +52,7 @@ class SimTeam:
         self.performance = 0.0
         self.dnf = False
         self.dnf_reason = ""
+        self.dnf_announced = False
         self.tyre_health = 100.0
         self.total_time = 0.0
         self.last_lap_time = 0.0
@@ -172,12 +173,12 @@ def simulate_duel(team1_data: Dict[str, Any], team2_data: Dict[str, Any], total_
         for t in [leader, trailer]:
             if t.dnf:
                 continue
-            # Extremely rare and random crashes: base of 4% scaled by reliability
-            dnf_chance = max(0.1, 4.0 - t.reliability * 0.2)
+            # Scaled crashes: base of 6.5% scaled by reliability
+            dnf_chance = max(0.2, 6.5 - t.reliability * 0.25)
             if t.strategy == "Aggressive":
-                dnf_chance += 2.0
+                dnf_chance += 3.0
             elif t.strategy == "Conservative":
-                dnf_chance = max(0.05, dnf_chance - 1.5)
+                dnf_chance = max(0.05, dnf_chance - 2.0)
                 
             # Scaled down per-lap (since dnf_chance is per-race)
             per_lap_dnf_chance = dnf_chance / total_laps
@@ -396,6 +397,12 @@ def simulate_gp_generator(entries_data: List[Dict[str, Any]], track_name: str, t
                 if old_weather != current_weather:
                     lap_logs.append(f"🌧️ **Lap {lap}: Weather change! It is now {current_weather}.**")
                 
+        # Check for external manual DNFs set during the sleep period
+        for t in teams:
+            if t.dnf and not getattr(t, "dnf_announced", False):
+                t.dnf_announced = True
+                lap_logs.append(f"🛑 **Lap {lap}:** {t.team_name} has retired from the race (retired by driver).")
+
         # B. Calculate lap times for active teams
         for t in teams:
             if t.dnf:
@@ -526,14 +533,14 @@ def simulate_gp_generator(entries_data: List[Dict[str, Any]], track_name: str, t
                 if t.dnf:
                     continue
                     
-                dnf_chance = max(0.1, 4.0 - t.reliability * 0.2)
+                dnf_chance = max(0.2, 6.5 - t.reliability * 0.25)
                 aggression_mult = 1.0 + (t.driver_aggression - 50.0) / 100.0
                 dnf_chance *= aggression_mult
                 
                 if t.strategy == "Aggressive":
-                    dnf_chance += 2.0
+                    dnf_chance += 3.0
                 elif t.strategy == "Conservative":
-                    dnf_chance = max(0.05, dnf_chance - 1.5)
+                    dnf_chance = max(0.05, dnf_chance - 2.0)
                     
                 per_lap_dnf_chance = dnf_chance / total_laps
                 
@@ -594,15 +601,15 @@ def simulate_gp_generator(entries_data: List[Dict[str, Any]], track_name: str, t
                 if any_crash:
                     # Crash always triggers Safety Car (60% chance) or VSC (40% chance)
                     if random.random() < 0.6:
-                        safety_car_laps_left = 2
+                        safety_car_laps_left = 4
                         lap_logs.append(f"🚨 **Lap {lap}: Safety Car deployed due to track blockage! Field bunching up.**")
                     else:
-                        vsc_laps_left = 1
+                        vsc_laps_left = 3
                         lap_logs.append(f"🟡 **Lap {lap}: Virtual Safety Car (VSC) deployed to clear debris.**")
                 else:
                     # Mechanical failure has 25% chance of VSC
                     if random.random() < 0.25:
-                        vsc_laps_left = 1
+                        vsc_laps_left = 3
                         lap_logs.append(f"🟡 **Lap {lap}: Virtual Safety Car (VSC) deployed to recover stranded car.**")
                     else:
                         lap_logs.append(f"🟨 **Lap {lap}: Local Yellow Flags deployed while marshals recover the retired car.**")
@@ -610,10 +617,10 @@ def simulate_gp_generator(entries_data: List[Dict[str, Any]], track_name: str, t
                 # Random incident/debris can trigger VSC/SC (5% base chance)
                 if random.random() < 0.05 * sc_multiplier:
                     if random.random() < 0.4:
-                        safety_car_laps_left = 2
+                        safety_car_laps_left = 4
                         lap_logs.append(f"🚨 **Lap {lap}: Safety Car deployed! Debris on track.**")
                     else:
-                        vsc_laps_left = 1
+                        vsc_laps_left = 3
                         lap_logs.append(f"🟡 **Lap {lap}: Virtual Safety Car (VSC) deployed.**")
 
         # F. DRS zone and Overtaking passes (Disabled under SC/VSC)

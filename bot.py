@@ -446,7 +446,7 @@ async def gp_pit_command(interaction: discord.Interaction, tyre: app_commands.Ch
     
     await interaction.response.send_message(f"✅ **Pit stop scheduled!** Your driver will pit at the end of the current lap to switch to **{tyre.name}** tyres.", ephemeral=True)
 
-@bot.tree.command(name="train", description="Spend 1,000 credits to train a selected Driver skill.")
+@bot.tree.command(name="train", description="Spend 400 credits to train a selected Driver skill.")
 @app_commands.describe(
     skill="Select the specific Driver skill to train"
 )
@@ -467,7 +467,7 @@ async def train(interaction: discord.Interaction, skill: app_commands.Choice[str
         
     skill_val = skill.value
     
-    success, msg = database.train_personnel_skill(prof['user_id'], "driver", skill_val, cost=1000)
+    success, msg = database.train_personnel_skill(prof['user_id'], "driver", skill_val, cost=400)
     color = utils.COLOR_SUCCESS if success else utils.COLOR_ERROR
     await interaction.response.send_message(embed=utils.create_embed(title="🏋️ Personnel Training Center", description=msg, color=color))
 
@@ -1210,6 +1210,43 @@ class GPLapPitSelectView(discord.ui.View):
     async def cancel_click(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.edit_message(content=None, embed=self.parent_view.embed, view=self.parent_view)
 
+class GPRetireConfirmView(discord.ui.View):
+    def __init__(self, guild_id, user_discord_id, parent_view):
+        super().__init__(timeout=60.0)
+        self.guild_id = guild_id
+        self.user_discord_id = user_discord_id
+        self.parent_view = parent_view
+
+    @discord.ui.button(label="✅ Yes, Retire", style=discord.ButtonStyle.danger, custom_id="gp_retire_confirm")
+    async def confirm_retire(self, interaction: discord.Interaction, button: discord.ui.Button):
+        race_state = ACTIVE_RACES.get(self.guild_id)
+        if not race_state or "teams" not in race_state:
+            await interaction.response.edit_message(content="❌ There is no active race running.", embed=None, view=None)
+            return
+            
+        team_obj = None
+        for t in race_state["teams"]:
+            if t.discord_id == self.user_discord_id:
+                team_obj = t
+                break
+                
+        if not team_obj:
+            await interaction.response.edit_message(content="❌ You are not on the active entry list.", embed=None, view=None)
+            return
+            
+        if team_obj.dnf:
+            await interaction.response.edit_message(content="❌ You have already retired or DNF'd from the race.", embed=None, view=None)
+            return
+            
+        team_obj.dnf = True
+        team_obj.dnf_reason = "retired by driver request"
+        
+        await interaction.response.edit_message(content="🛑 **Retirement confirmed.** Your car is DNF. You can close this chat or spectate the remaining laps in the public channel.", embed=None, view=None)
+
+    @discord.ui.button(label="❌ Cancel", style=discord.ButtonStyle.secondary, custom_id="gp_retire_cancel")
+    async def cancel_retire(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.edit_message(content=None, embed=self.parent_view.embed, view=self.parent_view)
+
 async def send_driver_lap_telemetry(guild_id, driver_discord_id, team_name, lap_num, lap_time, position, gap_to_leader, gap_to_front, tyre_type, tyre_health):
     # Sleep for the actual lap time of this driver!
     await asyncio.sleep(lap_time)
@@ -1314,6 +1351,11 @@ class GPLapTelemetryAdjustmentView(discord.ui.View):
         view = GPLapPitSelectView(self.guild_id, self.user_discord_id, self)
         await interaction.response.edit_message(content="⚙️ **Select tyre compound for your pit stop next lap:**", embed=None, view=view)
 
+    @discord.ui.button(label="🛑 Retire / DNF", style=discord.ButtonStyle.danger, custom_id="gp_retire_race")
+    async def retire_click(self, interaction: discord.Interaction, button: discord.ui.Button):
+        view = GPRetireConfirmView(self.guild_id, self.user_discord_id, self)
+        await interaction.response.edit_message(content="⚠️ **Are you sure you want to retire from the Grand Prix?** This cannot be undone and your car will DNF.", embed=None, view=view)
+
 class GPLapTelemetryView(discord.ui.View):
     def __init__(self, lap_num, lap_snapshot, entries_list):
         super().__init__(timeout=86400.0)
@@ -1321,7 +1363,70 @@ class GPLapTelemetryView(discord.ui.View):
         self.lap_snapshot = lap_snapshot
         self.entries_list = entries_list
 
-    @discord.ui.button(label="📊 Live Telemetry", style=discord.ButtonStyle.secondary, custom_id="gp_lap_telemetry")
+    @discord.ui.button(label="🏎️ Live Standings", style=discord.ButtonStyle.primary, custom_id="gp_public_standings")
+    async def standings_click(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not self.lap_snapshot:
+            await interaction.response.send_message("❌ No standings available for this lap.", ephemeral=True)
+            return
+            
+        standings_list = []
+        for user_id, state in self.lap_snapshot.items():
+            team_name = "Unknown Team"
+            for entry in self.entries_list:
+                if str(entry['user_id']) == str(user_id):
+                    team_name = entry['team_name']
+                    break
+            standings_list.append({
+                "position": state.get("position", 99),
+                "team_name": team_name,
+                "gap_to_leader": state.get("gap_to_leader", "Leader"),
+                "gap_to_front": state.get("gap_to_front", "—"),
+                "tyre_type": state.get("tyre_type", "M"),
+                "tyre_health": state.get("tyre_health", 100.0),
+                "dnf": state.get("dnf", False)
+            })
+            
+        standings_list.sort(key=lambda x: x["position"])
+        
+        # Paginate results in chunks of 25 to fit within Discord character limits
+        chunks = [standings_list[i:i + 25] for i in range(0, len(standings_list), 25)]
+        embeds = []
+        
+        for idx, chunk in enumerate(chunks):
+            table_lines = []
+            table_lines.append("```")
+            table_lines.append(f"Pos  Team Name            Gap        Tyre")
+            table_lines.append(f"-------------------------------------------")
+            
+            for driver in chunk:
+                pos_str = f"P{driver['position']}".ljust(4)
+                team_str = driver['team_name'][:18].ljust(19)
+                
+                gap_str = driver['gap_to_leader']
+                if driver['dnf']:
+                    gap_str = "DNF"
+                gap_str = gap_str.ljust(10)
+                
+                tyre_name = driver['tyre_type']
+                tyre_pct = int(driver['tyre_health'])
+                tyre_str = f"{tyre_name} ({tyre_pct}%)"
+                if driver['dnf']:
+                    tyre_str = "—"
+                    
+                table_lines.append(f"{pos_str} {team_str} {gap_str} {tyre_str}")
+            table_lines.append("```")
+            
+            page_title = f"📊 Live Standings - Lap {self.lap_num}" if idx == 0 else f"📊 Live Standings - Page {idx + 1}"
+            embeds.append(utils.create_embed(
+                title=page_title,
+                description="\n".join(table_lines),
+                color=utils.COLOR_QUALIFYING
+            ))
+            
+        # Send up to 10 embeds at once in a single ephemeral message
+        await interaction.response.send_message(embeds=embeds[:10], ephemeral=True)
+
+    @discord.ui.button(label="📊 My Telemetry", style=discord.ButtonStyle.secondary, custom_id="gp_lap_telemetry")
     async def telemetry_click(self, interaction: discord.Interaction, button: discord.ui.Button):
         user_id = None
         team_name = None
@@ -1493,8 +1598,9 @@ class GPStartRaceButton(discord.ui.Button):
                                     tyre_health=dr_state.get('tyre_health', 100.0)
                                 ))
                                 
+                    leader_lap_time = 45.0
                     if active_lap_times:
-                        max_lap_time = max(active_lap_times)
+                        leader_lap_time = min(active_lap_times)
                         
                     lap_embed = utils.create_embed(
                         title=f"🏎️ Grand Prix Lap {l_num}/{active_gp['laps']} | 🌤️ {current_weather}",
@@ -1504,8 +1610,8 @@ class GPStartRaceButton(discord.ui.Button):
                     view = GPLapTelemetryView(l_num, lap_snapshot, entries)
                     await interaction.channel.send(embed=lap_embed, view=view)
                     
-                    # Sleep for the actual physical duration of the slowest lap to sync the simulator clock
-                    await asyncio.sleep(max_lap_time)
+                    # Sleep for the actual physical duration of the leading driver to sync simulator clock
+                    await asyncio.sleep(leader_lap_time)
                     
                 elif item[0] == "finish":
                     results = item[1]

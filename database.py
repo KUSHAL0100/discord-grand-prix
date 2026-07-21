@@ -294,7 +294,7 @@ def get_full_team_profile(discord_id: int, guild_id: int) -> Optional[Dict[str, 
     conn.close()
     return dict(row) if row else None
 
-def train_personnel_skill(user_id: int, category: str, skill_name: str, cost: int = 1000) -> Tuple[bool, str]:
+def train_personnel_skill(user_id: int, category: str, skill_name: str, cost: int = 400) -> Tuple[bool, str]:
     """Train a specific driver or strategist skill directly by spending credits."""
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -674,20 +674,52 @@ def create_gp_race(guild_id: int, name: str, track: str, laps: int) -> Tuple[boo
         import json
         import random
         weather_modes = ["Sunny", "Rain", "Mixed"]
-        choice = random.choices(weather_modes, weights=[60, 15, 25], k=1)[0]
+        choice = random.choices(weather_modes, weights=[50, 20, 30], k=1)[0]
         
         timeline = []
         if choice == "Sunny":
-            timeline = ["Sunny"] * laps
-            forecast = "Sunny and dry conditions expected throughout the race."
+            # 85% chance completely sunny, 15% chance of a tiny 2-lap drizzle
+            if random.random() < 0.15 and laps > 5:
+                rain_start = random.randint(3, laps - 2)
+                forecast = f"Mostly sunny, but radar shows a 15% chance of a brief light shower around Lap {rain_start}."
+                for i in range(1, laps + 1):
+                    if rain_start <= i < rain_start + 2:
+                        timeline.append("Rain")
+                    else:
+                        timeline.append("Sunny")
+            else:
+                timeline = ["Sunny"] * laps
+                forecast = "Sunny and clear conditions expected throughout the race."
+                
         elif choice == "Rain":
-            timeline = ["Rain"] * laps
-            forecast = "Heavy rain expected from start to finish. Intermediates highly recommended."
+            # Dynamic rain: starts wet and dries, or starts sunny and gets wet, or is wet most of the race but has dry windows
+            sub_choice = random.choice(["starts_wet", "ends_wet", "wet_spell"])
+            if sub_choice == "starts_wet":
+                wet_laps = random.randint(max(2, int(laps * 0.35)), max(3, int(laps * 0.65)))
+                forecast = f"Wet start. Heavy rain expected for the first {wet_laps} laps, clearing up to Sunny later."
+                for i in range(1, laps + 1):
+                    timeline.append("Rain" if i <= wet_laps else "Sunny")
+            elif sub_choice == "ends_wet":
+                wet_start = random.randint(max(2, int(laps * 0.35)), max(3, int(laps * 0.55)))
+                forecast = f"Sunny start, with rain clouds moving in around Lap {wet_start} and continuing until the end."
+                for i in range(1, laps + 1):
+                    timeline.append("Rain" if i >= wet_start else "Sunny")
+            else: # wet_spell
+                # wet most of the race, but clears up in the middle
+                dry_start = random.randint(max(2, int(laps * 0.3)), max(3, int(laps * 0.5)))
+                dry_duration = random.randint(3, 6)
+                forecast = f"Rainy conditions from the start, with a brief dry sunny window between Lap {dry_start} and {dry_start + dry_duration - 1}."
+                for i in range(1, laps + 1):
+                    if dry_start <= i < dry_start + dry_duration:
+                        timeline.append("Sunny")
+                    else:
+                        timeline.append("Rain")
+                        
         else: # Mixed
-            # Mixed weather: Sunny start, rain for a few laps in the middle
-            rain_start = random.randint(max(2, int(laps * 0.3)), max(3, int(laps * 0.7)))
-            rain_duration = random.randint(3, 5)
-            forecast = f"Mixed conditions. Rain showers expected around Lap {rain_start} to {rain_start + rain_duration - 1}."
+            # Mixed conditions: multiple transitions or a standard mixed shower
+            rain_start = random.randint(max(2, int(laps * 0.25)), max(3, int(laps * 0.65)))
+            rain_duration = random.randint(3, max(4, int(laps * 0.3)))
+            forecast = f"Mixed conditions. Dry start, with rain showers expected from Lap {rain_start} to {rain_start + rain_duration - 1}."
             for i in range(1, laps + 1):
                 if rain_start <= i < rain_start + rain_duration:
                     timeline.append("Rain")
@@ -800,13 +832,16 @@ def unregister_gp_entry(discord_id: int, guild_id: int) -> Tuple[bool, str]:
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        # Check active race in this guild
-        cursor.execute("SELECT race_id FROM races WHERE status = 'Created' AND guild_id = ?", (guild_id,))
+        # Check active race in this guild (allow leaving before it runs)
+        cursor.execute("SELECT race_id, status FROM races WHERE status != 'Finished' AND guild_id = ?", (guild_id,))
         race_row = cursor.fetchone()
         if not race_row:
-            return False, "There is no Grand Prix currently accepting registrations on this server."
+            return False, "There is no active Grand Prix on this server."
             
         race_id = race_row['race_id']
+        race_status = race_row['status']
+        if race_status == 'Running':
+            return False, "You cannot withdraw from a Grand Prix that has already started running."
         
         # Get user details for this guild
         cursor.execute("SELECT user_id FROM users WHERE discord_id = ? AND guild_id = ?", (discord_id, guild_id))
