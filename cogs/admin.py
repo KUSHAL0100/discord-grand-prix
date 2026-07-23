@@ -113,6 +113,230 @@ class AdminCog(commands.Cog):
         color = utils.COLOR_SUCCESS if success else utils.COLOR_ERROR
         await interaction.response.send_message(embed=utils.create_embed(title="🏆 Season Cancellation", description=msg, color=color))
 
+    @season_admin_group.command(name="add_race", description="Add a normal Grand Prix to the active WDC season calendar.")
+    @app_commands.describe(
+        track="Select official F1 track to schedule",
+        laps="Race distance length (number of laps, default 15)"
+    )
+    @is_admin()
+    @app_commands.guild_only()
+    async def add_season_race_cmd(self, interaction: discord.Interaction, track: str, laps: int = 15):
+        import race
+        active_season = database.get_active_season(interaction.guild_id)
+        if not active_season:
+            await interaction.response.send_message("❌ There is no active WDC season. Create one first using `/season create`.", ephemeral=True)
+            return
+        if track not in race.TRACK_PROFILES:
+            await interaction.response.send_message("❌ Invalid track selection.", ephemeral=True)
+            return
+        
+        success, msg = database.add_season_race(active_season['season_id'], track, laps, is_sprint=False)
+        color = utils.COLOR_SUCCESS if success else utils.COLOR_ERROR
+        await interaction.response.send_message(embed=utils.create_embed(title="🏆 Season Calendar", description=msg, color=color))
+
+    @season_admin_group.command(name="add_sprint_race", description="Add a Sprint race to the active WDC season calendar.")
+    @app_commands.describe(
+        track="Select official F1 track to schedule",
+        laps="Sprint race distance length (number of laps, default 8)"
+    )
+    @is_admin()
+    @app_commands.guild_only()
+    async def add_season_sprint_cmd(self, interaction: discord.Interaction, track: str, laps: int = 8):
+        import race
+        active_season = database.get_active_season(interaction.guild_id)
+        if not active_season:
+            await interaction.response.send_message("❌ There is no active WDC season. Create one first using `/season create`.", ephemeral=True)
+            return
+        if track not in race.TRACK_PROFILES:
+            await interaction.response.send_message("❌ Invalid track selection.", ephemeral=True)
+            return
+        
+        success, msg = database.add_season_race(active_season['season_id'], track, laps, is_sprint=True)
+        color = utils.COLOR_SUCCESS if success else utils.COLOR_ERROR
+        await interaction.response.send_message(embed=utils.create_embed(title="🏆 Season Calendar", description=msg, color=color))
+
+    @season_admin_group.command(name="calendar", description="View and manage the WDC season calendar (Reorder, remove, or start next round).")
+    @is_admin()
+    @app_commands.guild_only()
+    async def season_calendar_cmd(self, interaction: discord.Interaction):
+        active_season = database.get_active_season(interaction.guild_id)
+        if not active_season:
+            await interaction.response.send_message("❌ There is no active WDC season. Create one first using `/season create`.", ephemeral=True)
+            return
+            
+        calendar = database.get_season_calendar(active_season['season_id'])
+        view = SeasonCalendarAdminView(active_season, calendar)
+        embed = view.build_embed()
+        await interaction.response.send_message(embed=embed, view=view)
+
+
+class SeasonCalendarAdminView(discord.ui.View):
+    def __init__(self, active_season, calendar):
+        super().__init__(timeout=180.0)
+        self.active_season = active_season
+        self.calendar = calendar
+        self.selected_index = None
+        self.update_components()
+
+    def build_embed(self):
+        desc = f"📅 **WDC Season:** **{self.active_season['name']}**\n\n"
+        if not self.calendar:
+            desc += "*No rounds scheduled in the season calendar yet. Use `/season add_race` or `/season add_sprint_race` to add races!*"
+        else:
+            for idx, item in enumerate(self.calendar):
+                icon = "⚡" if item['is_sprint'] else "🏁"
+                status = item['status']
+                status_emoji = "🟢" if status == 'Running' else ("⚪" if status == 'Scheduled' else "🏁")
+                
+                prefix = f"👉 **Round {idx+1}:** " if self.selected_index == idx else f"**Round {idx+1}:** "
+                desc += f"{prefix}{icon} **{item['track']}** ({item['laps']} Laps) — `{status}` {status_emoji}\n"
+                
+        embed = utils.create_embed(
+            title=f"📅 WDC Calendar Manager",
+            description=desc,
+            color=utils.COLOR_QUALIFYING
+        )
+        return embed
+
+    def update_components(self):
+        self.clear_items()
+        
+        if self.calendar:
+            options = []
+            for idx, item in enumerate(self.calendar):
+                race_type = "Sprint" if item['is_sprint'] else "GP"
+                options.append(discord.SelectOption(
+                    label=f"Round {idx+1}: {item['track']} ({race_type})",
+                    value=str(idx),
+                    default=(self.selected_index == idx)
+                ))
+            select = discord.ui.Select(placeholder="Select a Round to Manage...", options=options, custom_id="season_cal_select")
+            select.callback = self.select_callback
+            self.add_item(select)
+            
+            if self.selected_index is not None:
+                up_btn = discord.ui.Button(label="Move Up", style=discord.ButtonStyle.secondary, emoji="⬆️", disabled=(self.selected_index == 0))
+                up_btn.callback = self.move_up_callback
+                self.add_item(up_btn)
+                
+                down_btn = discord.ui.Button(label="Move Down", style=discord.ButtonStyle.secondary, emoji="⬇️", disabled=(self.selected_index == len(self.calendar) - 1))
+                down_btn.callback = self.move_down_callback
+                self.add_item(down_btn)
+                
+                remove_btn = discord.ui.Button(label="Remove", style=discord.ButtonStyle.danger, emoji="❌")
+                remove_btn.callback = self.remove_callback
+                self.add_item(remove_btn)
+
+        next_race = None
+        for item in self.calendar:
+            if item['status'] == 'Scheduled':
+                next_race = item
+                break
+                
+        start_btn = discord.ui.Button(label="Start Next Round", style=discord.ButtonStyle.success, emoji="🏁", disabled=(next_race is None))
+        start_btn.callback = self.start_next_round_callback
+        self.add_item(start_btn)
+
+    async def select_callback(self, interaction: discord.Interaction):
+        self.selected_index = int(interaction.data['values'][0])
+        self.update_components()
+        await interaction.response.edit_message(embed=self.build_embed(), view=self)
+
+    async def move_up_callback(self, interaction: discord.Interaction):
+        if self.selected_index is None or self.selected_index <= 0:
+            await interaction.response.defer()
+            return
+            
+        idx = self.selected_index
+        self.calendar[idx], self.calendar[idx-1] = self.calendar[idx-1], self.calendar[idx]
+        self.selected_index = idx - 1
+        
+        cal_ids = [item['calendar_id'] for item in self.calendar]
+        database.update_calendar_orders(cal_ids)
+        
+        self.update_components()
+        await interaction.response.edit_message(embed=self.build_embed(), view=self)
+
+    async def move_down_callback(self, interaction: discord.Interaction):
+        if self.selected_index is None or self.selected_index >= len(self.calendar) - 1:
+            await interaction.response.defer()
+            return
+            
+        idx = self.selected_index
+        self.calendar[idx], self.calendar[idx+1] = self.calendar[idx+1], self.calendar[idx]
+        self.selected_index = idx + 1
+        
+        cal_ids = [item['calendar_id'] for item in self.calendar]
+        database.update_calendar_orders(cal_ids)
+        
+        self.update_components()
+        await interaction.response.edit_message(embed=self.build_embed(), view=self)
+
+    async def remove_callback(self, interaction: discord.Interaction):
+        if self.selected_index is None:
+            await interaction.response.defer()
+            return
+            
+        target = self.calendar[self.selected_index]
+        success, msg = database.remove_season_race(target['calendar_id'])
+        if success:
+            self.calendar = database.get_season_calendar(self.active_season['season_id'])
+            self.selected_index = None
+            self.update_components()
+            await interaction.response.edit_message(embed=self.build_embed(), view=self)
+        else:
+            await interaction.response.send_message(f"❌ {msg}", ephemeral=True)
+
+    async def start_next_round_callback(self, interaction: discord.Interaction):
+        next_race = None
+        for item in self.calendar:
+            if item['status'] == 'Scheduled':
+                next_race = item
+                break
+                
+        if not next_race:
+            await interaction.response.send_message("❌ No scheduled rounds left in this season.", ephemeral=True)
+            return
+            
+        track = next_race['track']
+        laps = next_race['laps']
+        is_sprint = bool(next_race['is_sprint'])
+        event_type = "Sprint Race" if is_sprint else "Grand Prix"
+        gp_name = f"{track} {event_type}"
+        
+        active_gp = database.get_active_gp_race(interaction.guild_id)
+        if active_gp:
+            await interaction.response.send_message("❌ There is already an active GP running on this server. Complete or cancel it first.", ephemeral=True)
+            return
+            
+        success, msg = database.create_gp_race(
+            interaction.guild_id, 
+            gp_name, 
+            track, 
+            laps, 
+            is_sprint=is_sprint, 
+            season_id=self.active_season['season_id']
+        )
+        if success:
+            database.mark_calendar_race_status(next_race['calendar_id'], 'Running')
+            
+            announcement = utils.create_embed(
+                title=f"🏁 WDC Round Launched: {gp_name}!",
+                description=(
+                    f"A new WDC Season round has been launched at **{track}** ({laps} laps)!\n\n"
+                    f"Type **`/joinrace`** to register and secure your spot on the starting grid!"
+                ),
+                color=utils.COLOR_SUCCESS
+            )
+            await interaction.channel.send(embed=announcement)
+            
+            self.calendar = database.get_season_calendar(self.active_season['season_id'])
+            self.selected_index = None
+            self.update_components()
+            await interaction.response.edit_message(embed=self.build_embed(), view=self)
+        else:
+            await interaction.response.send_message(f"❌ {msg}", ephemeral=True)
+
     @app_commands.command(name="give", description="Give credits to a player (Admin only).")
     @app_commands.describe(user="The player to receive credits", amount="Amount of credits to award")
     @is_admin()

@@ -56,3 +56,43 @@ def test_season_database_lifecycle():
     # 4. Verify no active season remains
     active_after = database.get_active_season(guild_id)
     assert active_after is None
+
+def test_season_calendar_lifecycle():
+    guild_id = 88888
+    database.cancel_active_season(guild_id)
+    
+    # 1. Create active season
+    success, msg = database.create_season(guild_id, "Calendar Test Season")
+    assert success is True
+    active = database.get_active_season(guild_id)
+    season_id = active['season_id']
+    
+    # 2. Add races to calendar
+    s1, m1 = database.add_season_race(season_id, "Monza (Italy)", 15, is_sprint=False)
+    assert s1 is True
+    s2, m2 = database.add_season_race(season_id, "Monaco (Monte Carlo)", 8, is_sprint=True)
+    assert s2 is True
+    s3, m3 = database.add_season_race(season_id, "Silverstone (Great Britain)", 15, is_sprint=False)
+    assert s3 is True
+    
+    # 3. Verify calendar order
+    calendar = database.get_season_calendar(season_id)
+    assert len(calendar) == 3
+    assert calendar[0]['track'] == "Monza (Italy)"
+    assert calendar[0]['race_order'] == 1
+    assert calendar[1]['is_sprint'] == 1
+    assert calendar[2]['track'] == "Silverstone (Great Britain)"
+    
+    # 4. Remove round 2 (Monaco Sprint)
+    cal_id_2 = calendar[1]['calendar_id']
+    s_rem, m_rem = database.remove_season_race(cal_id_2)
+    assert s_rem is True
+    
+    calendar_after = database.get_season_calendar(season_id)
+    assert len(calendar_after) == 2
+    assert calendar_after[0]['track'] == "Monza (Italy)"
+    assert calendar_after[1]['track'] == "Silverstone (Great Britain)"
+    assert calendar_after[1]['race_order'] == 2
+    
+    # 5. Clean up season
+    database.cancel_active_season(guild_id)

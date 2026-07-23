@@ -256,10 +256,9 @@ class SimTeam:
         
         return base_power
 
-def simulate_duel(team1_data: Dict[str, Any], team2_data: Dict[str, Any], total_laps: int = 1, track_name: str = None) -> Tuple[Dict[str, Any], Dict[str, Any], List[List[str]], List[str]]:
+def simulate_duel_generator(team1_data: Dict[str, Any], team2_data: Dict[str, Any], total_laps: int = 1, track_name: str = None):
     """
-    Simulate a multi-lap head-to-head race duel.
-    Returns (winner_data, loser_data, lap_logs, qual_logs).
+    Generator that simulates a 1v1 duel lap-by-lap, yielding intermediate states to allow interactive strategy updates.
     """
     t1 = SimTeam(team1_data)
     t2 = SimTeam(team2_data)
@@ -273,7 +272,7 @@ def simulate_duel(team1_data: Dict[str, Any], team2_data: Dict[str, Any], total_
         track = random.choice(list(TRACK_PROFILES.keys()))
     qual_logs.append(f"📍 Track: **{track}** - {TRACK_PROFILES[track]['description']}")
     
-    # Space pit stops evenly if total laps > 3
+    # Setup initial pit stops
     for t in [t1, t2]:
         if total_laps > 3:
             intervals = total_laps / (t.pref_pit_stops + 1)
@@ -281,6 +280,11 @@ def simulate_duel(team1_data: Dict[str, Any], team2_data: Dict[str, Any], total_
         else:
             t.pit_laps = []
             
+        t.pit_next_lap = False
+        t.pit_next_lap_tyre = None
+        t.next_block_strategy = None
+        t.last_lap_time = 45.0  # default lap time
+
     qual_logs.append(f"📋 Strategist for '{t1.team_name}' chose **{t1.strategy}** strategy and **{t1.tyre_type}** tyres.")
     qual_logs.append(f"📋 Strategist for '{t2.team_name}' chose **{t2.strategy}** strategy and **{t2.tyre_type}** tyres.")
     
@@ -297,27 +301,48 @@ def simulate_duel(team1_data: Dict[str, Any], team2_data: Dict[str, Any], total_
         
     qual_logs.append("\n🟢 **Lights Out! The duel is underway!**")
     
-    # We will track the gap (in seconds). Let's start the gap at 1.0s.
+    yield "setup", [t1, t2], qual_logs, track
+    
     gap = 1.0
-    lap_logs = []
+    finish_logs = []
     
     for lap in range(1, total_laps + 1):
         current_lap_events = []
         
+        # Apply scheduled pacing or pit stops
+        for t in [t1, t2]:
+            if t.dnf:
+                continue
+            if getattr(t, 'next_block_strategy', None):
+                t.strategy = t.next_block_strategy
+                t.next_block_strategy = None
+                current_lap_events.append(f"📻 **{t.team_name}:** Pacing strategy changed to **{t.strategy}**.")
+            
+            if getattr(t, 'pit_next_lap', False):
+                new_tyre = getattr(t, 'pit_next_lap_tyre', t.tyre_type) or t.tyre_type
+                t.tyre_type = new_tyre
+                t.tyre_health = 100.0
+                t.pit_next_lap = False
+                t.pit_stops_completed += 1
+                
+                pit_duration = 3.5 - (t.pit_crew * 0.15)
+                if t == leader:
+                    gap -= pit_duration
+                else:
+                    gap += pit_duration
+                current_lap_events.append(f"🔧 **Lap {lap}:** {t.team_name} pits for fresh **{t.tyre_type}** tyres (time: {pit_duration:.2f}s)!")
+                
         # Check DNF for both active drivers
         for t in [leader, trailer]:
             if t.dnf:
                 continue
-            # Scaled crashes: base of 6.5% scaled by reliability
             dnf_chance = max(0.2, 6.5 - t.reliability * 0.25)
             if t.strategy == "Aggressive":
                 dnf_chance += 3.0
             elif t.strategy == "Conservative":
                 dnf_chance = max(0.05, dnf_chance - 2.0)
                 
-            # Scaled down per-lap (since dnf_chance is per-race)
             per_lap_dnf_chance = dnf_chance / total_laps
-                
             if random.uniform(0, 100) < per_lap_dnf_chance:
                 t.dnf = True
                 reasons = ["spun off into the barriers", "suffered an engine blowup", "had a gearbox failure", "collided with a competitor"]
@@ -326,32 +351,33 @@ def simulate_duel(team1_data: Dict[str, Any], team2_data: Dict[str, Any], total_
                 
         # Handle DNFs
         if leader.dnf and trailer.dnf:
-            # Both crashed, random classification
             if random.random() < 0.5:
                 winner, loser = leader, trailer
                 current_lap_events.append(f"Both crashed! But {leader.team_name} is classified ahead.")
             else:
                 winner, loser = trailer, leader
                 current_lap_events.append(f"Both crashed! But {trailer.team_name} is classified ahead.")
-            lap_logs.append(current_lap_events)
+            finish_logs.extend(current_lap_events)
+            yield "lap", lap, current_lap_events, {}, track
             break
         elif leader.dnf:
             winner, loser = trailer, leader
             current_lap_events.append(f"🏆 **Checkered Flag!** {trailer.team_name} wins the duel!")
-            lap_logs.append(current_lap_events)
+            finish_logs.extend(current_lap_events)
+            yield "lap", lap, current_lap_events, {}, track
             break
         elif trailer.dnf:
             winner, loser = leader, trailer
             current_lap_events.append(f"🏆 **Checkered Flag!** {leader.team_name} wins the duel!")
-            lap_logs.append(current_lap_events)
+            finish_logs.extend(current_lap_events)
+            yield "lap", lap, current_lap_events, {}, track
             break
             
-        # Pitting logic in Duels
+        # Pitting logic (automatic if not manual)
         for t in [leader, trailer]:
             if t.dnf:
                 continue
-            # Pit ONLY if scheduled lap and total laps > 3
-            if total_laps > 3 and (lap in t.pit_laps):
+            if total_laps > 3 and (lap in t.pit_laps) and t.tyre_health < 50.0:
                 pit_duration = 3.5 - (t.pit_crew * 0.15)
                 if t == leader:
                     gap -= pit_duration
@@ -379,6 +405,7 @@ def simulate_duel(team1_data: Dict[str, Any], team2_data: Dict[str, Any], total_
                 wear = base_wear
                 
             t.tyre_health -= random.uniform(wear - 1, wear + 1)
+            t.tyre_health = max(0.0, t.tyre_health)
             
         # Calculate performance for this lap
         l_tyre_bonus = 8.0 if leader.tyre_type == "Soft" else (0.0 if leader.tyre_type == "Hard" else 4.0)
@@ -398,32 +425,28 @@ def simulate_duel(team1_data: Dict[str, Any], team2_data: Dict[str, Any], total_
         elif trailer.strategy == "Conservative":
             t_perf -= 3.0
             
-        # Tyre penalty (Steeper penalty when tyres are worn)
+        # Tyre penalty
         if leader.tyre_health < 40.0:
-            l_perf -= (40.0 - max(0.0, leader.tyre_health)) * 0.8
+            l_perf -= (40.0 - leader.tyre_health) * 0.8
         if trailer.tyre_health < 40.0:
-            t_perf -= (40.0 - max(0.0, trailer.tyre_health)) * 0.8
+            t_perf -= (40.0 - trailer.tyre_health) * 0.8
             
-        # Performance difference shifts the gap
-        # If leader was faster, gap increases. If trailer was faster, gap decreases.
-        perf_diff = (l_perf - t_perf) * 0.25 # scaling factor
+        # Shift gap
+        perf_diff = (l_perf - t_perf) * 0.25
         gap += perf_diff
         
         if gap <= 0:
-            # Trailer overtakes!
             gap = abs(gap)
             if gap < 0.2:
-                gap = 0.5 # keep some minimal gap
+                gap = 0.5
             leader, trailer = trailer, leader
             current_lap_events.append(f"🔄 **Lap {lap}:** **{leader.team_name}** makes a brilliant overtake on **{trailer.team_name}** to take the lead!")
         else:
-            # No overtake, describe state
             if gap > 3.0:
                 current_lap_events.append(f"🏎️ **Lap {lap}:** **{leader.team_name}** is pulling away, leading **{trailer.team_name}** by **{gap:.2f}s**.")
             else:
                 current_lap_events.append(f"⚔️ **Lap {lap}:** **{leader.team_name}** defends hard! **{trailer.team_name}** is right on their gearbox (+**{gap:.2f}s**).")
                 
-        # Tyre status stats string
         current_lap_events.append(
             f"📊 **Tyre Health:** {leader.team_name}: {max(0, int(leader.tyre_health))}% | {trailer.team_name}: {max(0, int(trailer.tyre_health))}%"
         )
@@ -433,18 +456,61 @@ def simulate_duel(team1_data: Dict[str, Any], team2_data: Dict[str, Any], total_
             winner, loser = leader, trailer
             current_lap_events.append(f"\n🏁 **Checkered Flag!** **{winner.team_name}** crosses the line to win the duel!")
             
-        lap_logs.append(current_lap_events)
+        leader.laps_completed = lap
+        trailer.laps_completed = lap
+        
+        # Build lap snapshot dictionary for telemetry views:
+        lap_snapshot = {
+            t1.user_id: {
+                "position": 1 if leader == t1 else 2,
+                "gap_to_leader": "Leader" if leader == t1 else f"+{gap:.2f}s",
+                "gap_to_front": "—" if leader == t1 else f"+{gap:.2f}s",
+                "tyre_type": t1.tyre_type,
+                "tyre_health": t1.tyre_health,
+                "dnf": t1.dnf
+            },
+            t2.user_id: {
+                "position": 1 if leader == t2 else 2,
+                "gap_to_leader": "Leader" if leader == t2 else f"+{gap:.2f}s",
+                "gap_to_front": "—" if leader == t2 else f"+{gap:.2f}s",
+                "tyre_type": t2.tyre_type,
+                "tyre_health": t2.tyre_health,
+                "dnf": t2.dnf
+            }
+        }
+        
+        yield "lap", lap, current_lap_events, lap_snapshot, track
         
     # Map back SimTeam object dicts
     w_data = team1_data.copy() if winner.user_id == team1_data["user_id"] else team2_data.copy()
     l_data = team1_data.copy() if loser.user_id == team1_data["user_id"] else team2_data.copy()
-    
     w_data["dnf"] = winner.dnf
     l_data["dnf"] = loser.dnf
     w_data["tyre_health"] = winner.tyre_health
     l_data["tyre_health"] = loser.tyre_health
     
-    return w_data, l_data, lap_logs, qual_logs
+    yield "finish", w_data, l_data, finish_logs
+
+def simulate_duel(team1_data: Dict[str, Any], team2_data: Dict[str, Any], total_laps: int = 1, track_name: str = None) -> Tuple[Dict[str, Any], Dict[str, Any], List[List[str]], List[str]]:
+    """
+    Simulate a multi-lap head-to-head race duel. Consumes the generator.
+    """
+    generator = simulate_duel_generator(team1_data, team2_data, total_laps, track_name)
+    setup_event = next(generator)
+    qual_logs = setup_event[2]
+    
+    lap_logs = []
+    winner = None
+    loser = None
+    
+    for item in generator:
+        if item[0] == "lap":
+            lap_logs.append(item[2])
+        elif item[0] == "finish":
+            winner = item[1]
+            loser = item[2]
+            
+    return winner, loser, lap_logs, qual_logs
 def simulate_gp_generator(entries_data: List[Dict[str, Any]], track_name: str, total_laps: int = 15, weather_timeline: List[str] = None, is_sprint: bool = False):
     """
     Generator that simulates a Grand Prix lap-by-lap, yielding intermediate states.

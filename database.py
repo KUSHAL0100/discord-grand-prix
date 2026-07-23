@@ -162,6 +162,20 @@ def init_db():
     );
     """)
 
+    # Create season_calendar table
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS season_calendar (
+        calendar_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        season_id INTEGER NOT NULL,
+        track TEXT NOT NULL,
+        laps INTEGER NOT NULL,
+        is_sprint BOOLEAN DEFAULT 0,
+        race_order INTEGER NOT NULL,
+        status TEXT NOT NULL DEFAULT 'Scheduled', -- 'Scheduled', 'Running', 'Finished'
+        FOREIGN KEY (season_id) REFERENCES seasons (season_id) ON DELETE CASCADE
+    );
+    """)
+
     # Create user_inventory table
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS user_inventory (
@@ -821,10 +835,7 @@ def create_gp_race(guild_id: int, name: str, track: str, laps: int, is_sprint: b
         
         today_str = datetime.now().isoformat()
         
-        if season_id is None:
-            active_season = get_active_season(guild_id)
-            if active_season:
-                season_id = active_season['season_id']
+        # Do not auto-assign season_id; it must be explicitly passed for season races.
 
         cursor.execute(
             "INSERT INTO races (guild_id, name, date, track, weather, status, laps, is_sprint, season_id) VALUES (?, ?, ?, ?, ?, 'Created', ?, ?, ?)",
@@ -1489,5 +1500,106 @@ def record_race_result(winner_user_id: int, loser_user_id: int, guild_id: int) -
     except sqlite3.Error:
         conn.rollback()
         return False
+    finally:
+        conn.close()
+
+# ----------------- WDC Season Calendar Helpers -----------------
+
+def get_season_calendar(season_id: int) -> List[Dict[str, Any]]:
+    """Get all scheduled races in the season's calendar ordered by race_order."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM season_calendar WHERE season_id = ? ORDER BY race_order ASC", (season_id,))
+    rows = cursor.fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+def add_season_race(season_id: int, track: str, laps: int, is_sprint: bool) -> Tuple[bool, str]:
+    """Add a race or sprint to the WDC Season calendar."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        # Find next race order index
+        cursor.execute("SELECT MAX(race_order) as max_order FROM season_calendar WHERE season_id = ?", (season_id,))
+        row = cursor.fetchone()
+        next_order = (row['max_order'] + 1) if (row and row['max_order'] is not None) else 1
+        
+        cursor.execute(
+            "INSERT INTO season_calendar (season_id, track, laps, is_sprint, race_order, status) VALUES (?, ?, ?, ?, ?, 'Scheduled')",
+            (season_id, track, laps, 1 if is_sprint else 0, next_order)
+        )
+        conn.commit()
+        race_type = "Sprint" if is_sprint else "Grand Prix"
+        return True, f"Successfully added **{track} {race_type}** ({laps} Laps) as Round {next_order} to the WDC season calendar!"
+    except sqlite3.Error as e:
+        conn.rollback()
+        return False, f"Database error: {e}"
+    finally:
+        conn.close()
+
+def remove_season_race(calendar_id: int) -> Tuple[bool, str]:
+    """Remove a race from the WDC Season calendar and shift orders."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        # Get season_id and current race_order
+        cursor.execute("SELECT season_id, race_order, track FROM season_calendar WHERE calendar_id = ?", (calendar_id,))
+        row = cursor.fetchone()
+        if not row:
+            return False, "Race not found in calendar."
+        
+        season_id = row['season_id']
+        removed_order = row['race_order']
+        track = row['track']
+        
+        cursor.execute("DELETE FROM season_calendar WHERE calendar_id = ?", (calendar_id,))
+        
+        # Shift orders of subsequent races
+        cursor.execute(
+            "UPDATE season_calendar SET race_order = race_order - 1 WHERE season_id = ? AND race_order > ?",
+            (season_id, removed_order)
+        )
+        conn.commit()
+        return True, f"Successfully removed **{track}** from the WDC season calendar."
+    except sqlite3.Error as e:
+        conn.rollback()
+        return False, f"Database error: {e}"
+    finally:
+        conn.close()
+
+def update_calendar_orders(calendar_id_orders: List[int]) -> None:
+    """Reorder season calendar items based on list of calendar_ids."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        for idx, cal_id in enumerate(calendar_id_orders):
+            cursor.execute("UPDATE season_calendar SET race_order = ? WHERE calendar_id = ?", (idx + 1, cal_id))
+        conn.commit()
+    except sqlite3.Error:
+        conn.rollback()
+    finally:
+        conn.close()
+
+def get_next_scheduled_calendar_race(season_id: int) -> Optional[Dict[str, Any]]:
+    """Return the next Scheduled or Running race in the WDC calendar."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT * FROM season_calendar WHERE season_id = ? AND status IN ('Scheduled', 'Running') ORDER BY race_order ASC LIMIT 1",
+        (season_id,)
+    )
+    row = cursor.fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+def mark_calendar_race_status(calendar_id: int, status: str) -> None:
+    """Mark a calendar race status ('Scheduled', 'Running', 'Finished')."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("UPDATE season_calendar SET status = ? WHERE calendar_id = ?", (status, calendar_id))
+        conn.commit()
+    except sqlite3.Error:
+        conn.rollback()
     finally:
         conn.close()

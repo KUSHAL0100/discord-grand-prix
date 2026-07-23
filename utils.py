@@ -1,6 +1,6 @@
 import discord
 from datetime import datetime
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Tuple
 import config
 
 # Standard color palette for Discord Grand Prix
@@ -131,10 +131,25 @@ def get_tier_label(level: int) -> str:
         return "TIER 2 (PERFORMANCE)"
     return "TIER 1 (SPEC)"
 
+def get_team_category(equipped: Dict[str, Any]) -> str:
+    RARITY_ORDER = ["Common", "Uncommon", "Rare", "Epic", "Legendary"]
+    equipped_rarities = [equipped[cat]['rarity'] for cat in equipped if 'rarity' in equipped[cat]]
+    if not equipped_rarities:
+        return "COMMON"
+    highest = max(equipped_rarities, key=lambda r: RARITY_ORDER.index(r) if r in RARITY_ORDER else 0)
+    return highest.upper()
+
+def get_rarity_color(rarity: str) -> Tuple[int, int, int, int]:
+    if rarity == "Legendary": return (255, 215, 0, 255)       # Gold
+    if rarity == "Epic": return (224, 64, 251, 255)          # Purple
+    if rarity == "Rare": return (0, 229, 255, 255)           # Electric Cyan/Blue
+    if rarity == "Uncommon": return (0, 230, 118, 255)       # Emerald Green
+    return (170, 185, 200, 255)                              # Slate/Grey (Common)
+
 def generate_profile_card(prof: Dict[str, Any]) -> io.BytesIO:
     """
     Renders an elite F1-style driver profile PNG card (880x540 px).
-    Features: carbon-teal theme, perfectly symmetrical side-by-side layout, tier tags, and progress bars.
+    Features: carbon-teal theme, perfectly symmetrical side-by-side layout, part rarity categories, and progress bars.
     Returns in-memory BytesIO PNG.
     """
     width, height = 880, 540
@@ -146,6 +161,11 @@ def generate_profile_card(prof: Dict[str, Any]) -> io.BytesIO:
     font_body = FONT_BODY
     font_bold = FONT_BOLD
     font_small = FONT_SMALL
+
+    # --- Fetch Equipped Parts Rarities ---
+    discord_id = prof.get('discord_id')
+    equipped = database.get_equipped_inventory(discord_id) if discord_id else {}
+    overall_rarity = get_team_category(equipped)
 
     # --- Header Gradient (Teal/Blue Carbon look) ---
     for y_line in range(92):
@@ -161,11 +181,9 @@ def generate_profile_card(prof: Dict[str, Any]) -> io.BytesIO:
         team_title = f"{country_str}  {team_title}"
     draw.text((30, 12), team_title[:36], fill=(255, 255, 255, 255), font=font_title)
 
-    # Subtitle: Level | Power | Tier
+    # Subtitle: Level | Power | Tier Category
     overall_power = calculate_overall_power(prof, prof.get("pace", 50))
-    highest_lvl = max([prof.get(p, 1) for p in config.PART_MULTIPLIERS.keys()])
-    tier_name = get_tier_label(highest_lvl)
-    subtitle = f"DRIVER LEVEL {prof.get('level', 1)}  |  OVERALL CAR POWER: {overall_power:.1f}  |  {tier_name}"
+    subtitle = f"DRIVER LEVEL {prof.get('level', 1)}  |  OVERALL POWER: {overall_power:.1f}  |  {overall_rarity} CLASS"
     draw.text((30, 52), subtitle, fill=(150, 240, 255, 255), font=font_sub)
 
     # --- Stats Strip ---
@@ -185,7 +203,7 @@ def generate_profile_card(prof: Dict[str, Any]) -> io.BytesIO:
     draw.text((32, sy + 10), "DRIVER PERSONNEL (1-100)", fill=(0, 230, 118, 255), font=font_sub)
     draw.text((32, sy + 28), "Train stats with /train <skill>", fill=(100, 115, 135, 255), font=font_small)
     draw.text((462, sy + 10), "GARAGE COMPONENTS (1-20)", fill=(0, 229, 255, 255), font=font_sub)
-    draw.text((462, sy + 28), "Upgrade parts with /upgrade <part>", fill=(100, 115, 135, 255), font=font_small)
+    draw.text((462, sy + 28), "Equipped parts rarity category", fill=(100, 115, 135, 255), font=font_small)
 
     # --- Helpers ---
     def draw_bar(x, y, w, h, value, max_val, bar_color, bg=(26, 30, 40, 255)):
@@ -199,18 +217,6 @@ def generate_profile_card(prof: Dict[str, Any]) -> io.BytesIO:
         if v >= 60: return (0, 229, 255, 255)    # Electric Cyan
         if v >= 40: return (255, 215, 0, 255)    # Gold
         return (255, 76, 76, 255)                # Coral Red
-
-    def part_color(l):
-        if l >= 16: return (224, 64, 251, 255)   # Purple (Extreme)
-        if l >= 11: return (0, 230, 118, 255)    # Emerald (Advanced)
-        if l >= 6:  return (0, 229, 255, 255)    # Electric Cyan (Perf)
-        return (144, 164, 174, 255)              # Slate Grey (Spec)
-
-    def part_tier_short(l):
-        if l >= 16: return "EXTREME"
-        if l >= 11: return "ADVANCED"
-        if l >= 6:  return "PERF"
-        return "SPEC"
 
     # --- Left Column: Driver Personnel ---
     skills = [
@@ -231,22 +237,24 @@ def generate_profile_card(prof: Dict[str, Any]) -> io.BytesIO:
 
     # --- Right Column: Garage Components ---
     parts = [
-        ("Engine", prof.get("engine", 1)),
-        ("Aerodynamics", prof.get("aerodynamics", 1)),
-        ("Tyres", prof.get("tyres", 1)),
-        ("ERS System", prof.get("ers", 1)),
-        ("Reliability", prof.get("reliability", 1)),
-        ("Pit Crew", prof.get("pit_crew", 1)),
+        ("Engine", prof.get("engine", 1), "engine"),
+        ("Aerodynamics", prof.get("aerodynamics", 1), "aerodynamics"),
+        ("Tyres", prof.get("tyres", 1), "tyres"),
+        ("ERS System", prof.get("ers", 1), "ers"),
+        ("Reliability", prof.get("reliability", 1), "reliability"),
+        ("Pit Crew", prof.get("pit_crew", 1), "pit_crew"),
     ]
 
-    for idx, (name, lvl) in enumerate(parts):
+    for idx, (name, lvl, category) in enumerate(parts):
         y = y0 + idx * 52
-        tier_tag = part_tier_short(lvl)
-        tag_color = part_color(lvl)
+        item = equipped.get(category)
+        rarity_str = item.get('rarity', 'Common') if item else 'Common'
+        tag_color = get_rarity_color(rarity_str)
+        
         draw.text((462, y), name, fill=(200, 210, 225, 255), font=font_body)
         draw.text((585, y), f"Lvl {lvl}", fill=(255, 255, 255, 255), font=font_bold)
-        # Tier tag
-        draw.text((645, y), tier_tag, fill=tag_color, font=font_small)
+        # Symmetrical Rarity tag
+        draw.text((645, y), rarity_str.upper(), fill=tag_color, font=font_small)
         # Symmetrical side-by-side bar
         draw_bar(730, y + 2, 120, 14, lvl, 20, tag_color)
 

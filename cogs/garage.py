@@ -124,9 +124,30 @@ class GarageCog(commands.Cog):
         overall_power = utils.calculate_overall_power(prof, prof["pace"])
         country_prefix = f"{prof['country']} " if prof.get('country') else ""
         
-        # Determine tier category
-        highest_lvl = max([prof.get(p, 1) for p in config.PART_MULTIPLIERS.keys()])
-        tier_label = utils.get_tier_label(highest_lvl)
+        # Fetch equipped inventory parts
+        equipped = database.get_equipped_inventory(target.id)
+        overall_rarity = utils.get_team_category(equipped)
+
+        # Build detailed equipped parts description
+        parts_list = []
+        for cat_label, key in [
+            ("Engine", "engine"),
+            ("Aero", "aerodynamics"),
+            ("Tyres", "tyres"),
+            ("ERS", "ers"),
+            ("Reliability", "reliability"),
+            ("Pit Crew", "pit_crew")
+        ]:
+            lvl = prof.get(key, 1)
+            item = equipped.get(key)
+            if item:
+                rarity = item.get('rarity', 'Common')
+                name = item.get('part_name', 'Stock Block')
+                parts_list.append(f"• **{cat_label}:** Lvl `{lvl}` | **{rarity}** (*{name}*)")
+            else:
+                parts_list.append(f"• **{cat_label}:** Lvl `{lvl}` | **Common** (*Stock*)")
+        
+        parts_desc = "\n".join(parts_list)
 
         embed = utils.create_embed(
             title=f"🏎️ {country_prefix}{prof['team_name']}",
@@ -134,7 +155,7 @@ class GarageCog(commands.Cog):
                 f"👤 **Driver:** {target.mention}\n"
                 f"⭐ **Level:** `{prof['level']}` | **XP:** `{prof['xp']:,}/{prof['level']*1000:,}`\n"
                 f"💰 **Credits:** `{prof['money']:,}¢`\n"
-                f"🏎️ **Overall Power:** `{overall_power:.1f}` | **Category:** `{tier_label}`\n"
+                f"🏎️ **Overall Power:** `{overall_power:.1f}` | **Category:** `{overall_rarity}`\n"
                 f"🏆 **W:** `{prof['wins']}` / **L:** `{prof['losses']}`\n\n"
                 f"🏋️ **Driver Personnel**\n"
                 f"💰 **Training Fee:** `{config.TRAINING_BASE_COST:,} credits` per skill level upgrade.\n"
@@ -142,10 +163,8 @@ class GarageCog(commands.Cog):
                 f"> Pace `{prof['pace']}` · Quali `{prof['qual']}` · Wet `{prof['wet_skill']}`\n"
                 f"> Consistency `{prof['consistency']}` · Aggression `{prof['aggression']}` · Overtaking `{prof['overtaking']}`\n\n"
                 f"🔧 **Garage Components** — Use `/upgrade <part>` to upgrade\n"
-                f"> Engine `{prof['engine']}` · Aero `{prof['aerodynamics']}` · Tyres `{prof['tyres']}`\n"
-                f"> ERS `{prof['ers']}` · Reliability `{prof['reliability']}` · Pit Crew `{prof['pit_crew']}`\n\n"
-                f"⚙️ **Part Categories (Tiers):**\n"
-                f"• **Spec:** Lvl 1-5 | **Performance:** Lvl 6-10 | **Advanced:** Lvl 11-15 | **Extreme:** Lvl 16-20"
+                f"{parts_desc}\n\n"
+                f"⚙️ **Upgrade Rules:** Spec: Lvl 1-5 | Performance: Lvl 6-10 | Advanced: Lvl 11-15 | Extreme: Lvl 16-20"
             ),
             color=utils.COLOR_INFO
         )
