@@ -256,7 +256,7 @@ class SimTeam:
         
         return base_power
 
-def simulate_duel(team1_data: Dict[str, Any], team2_data: Dict[str, Any], total_laps: int = 1) -> Tuple[Dict[str, Any], Dict[str, Any], List[List[str]], List[str]]:
+def simulate_duel(team1_data: Dict[str, Any], team2_data: Dict[str, Any], total_laps: int = 1, track_name: str = None) -> Tuple[Dict[str, Any], Dict[str, Any], List[List[str]], List[str]]:
     """
     Simulate a multi-lap head-to-head race duel.
     Returns (winner_data, loser_data, lap_logs, qual_logs).
@@ -266,8 +266,11 @@ def simulate_duel(team1_data: Dict[str, Any], team2_data: Dict[str, Any], total_
     
     qual_logs = ["🏁 **Duel Start!** Lights out and away we go!"]
     
-    # Randomly select a track for the duel
-    track = random.choice(list(TRACK_PROFILES.keys()))
+    # Select track (specified or random)
+    if track_name and track_name in TRACK_PROFILES:
+        track = track_name
+    else:
+        track = random.choice(list(TRACK_PROFILES.keys()))
     qual_logs.append(f"📍 Track: **{track}** - {TRACK_PROFILES[track]['description']}")
     
     # Space pit stops evenly if total laps > 3

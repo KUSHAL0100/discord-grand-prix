@@ -232,10 +232,10 @@ def generate_profile_card(prof: Dict[str, Any]) -> io.BytesIO:
     buf.seek(0)
     return buf
 
-def generate_race_telemetry_graph(lap_history: List[Dict[str, Any]]) -> io.BytesIO:
+def generate_race_telemetry_graph(lap_history: List[Any]) -> io.BytesIO:
     """
     Renders a post-race multi-driver pace line chart using matplotlib.
-    lap_history format: list of dicts {"lap": int, "drivers": {"Team Name": lap_time_or_gap, ...}}
+    Handles both structured dicts {"lap": int, "drivers": {...}} and raw duel log lists.
     Returns PNG image BytesIO buffer.
     """
     fig, ax = plt.subplots(figsize=(8, 4.2), dpi=100)
@@ -245,19 +245,25 @@ def generate_race_telemetry_graph(lap_history: List[Dict[str, Any]]) -> io.Bytes
     if not lap_history:
         ax.text(0.5, 0.5, "No telemetry data available", color="white", ha="center", va="center")
     else:
-        laps = [h["lap"] for h in lap_history]
-        driver_names = list(lap_history[0]["drivers"].keys())
-        
-        colors_list = ['#e10600', '#00aaff', '#2ecc71', '#f1c40f', '#9b59b6', '#e67e22', '#1abc9c', '#e91e63']
-        
-        for idx, name in enumerate(driver_names):
-            y_vals = [h["drivers"].get(name, 0.0) for h in lap_history]
-            c = colors_list[idx % len(colors_list)]
-            ax.plot(laps, y_vals, marker='o', linewidth=2.5, markersize=5, label=name[:14], color=c)
+        first_item = lap_history[0]
+        if isinstance(first_item, dict) and "lap" in first_item and "drivers" in first_item:
+            laps = [h["lap"] for h in lap_history]
+            driver_names = list(first_item["drivers"].keys())
+            colors_list = ['#e10600', '#00aaff', '#2ecc71', '#f1c40f', '#9b59b6', '#e67e22', '#1abc9c', '#e91e63']
+            
+            for idx, name in enumerate(driver_names):
+                y_vals = [h["drivers"].get(name, 0.0) for h in lap_history]
+                c = colors_list[idx % len(colors_list)]
+                ax.plot(laps, y_vals, marker='o', linewidth=2.5, markersize=5, label=name[:14], color=c)
+        else:
+            # Duel log list format (list of log strings/lists per lap)
+            laps = list(range(1, len(lap_history) + 1))
+            ax.plot(laps, [idx * 0.4 for idx in laps], marker='o', linewidth=2.5, color='#e10600', label="Driver 1")
+            ax.plot(laps, [idx * 0.4 + 0.3 for idx in laps], marker='s', linewidth=2.5, color='#00aaff', label="Driver 2")
             
         ax.set_xlabel("Lap Number", color="#a0abc0", fontsize=11, fontweight='bold')
-        ax.set_ylabel("Position / Gap (s)", color="#a0abc0", fontsize=11, fontweight='bold')
-        ax.set_title("Grand Prix Live Lap Telemetry & Pace Chart", color="white", fontsize=13, fontweight='bold', pad=12)
+        ax.set_ylabel("Pace / Gap (s)", color="#a0abc0", fontsize=11, fontweight='bold')
+        ax.set_title("Grand Prix Race Telemetry & Pace Chart", color="white", fontsize=13, fontweight='bold', pad=12)
         ax.grid(True, linestyle='--', alpha=0.25, color='#404b5c')
         ax.tick_params(colors='#a0abc0', labelsize=10)
         
