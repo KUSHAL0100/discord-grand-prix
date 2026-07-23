@@ -59,6 +59,9 @@ async def on_ready():
                         print(f"Failed to clear commands for guild {g.id}: {guild_err}")
             synced = await bot.tree.sync()
             print(f"Synced {len(synced)} commands globally.")
+    except Exception as sync_err:
+        print(f"Failed to sync slash commands: {sync_err}")
+
     if not periodic_voice_credits_check.is_running():
         periodic_voice_credits_check.start()
         print("Started periodic voice credits check background task.")
