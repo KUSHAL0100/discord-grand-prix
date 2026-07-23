@@ -1,5 +1,5 @@
 import discord
-from discord.ext import commands
+from discord.ext import commands, tasks
 from discord import app_commands
 import os
 import shutil
@@ -62,9 +62,13 @@ async def on_ready():
     except Exception as sync_err:
         print(f"Failed to sync slash commands: {sync_err}")
 
-    if not periodic_voice_credits_check.is_running():
-        periodic_voice_credits_check.start()
-        print("Started periodic voice credits check background task.")
+    try:
+        if not periodic_voice_credits_check.is_running():
+            periodic_voice_credits_check.start()
+            print("Started periodic voice credits check background task.")
+    except Exception as task_err:
+        if debug_mode:
+            print(f"Periodic VC task status: {task_err}")
 
 # ----------------- Economy Activity Trackers -----------------
 
