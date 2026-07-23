@@ -91,7 +91,7 @@ def test_crate_unboxing():
     # Unbox Rookie Crate
     ok, msg, summary = crates.unbox_crate(user_id, "rookie")
     assert ok is True
-    assert summary["gold_reward"] >= 100
+    assert summary["gold_reward"] >= 25
     assert summary["cost"] == 500
 
 def test_rarity_scaling_realism():

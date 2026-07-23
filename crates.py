@@ -34,8 +34,8 @@ CRATE_CONFIGS = {
     "rookie": {
         "name": "📦 Rookie Crate",
         "price": 500,
-        "gold_min": 100,
-        "gold_max": 400,
+        "gold_min": 25,
+        "gold_max": 125,  # 25% max return
         "part_chance": 0.60, # 60% chance to drop part
         "rarities": ["Common", "Uncommon", "Rare"],
         "weights": [70, 25, 5]
@@ -43,8 +43,8 @@ CRATE_CONFIGS = {
     "pro": {
         "name": "💼 Pro Crate",
         "price": 2500,
-        "gold_min": 500,
-        "gold_max": 1800,
+        "gold_min": 125,
+        "gold_max": 625,  # 25% max return
         "part_chance": 0.85, # 85% chance to drop part
         "rarities": ["Uncommon", "Rare", "Epic", "Legendary"],
         "weights": [40, 45, 12, 3]
@@ -52,8 +52,8 @@ CRATE_CONFIGS = {
     "champion": {
         "name": "🏆 Champion Crate",
         "price": 6000,
-        "gold_min": 1500,
-        "gold_max": 5000,
+        "gold_min": 300,
+        "gold_max": 1500, # 25% max return
         "part_chance": 1.00, # 100% guaranteed part
         "rarities": ["Rare", "Epic", "Legendary"],
         "weights": [35, 50, 15]
