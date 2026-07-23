@@ -142,7 +142,7 @@ async def on_voice_state_update(member: discord.Member, before: discord.VoiceSta
         if debug_mode:
             print(f"{member.name} is now active in voice channel {after.channel.name}.")
 
-@tasks.loop(minutes=2.0)
+@tasks.loop(minutes=5.0)
 async def periodic_voice_credits_check():
     """Periodically award voice activity credits to members active in VC without requiring them to leave."""
     now = datetime.now()

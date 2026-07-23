@@ -111,6 +111,15 @@ def get_victory_team_radio(team_name: str = "") -> str:
     """Return a randomized authentic F1 victory team radio broadcast."""
     return random.choice(VICTORY_RADIOS)
 
+# Cache PIL fonts at module level to eliminate disk I/O on profile card requests
+try:
+    FONT_TITLE = ImageFont.truetype("arialbd.ttf", 30)
+    FONT_SUB = ImageFont.truetype("arialbd.ttf", 17)
+    FONT_BODY = ImageFont.truetype("arial.ttf", 15)
+    FONT_BOLD = ImageFont.truetype("arialbd.ttf", 15)
+except Exception:
+    FONT_TITLE = FONT_SUB = FONT_BODY = FONT_BOLD = ImageFont.load_default()
+
 def generate_profile_card(prof: Dict[str, Any]) -> io.BytesIO:
     """
     Renders a high-tech dark-theme F1 driver profile PNG card (800x460 px).
@@ -124,14 +133,10 @@ def generate_profile_card(prof: Dict[str, Any]) -> io.BytesIO:
     # Header Banner (F1 Red Accent)
     draw.rectangle([(0, 0), (width, 85)], fill=(225, 6, 0, 255))
     
-    # Try loading fonts
-    try:
-        font_title = ImageFont.truetype("arialbd.ttf", 30)
-        font_sub = ImageFont.truetype("arialbd.ttf", 17)
-        font_body = ImageFont.truetype("arial.ttf", 15)
-        font_bold = ImageFont.truetype("arialbd.ttf", 15)
-    except Exception:
-        font_title = font_sub = font_body = font_bold = ImageFont.load_default()
+    font_title = FONT_TITLE
+    font_sub = FONT_SUB
+    font_body = FONT_BODY
+    font_bold = FONT_BOLD
         
     # Team & Driver Name
     team_title = f"{prof.get('team_name', 'F1 Team')}".upper()
@@ -247,6 +252,8 @@ def generate_race_telemetry_graph(lap_history: List[Dict[str, Any]]) -> io.Bytes
     buf = io.BytesIO()
     plt.savefig(buf, format='png', facecolor=fig.get_facecolor(), edgecolor='none')
     plt.close(fig)
+    plt.close('all')
+    plt.clf()
     buf.seek(0)
     return buf
 

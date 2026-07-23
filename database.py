@@ -204,6 +204,12 @@ def init_db():
     );
     """)
 
+    # --- Create performance B-Tree indexes for lightning-fast lookups ---
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_users_discord_guild ON users(discord_id, guild_id);")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_inventory_user_cat ON user_inventory(user_id, category, is_equipped);")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_boosters_user ON user_boosters(user_id);")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_races_guild_status ON races(guild_id, status);")
+
     # --- Run schema migrations for existing databases ---
     def get_existing_columns(table_name):
         cursor.execute(f"PRAGMA table_info({table_name})")
