@@ -1083,9 +1083,9 @@ async def race_bet(interaction: discord.Interaction, opponent: discord.Member, a
 
 # ----------------- Upgrades & Shops -----------------
 
-@bot.tree.command(name="shop", description="Browse available upgrades and costs.")
+@bot.tree.command(name="upgradeshop", description="Browse available car component upgrade levels and costs.")
 @app_commands.guild_only()
-async def shop(interaction: discord.Interaction):
+async def upgrade_shop_cmd(interaction: discord.Interaction):
     prof = database.get_full_team_profile(interaction.user.id, interaction.guild_id)
     if not prof:
         await interaction.response.send_message("❌ You do not have a profile. Use `/start`.", ephemeral=True)
