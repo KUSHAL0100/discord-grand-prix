@@ -53,23 +53,6 @@ async def on_ready():
             synced = await bot.tree.sync(guild=guild)
             print(f"Synced {len(synced)} commands to test guild {config.GUILD_ID}.")
         else:
-            # Step 1: Snapshot ALL registered commands (including admin group added manually)
-            all_commands = list(bot.tree.get_commands())
-            print(f"Snapshotted {len(all_commands)} commands from tree: {[c.name for c in all_commands]}")
-
-            # Step 2: Clear global registrations on Discord to eliminate duplicates
-            bot.tree.clear_commands(guild=None)
-            await bot.tree.sync()  # Tells Discord: "no global commands"
-            print("Cleared stale global command registrations.")
-
-            # Step 3: Restore ALL commands back into the tree
-            for cmd in all_commands:
-                try:
-                    bot.tree.add_command(cmd)
-                except discord.app_commands.CommandAlreadyRegistered:
-                    pass
-
-            # Step 4: Sync per-guild only (instant, no duplicates)
             for g in bot.guilds:
                 try:
                     bot.tree.copy_global_to(guild=g)
