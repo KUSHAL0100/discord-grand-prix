@@ -29,14 +29,13 @@ class AdminCog(commands.Cog):
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
-        try:
-            self.bot.tree.add_command(self.admin_group)
-        except Exception:
-            pass
-        try:
-            self.bot.tree.add_command(self.season_admin_group)
-        except Exception:
-            pass
+        # Register app_commands Groups into Cog app commands list
+        app_cmds = list(self.__cog_app_commands__)
+        if self.admin_group not in app_cmds:
+            app_cmds.append(self.admin_group)
+        if self.season_admin_group not in app_cmds:
+            app_cmds.append(self.season_admin_group)
+        self.__cog_app_commands__ = tuple(app_cmds)
 
     @admin_group.command(name="setstat", description="Set a driver skill level or garage part level for a user.")
     @app_commands.describe(

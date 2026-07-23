@@ -48,9 +48,13 @@ async def sync_prefix_command(ctx: commands.Context):
         return
         
     guild = ctx.guild
+    # Clear old guild overrides to fix duplicates
+    bot.tree.clear_commands(guild=guild)
+    await bot.tree.sync(guild=guild)
+    
     bot.tree.copy_global_to(guild=guild)
     synced = await bot.tree.sync(guild=guild)
-    await ctx.send(f"✅ **Slash Command Sync Complete!** Synced **{len(synced)}** commands (`/admin`, `/season`, `/race`, `/profile`, etc.) directly to **{guild.name}**!")
+    await ctx.send(f"✅ **Slash Command Sync Complete!** Cleaned duplicate entries & synced **{len(synced)}** commands (`/admin`, `/season`, `/race`, `/profile`, etc.) to **{guild.name}**!")
 
 @bot.tree.command(name="sync", description="Force sync all slash commands to this server (Admin only).")
 @app_commands.guild_only()
@@ -60,9 +64,12 @@ async def sync_slash_command(interaction: discord.Interaction):
         return
         
     guild = interaction.guild
+    bot.tree.clear_commands(guild=guild)
+    await bot.tree.sync(guild=guild)
+    
     bot.tree.copy_global_to(guild=guild)
     synced = await bot.tree.sync(guild=guild)
-    await interaction.response.send_message(f"✅ **Slash Command Sync Complete!** Synced **{len(synced)}** commands (`/admin`, `/season`, `/race`, `/profile`, etc.) directly to **{guild.name}**!")
+    await interaction.response.send_message(f"✅ **Slash Command Sync Complete!** Cleaned duplicate entries & synced **{len(synced)}** commands (`/admin`, `/season`, `/race`, `/profile`, etc.) to **{guild.name}**!")
 
 @bot.event
 async def on_ready():
@@ -70,28 +77,20 @@ async def on_ready():
     print("Initializing database schema and performance indexes...")
     database.init_db()
     
-    try:
-        synced_global = await bot.tree.sync()
-        print(f"Synced {len(synced_global)} global commands.")
-    except Exception as global_err:
-        print(f"Global sync notice: {global_err}")
+    # 1. Clear any stale guild overrides to fix duplicates (/crate /crate, etc.)
+    for g in bot.guilds:
+        try:
+            bot.tree.clear_commands(guild=g)
+            await bot.tree.sync(guild=g)
+        except Exception:
+            pass
 
+    # 2. Global command sync
     try:
-        if config.GUILD_ID:
-            guild = discord.Object(id=config.GUILD_ID)
-            bot.tree.copy_global_to(guild=guild)
-            synced = await bot.tree.sync(guild=guild)
-            print(f"Synced {len(synced)} commands to test guild {config.GUILD_ID}.")
-        else:
-            for g in bot.guilds:
-                try:
-                    bot.tree.copy_global_to(guild=g)
-                    synced = await bot.tree.sync(guild=g)
-                    print(f"Synced {len(synced)} commands to guild: {g.name} ({g.id})")
-                except Exception as guild_err:
-                    print(f"Guild sync notice for {g.id}: {guild_err}")
-    except Exception as sync_err:
-        print(f"Command sync notice: {sync_err}")
+        synced = await bot.tree.sync()
+        print(f"✅ Synced {len(synced)} global commands ({[c.name for c in synced]}).")
+    except Exception as e:
+        print(f"Global sync notice: {e}")
 
     try:
         if not periodic_voice_credits_check.is_running():
