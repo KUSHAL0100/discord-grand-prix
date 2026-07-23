@@ -149,54 +149,111 @@ def init_db():
     );
     """)
 
+    # Create seasons table
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS seasons (
+        season_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        guild_id BIGINT NOT NULL,
+        name TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'Active', -- 'Active', 'Finished', 'Cancelled'
+        winner_id INTEGER,
+        created_at TEXT NOT NULL,
+        FOREIGN KEY (winner_id) REFERENCES users (user_id) ON DELETE SET NULL
+    );
+    """)
+
+    # Create user_inventory table
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS user_inventory (
+        item_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        category TEXT NOT NULL,
+        part_name TEXT NOT NULL,
+        rarity TEXT NOT NULL DEFAULT 'Common',
+        level INTEGER NOT NULL DEFAULT 1,
+        stat_bonus INTEGER NOT NULL DEFAULT 0,
+        is_equipped INTEGER NOT NULL DEFAULT 0,
+        acquired_at TEXT NOT NULL,
+        FOREIGN KEY (user_id) REFERENCES users (user_id) ON DELETE CASCADE
+    );
+    """)
+
+    # Create user_boosters table
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS user_boosters (
+        booster_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        booster_type TEXT NOT NULL,
+        booster_name TEXT NOT NULL,
+        charges INTEGER NOT NULL DEFAULT 1,
+        FOREIGN KEY (user_id) REFERENCES users (user_id) ON DELETE CASCADE
+    );
+    """)
+
+    # Create track_mastery table
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS track_mastery (
+        mastery_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        track_name TEXT NOT NULL,
+        practice_count INTEGER NOT NULL DEFAULT 0,
+        last_practice_date TEXT,
+        pace_bonus REAL NOT NULL DEFAULT 0.0,
+        FOREIGN KEY (user_id) REFERENCES users (user_id) ON DELETE CASCADE,
+        UNIQUE(user_id, track_name)
+    );
+    """)
+
     # --- Run schema migrations for existing databases ---
-    try:
+    def get_existing_columns(table_name):
+        cursor.execute(f"PRAGMA table_info({table_name})")
+        return [row[1] for row in cursor.fetchall()]
+
+    # Users table migrations
+    users_cols = get_existing_columns("users")
+    if "pit_strategy_json" not in users_cols:
         cursor.execute("ALTER TABLE users ADD COLUMN pit_strategy_json TEXT DEFAULT '{\"pace\":\"Balanced\", \"start_tyre\":\"Medium\", \"stops\":[]}'")
-    except sqlite3.OperationalError:
-        pass  # Column already exists
-        
-    try:
+
+    # Race Entries table migrations
+    re_cols = get_existing_columns("race_entries")
+    if "current_q_tyre" not in re_cols:
         cursor.execute("ALTER TABLE race_entries ADD COLUMN current_q_tyre TEXT DEFAULT 'Soft'")
-    except sqlite3.OperationalError:
-        pass
-        
-    try:
+    if "quali_q1_time" not in re_cols:
         cursor.execute("ALTER TABLE race_entries ADD COLUMN quali_q1_time REAL")
-    except sqlite3.OperationalError:
-        pass
-        
-    try:
+    if "quali_q2_time" not in re_cols:
         cursor.execute("ALTER TABLE race_entries ADD COLUMN quali_q2_time REAL")
-    except sqlite3.OperationalError:
-        pass
-        
-    try:
+    if "quali_q3_time" not in re_cols:
         cursor.execute("ALTER TABLE race_entries ADD COLUMN quali_q3_time REAL")
-    except sqlite3.OperationalError:
-        pass
 
-    try:
+    # Races table migrations
+    races_cols = get_existing_columns("races")
+    if "laps" not in races_cols:
         cursor.execute("ALTER TABLE races ADD COLUMN laps INTEGER DEFAULT 15")
-    except sqlite3.OperationalError:
-        pass
+    if "season_id" not in races_cols:
+        cursor.execute("ALTER TABLE races ADD COLUMN season_id INTEGER")
+    if "is_sprint" not in races_cols:
+        cursor.execute("ALTER TABLE races ADD COLUMN is_sprint BOOLEAN DEFAULT 0")
+    if "fastest_lap_user_id" not in races_cols:
+        cursor.execute("ALTER TABLE races ADD COLUMN fastest_lap_user_id INTEGER")
 
-    try:
+    # Garage table migrations
+    garage_cols = get_existing_columns("garage")
+    if "damage_engine" not in garage_cols:
         cursor.execute("ALTER TABLE garage ADD COLUMN damage_engine INTEGER NOT NULL DEFAULT 0")
-    except sqlite3.OperationalError:
-        pass
-
-    try:
+    if "damage_tyres" not in garage_cols:
         cursor.execute("ALTER TABLE garage ADD COLUMN damage_tyres INTEGER NOT NULL DEFAULT 0")
-    except sqlite3.OperationalError:
-        pass
-
-    try:
+    if "damage_total" not in garage_cols:
         cursor.execute("ALTER TABLE garage ADD COLUMN damage_total INTEGER NOT NULL DEFAULT 0")
-    except sqlite3.OperationalError:
-        pass
 
     conn.commit()
     conn.close()
+
+# Auto-initialize database schema on module load
+try:
+    init_db()
+except Exception as _e:
+    pass
+
 
 # ----------------- User and Profile Management Helpers -----------------
 
@@ -677,8 +734,8 @@ def get_leaderboard(guild_id: int, by_type: str = 'points', limit: int = 10) -> 
 
 # ----------------- Grand Prix & Race Entries Helpers -----------------
 
-def create_gp_race(guild_id: int, name: str, track: str, laps: int) -> Tuple[bool, str]:
-    """Create a new Grand Prix race in Created status for a specific guild."""
+def create_gp_race(guild_id: int, name: str, track: str, laps: int, is_sprint: bool = False, season_id: Optional[int] = None) -> Tuple[bool, str]:
+    """Create a new Grand Prix or Sprint race in Created status for a specific guild."""
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
@@ -713,24 +770,30 @@ def create_gp_race(guild_id: int, name: str, track: str, laps: int) -> Tuple[boo
             sub_choice = random.choice(["starts_wet", "ends_wet", "wet_spell"])
             if sub_choice == "starts_wet":
                 wet_laps = random.randint(max(2, int(laps * 0.35)), max(3, int(laps * 0.65)))
-                forecast = f"Wet start. Heavy rain expected for the first {wet_laps} laps, clearing up to Sunny later."
+                forecast = f"Heavy rain at start, expected to clear around Lap {wet_laps}."
                 for i in range(1, laps + 1):
-                    timeline.append("Rain" if i <= wet_laps else "Sunny")
-            elif sub_choice == "ends_wet":
-                wet_start = random.randint(max(2, int(laps * 0.35)), max(3, int(laps * 0.55)))
-                forecast = f"Sunny start, with rain clouds moving in around Lap {wet_start} and continuing until the end."
-                for i in range(1, laps + 1):
-                    timeline.append("Rain" if i >= wet_start else "Sunny")
-            else: # wet_spell
-                # wet most of the race, but clears up in the middle
-                dry_start = random.randint(max(2, int(laps * 0.3)), max(3, int(laps * 0.5)))
-                dry_duration = random.randint(3, 6)
-                forecast = f"Rainy conditions from the start, with a brief dry sunny window between Lap {dry_start} and {dry_start + dry_duration - 1}."
-                for i in range(1, laps + 1):
-                    if dry_start <= i < dry_start + dry_duration:
-                        timeline.append("Sunny")
-                    else:
+                    if i <= wet_laps:
                         timeline.append("Rain")
+                    else:
+                        timeline.append("Sunny")
+            elif sub_choice == "ends_wet":
+                rain_start = max(2, laps - random.randint(2, max(3, int(laps * 0.5))))
+                forecast = f"Overcast start, heavy rain expected to arrive on Lap {rain_start}."
+                for i in range(1, laps + 1):
+                    if i >= rain_start:
+                        timeline.append("Rain")
+                    else:
+                        timeline.append("Sunny")
+            else:
+                # Wet spell in the middle
+                rain_start = random.randint(2, max(3, laps - 3))
+                rain_len = random.randint(2, 4)
+                forecast = f"Intermittent rain expected between Laps {rain_start} and {rain_start + rain_len}."
+                for i in range(1, laps + 1):
+                    if rain_start <= i < rain_start + rain_len:
+                        timeline.append("Rain")
+                    else:
+                        timeline.append("Sunny")
                         
         else: # Mixed
             # Mixed conditions: multiple transitions or a standard mixed shower
@@ -751,9 +814,15 @@ def create_gp_race(guild_id: int, name: str, track: str, laps: int) -> Tuple[boo
         weather_json = json.dumps(weather_data)
         
         today_str = datetime.now().isoformat()
+        
+        if season_id is None:
+            active_season = get_active_season(guild_id)
+            if active_season:
+                season_id = active_season['season_id']
+
         cursor.execute(
-            "INSERT INTO races (guild_id, name, date, track, weather, status, laps) VALUES (?, ?, ?, ?, ?, 'Created', ?)",
-            (guild_id, name, today_str, track, weather_json, laps)
+            "INSERT INTO races (guild_id, name, date, track, weather, status, laps, is_sprint, season_id) VALUES (?, ?, ?, ?, ?, 'Created', ?, ?, ?)",
+            (guild_id, name, today_str, track, weather_json, laps, 1 if is_sprint else 0, season_id)
         )
         conn.commit()
         return True, f"Grand Prix **{name}** at **{track}** ({laps} laps) has been scheduled! Type `/joinrace` to enter."
@@ -1079,4 +1148,290 @@ def get_last_finished_gp_results(guild_id: int) -> Tuple[Optional[Dict[str, Any]
     results = [dict(row) for row in cursor.fetchall()]
     conn.close()
     return race, results
+
+
+# ----------------- Season & Driver Championship Helpers -----------------
+
+def create_season(guild_id: int, name: str) -> Tuple[bool, str]:
+    """Create a new active Season for the guild."""
+    try:
+        init_db()
+    except Exception:
+        pass
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT season_id FROM seasons WHERE status = 'Active' AND guild_id = ?", (guild_id,))
+        if cursor.fetchone():
+            return False, "An active Season is already in progress on this server! End or cancel it first."
+            
+        today_str = datetime.now().isoformat()
+        cursor.execute(
+            "INSERT INTO seasons (guild_id, name, status, created_at) VALUES (?, ?, 'Active', ?)",
+            (guild_id, name, today_str)
+        )
+        conn.commit()
+        return True, f"🏆 **{name}** has been officially created! Schedule GPs and Sprints to build the Driver Championship standings."
+    except sqlite3.Error as e:
+        conn.rollback()
+        return False, f"Database error: {str(e)}"
+    finally:
+        conn.close()
+
+def get_active_season(guild_id: int) -> Optional[Dict[str, Any]]:
+    """Retrieve active season for a guild."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM seasons WHERE status = 'Active' AND guild_id = ?", (guild_id,))
+    row = cursor.fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+def cancel_active_season(guild_id: int) -> Tuple[bool, str]:
+    """Cancel active season for a guild."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT season_id, name FROM seasons WHERE status = 'Active' AND guild_id = ?", (guild_id,))
+        row = cursor.fetchone()
+        if not row:
+            return False, "No active season to cancel."
+            
+        cursor.execute("UPDATE seasons SET status = 'Cancelled' WHERE season_id = ?", (row['season_id'],))
+        conn.commit()
+        return True, f"🚫 Season **{row['name']}** has been cancelled."
+    except sqlite3.Error as e:
+        conn.rollback()
+        return False, f"Database error: {str(e)}"
+    finally:
+        conn.close()
+
+def end_active_season(guild_id: int) -> Tuple[bool, str, Optional[Dict[str, Any]], List[Dict[str, Any]]]:
+    """Conclude the active season, determine Driver Champion, and return final standings."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT * FROM seasons WHERE status = 'Active' AND guild_id = ?", (guild_id,))
+        season_row = cursor.fetchone()
+        if not season_row:
+            return False, "No active season to end.", None, []
+            
+        season = dict(season_row)
+        season_id = season['season_id']
+        
+        # Calculate driver points total across all finished races in this season
+        cursor.execute("""
+            SELECT u.user_id, u.team_name, u.discord_id, SUM(re.points_earned) as total_points, COUNT(re.entry_id) as races_entered
+            FROM race_entries re
+            JOIN races r ON re.race_id = r.race_id
+            JOIN users u ON re.user_id = u.user_id
+            WHERE r.season_id = ? AND r.status = 'Finished'
+            GROUP BY u.user_id
+            ORDER BY total_points DESC, races_entered ASC
+        """, (season_id,))
+        
+        standings = [dict(row) for row in cursor.fetchall()]
+        
+        champion = standings[0] if standings else None
+        champion_id = champion['user_id'] if champion else None
+        
+        cursor.execute("UPDATE seasons SET status = 'Finished', winner_id = ? WHERE season_id = ?", (champion_id, season_id))
+        conn.commit()
+        
+        msg = f"🏆 **{season['name']}** has concluded!"
+        if champion:
+            msg += f" Congratulations to **{champion['team_name']}** — World Driver Champion!"
+        return True, msg, season, standings
+    except sqlite3.Error as e:
+        conn.rollback()
+        return False, f"Database error: {str(e)}", None, []
+    finally:
+        conn.close()
+
+
+# ----------------- Inventory, Boosters & Practice Helpers -----------------
+
+def add_inventory_part(user_id: int, category: str, part_name: str, rarity: str, level: int, stat_bonus: int) -> Tuple[bool, str, int]:
+    """Add a new part to user's storage inventory."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        today_str = datetime.now().isoformat()
+        cursor.execute("""
+            INSERT INTO user_inventory (user_id, category, part_name, rarity, level, stat_bonus, is_equipped, acquired_at)
+            VALUES (?, ?, ?, ?, ?, ?, 0, ?)
+        """, (user_id, category, part_name, rarity, level, stat_bonus, today_str))
+        item_id = cursor.lastrowid
+        conn.commit()
+        return True, "Part added to inventory.", item_id
+    except sqlite3.Error as e:
+        conn.rollback()
+        return False, f"Database error: {str(e)}", 0
+    finally:
+        conn.close()
+
+def get_user_inventory(user_id: int, category: Optional[str] = None) -> List[Dict[str, Any]]:
+    """Retrieve items in user's inventory."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    if category:
+        cursor.execute("SELECT * FROM user_inventory WHERE user_id = ? AND category = ? ORDER BY is_equipped DESC, level DESC", (user_id, category))
+    else:
+        cursor.execute("SELECT * FROM user_inventory WHERE user_id = ? ORDER BY category, is_equipped DESC, level DESC", (user_id,))
+    rows = cursor.fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+def equip_inventory_part(user_id: int, item_id: int) -> Tuple[bool, str]:
+    """Equip a part from inventory onto active car setup."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT * FROM user_inventory WHERE item_id = ? AND user_id = ?", (item_id, user_id))
+        part = cursor.fetchone()
+        if not part:
+            return False, "Part not found in inventory."
+            
+        category = part['category']
+        level = part['level']
+        
+        # Unequip current part in same category
+        cursor.execute("UPDATE user_inventory SET is_equipped = 0 WHERE user_id = ? AND category = ?", (user_id, category))
+        # Equip new part
+        cursor.execute("UPDATE user_inventory SET is_equipped = 1 WHERE item_id = ?", (item_id,))
+        
+        # Update garage table active level
+        valid_categories = ["engine", "aerodynamics", "tyres", "ers", "reliability", "pit_crew"]
+        if category in valid_categories:
+            cursor.execute(f"UPDATE garage SET {category} = MAX({category}, ?) WHERE user_id = ?", (level, user_id))
+            
+        conn.commit()
+        return True, f"✅ Successfully equipped **{part['rarity']} {part['part_name']}** (Level {level})!"
+    except sqlite3.Error as e:
+        conn.rollback()
+        return False, f"Database error: {str(e)}"
+    finally:
+        conn.close()
+
+def get_equipped_inventory(user_id: int) -> Dict[str, Dict[str, Any]]:
+    """Return dictionary of currently equipped parts per category."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM user_inventory WHERE user_id = ? AND is_equipped = 1", (user_id,))
+    rows = cursor.fetchall()
+    conn.close()
+    res = {}
+    for r in rows:
+        d = dict(r)
+        res[d['category']] = d
+    return res
+
+def add_user_booster(user_id: int, booster_type: str, booster_name: str) -> Tuple[bool, str]:
+    """Add a consumable booster while enforcing MAX 2 BOOSTERS cap."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT SUM(charges) as total_charges FROM user_boosters WHERE user_id = ?", (user_id,))
+        row = cursor.fetchone()
+        current_count = row['total_charges'] if row and row['total_charges'] else 0
+        
+        if current_count >= 2:
+            return False, "❌ **Booster Cap Reached!** You can only hold a maximum of 2 active boosters at a time. Use one before buying another!"
+            
+        cursor.execute("SELECT booster_id, charges FROM user_boosters WHERE user_id = ? AND booster_name = ?", (user_id, booster_name))
+        existing = cursor.fetchone()
+        if existing:
+            cursor.execute("UPDATE user_boosters SET charges = charges + 1 WHERE booster_id = ?", (existing['booster_id'],))
+        else:
+            cursor.execute("INSERT INTO user_boosters (user_id, booster_type, booster_name, charges) VALUES (?, ?, ?, 1)",
+                           (user_id, booster_type, booster_name))
+        conn.commit()
+        return True, f"✅ Acquired **{booster_name}**!"
+    except sqlite3.Error as e:
+        conn.rollback()
+        return False, f"Database error: {str(e)}"
+    finally:
+        conn.close()
+
+def get_user_boosters(user_id: int) -> List[Dict[str, Any]]:
+    """Retrieve active boosters for user."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM user_boosters WHERE user_id = ? AND charges > 0", (user_id,))
+    rows = cursor.fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+def consume_user_booster(user_id: int, booster_name: str) -> bool:
+    """Deduct 1 charge of a booster."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("UPDATE user_boosters SET charges = charges - 1 WHERE user_id = ? AND booster_name = ? AND charges > 0", (user_id, booster_name))
+        cursor.execute("DELETE FROM user_boosters WHERE user_id = ? AND charges <= 0", (user_id,))
+        conn.commit()
+        return True
+    except sqlite3.Error:
+        conn.rollback()
+        return False
+    finally:
+        conn.close()
+
+def record_track_practice(user_id: int, track_name: str) -> Tuple[bool, str, float]:
+    """
+    Record solo practice session on a track.
+    Enforces max 3 practice sessions PER DAY across all tracks.
+    Caps track pace bonus at -0.15s max (20% Track Familiarity).
+    """
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    today_str = date.today().isoformat()
+    try:
+        # Check total daily practice count for user
+        cursor.execute("SELECT SUM(practice_count) as daily_count FROM track_mastery WHERE user_id = ? AND last_practice_date = ?", (user_id, today_str))
+        row = cursor.fetchone()
+        daily_count = row['daily_count'] if row and row['daily_count'] else 0
+        if daily_count >= 3:
+            return False, "❌ **Daily Practice Limit Reached!** You have already completed 3 practice sessions today. Come back tomorrow!", 0.0
+            
+        cursor.execute("SELECT * FROM track_mastery WHERE user_id = ? AND track_name = ?", (user_id, track_name))
+        existing = cursor.fetchone()
+        
+        if existing:
+            current_bonus = existing['pace_bonus']
+            if current_bonus >= 0.15:
+                return False, f"🎯 **Track Mastery Maxed!** You have achieved 100% mastery on **{track_name}** (Max `-0.15s` pace bonus).", 0.15
+                
+            new_bonus = min(0.15, current_bonus + 0.04)
+            new_count = existing['practice_count'] + 1
+            cursor.execute("""
+                UPDATE track_mastery 
+                SET practice_count = ?, last_practice_date = ?, pace_bonus = ?
+                WHERE mastery_id = ?
+            """, (new_count, today_str, new_bonus, existing['mastery_id']))
+        else:
+            new_bonus = 0.04
+            new_count = 1
+            cursor.execute("""
+                INSERT INTO track_mastery (user_id, track_name, practice_count, last_practice_date, pace_bonus)
+                VALUES (?, ?, 1, ?, 0.04)
+            """, (user_id, track_name, today_str))
+            
+        conn.commit()
+        return True, f"🏎️ Practice complete at **{track_name}**! Track Familiarity increased (+{new_count * 4}%). Pace bonus: **-{new_bonus:.2f}s/lap**.", new_bonus
+    except sqlite3.Error as e:
+        conn.rollback()
+        return False, f"Database error: {str(e)}", 0.0
+    finally:
+        conn.close()
+
+def get_track_mastery_bonus(user_id: int, track_name: str) -> float:
+    """Return track pace bonus in seconds (0.0 to 0.15)."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT pace_bonus FROM track_mastery WHERE user_id = ? AND track_name = ?", (user_id, track_name))
+    row = cursor.fetchone()
+    conn.close()
+    return float(row['pace_bonus']) if row else 0.0
+
 

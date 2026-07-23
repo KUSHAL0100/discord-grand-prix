@@ -2,17 +2,131 @@ import random
 from typing import List, Dict, Any, Tuple
 import config
 import utils
+import database
 
-# Track definitions with modifiers
+# Complete 24 Official F1 Calendar Tracks + Traits & Performance Modifiers
 TRACK_PROFILES = {
-    "Monaco": {"description": "Tight street circuit, aerodynamics is king.", "aero_mod": 1.5, "engine_mod": 0.8},
-    "Monza": {"description": "The Temple of Speed, engine power dominates.", "aero_mod": 0.8, "engine_mod": 1.5},
-    "Spa": {"description": "Legendary fast corners and long straights, balanced requirements.", "aero_mod": 1.2, "engine_mod": 1.2},
-    "Silverstone": {"description": "High speed sweeping corners, tests tyres and aerodynamics.", "aero_mod": 1.3, "tyre_mod": 1.3},
-    "Singapore": {"description": "Hot, humid street circuit. High wear and high safety car risk.", "tyre_mod": 1.4, "sc_chance_mult": 1.5},
-    "Suzuka": {"description": "Technical track, rewards balanced setups.", "aero_mod": 1.1, "engine_mod": 1.1, "tyre_mod": 1.1},
-    "Bahrain": {"description": "Heavy braking, rewards ERS & tyres.", "engine_mod": 1.2, "tyre_mod": 1.3}
+    "Bahrain (Sakhir)": {
+        "description": "Heavy braking & traction zones. Severe rear tyre wear.",
+        "engine_mod": 1.25, "tyre_mod": 1.4, "aero_mod": 0.9, "heat_mod": 1.2, "is_sprint": False
+    },
+    "Jeddah (Saudi Arabia)": {
+        "description": "Ultra-fast high-speed street circuit. Extreme barrier crash risk.",
+        "engine_mod": 1.4, "aero_mod": 1.2, "sc_chance_mult": 1.7, "heat_mod": 1.1, "is_sprint": False
+    },
+    "Melbourne (Albert Park)": {
+        "description": "High-speed flowing street layout with tricky braking zones.",
+        "engine_mod": 1.2, "aero_mod": 1.1, "tyre_mod": 1.1, "is_sprint": False
+    },
+    "Suzuka (Japan)": {
+        "description": "Legendary figure-8 circuit. Demands extreme aero & driver consistency.",
+        "aero_mod": 1.5, "consistency_mod": 1.3, "engine_mod": 1.1, "is_sprint": False
+    },
+    "Shanghai (China)": {
+        "description": "Official Sprint Track. Monster 1.2km straight & technical hairpins.",
+        "engine_mod": 1.35, "tyre_mod": 1.25, "ers_mod": 1.3, "is_sprint": True
+    },
+    "Miami (USA)": {
+        "description": "Official Sprint Track. High heat street circuit around Hard Rock Stadium.",
+        "tyre_mod": 1.3, "heat_mod": 1.4, "engine_mod": 1.2, "is_sprint": True
+    },
+    "Imola (Emilia Romagna)": {
+        "description": "Historic narrow track. High downforce and difficult overtaking.",
+        "aero_mod": 1.4, "overtake_diff": 1.4, "engine_mod": 1.1, "is_sprint": False
+    },
+    "Monaco (Monte Carlo)": {
+        "description": "The Crown Jewel. Ultra-narrow street track where Aero & Quali are king.",
+        "aero_mod": 1.7, "overtake_diff": 2.0, "engine_mod": 0.7, "qual_mod": 1.5, "is_sprint": False
+    },
+    "Montreal (Canada)": {
+        "description": "Stop-and-go circuit with the famous Wall of Champions.",
+        "engine_mod": 1.35, "ers_mod": 1.3, "sc_chance_mult": 1.6, "is_sprint": False
+    },
+    "Barcelona (Catalunya)": {
+        "description": "The ultimate aerodynamic testbed. High tyre thermal degradation.",
+        "aero_mod": 1.5, "tyre_mod": 1.4, "engine_mod": 1.1, "is_sprint": False
+    },
+    "Red Bull Ring (Austria)": {
+        "description": "Official Sprint Track. Short, power-heavy track in the Styrian mountains.",
+        "engine_mod": 1.45, "ers_mod": 1.3, "overtake_bonus": 1.3, "is_sprint": True
+    },
+    "Silverstone (Great Britain)": {
+        "description": "High-speed sweeping curves Maggotts & Becketts. Extreme tyre load.",
+        "aero_mod": 1.5, "tyre_mod": 1.5, "engine_mod": 1.2, "is_sprint": False
+    },
+    "Hungaroring (Hungary)": {
+        "description": "Twisty, technical 'Monaco without walls'. High downforce required.",
+        "aero_mod": 1.5, "overtake_diff": 1.5, "heat_mod": 1.3, "is_sprint": False
+    },
+    "Spa-Francorchamps (Belgium)": {
+        "description": "Eau Rouge & Pouhon. Legendary power track with high rain chaos.",
+        "engine_mod": 1.45, "aero_mod": 1.25, "rain_prob_mult": 2.2, "is_sprint": False
+    },
+    "Zandvoort (Netherlands)": {
+        "description": "Banked corners & coastal dunes. Demands high aerodynamic grip.",
+        "aero_mod": 1.45, "tyre_mod": 1.3, "sc_chance_mult": 1.3, "is_sprint": False
+    },
+    "Monza (Italy)": {
+        "description": "The Temple of Speed. Ultra-low downforce where Engine power dominates.",
+        "engine_mod": 1.75, "aero_mod": 0.6, "ers_mod": 1.4, "is_sprint": False
+    },
+    "Baku (Azerbaijan)": {
+        "description": "Monster 2.2km main straight meets tight Castle Section.",
+        "engine_mod": 1.5, "sc_chance_mult": 1.8, "overtake_bonus": 1.4, "is_sprint": False
+    },
+    "Singapore (Marina Bay)": {
+        "description": "Humid night street race. Extreme thermal engine heat & 100% SC rate.",
+        "heat_mod": 1.8, "tyre_mod": 1.5, "sc_chance_mult": 1.8, "is_sprint": False
+    },
+    "Austin (COTA, USA)": {
+        "description": "Official Sprint Track. Turn 1 steep elevation climb & sweeping S-curves.",
+        "aero_mod": 1.35, "engine_mod": 1.25, "tyre_mod": 1.2, "is_sprint": True
+    },
+    "Mexico City (Mexico)": {
+        "description": "High altitude thin air (2,200m). Reduced cooling & low downforce air density.",
+        "heat_mod": 1.6, "engine_mod": 1.35, "aero_mod": 0.8, "is_sprint": False
+    },
+    "Interlagos (Brazil)": {
+        "description": "Official Sprint Track. High elevation change, overtaking & rain volatility.",
+        "overtake_bonus": 1.4, "rain_prob_mult": 2.0, "engine_mod": 1.3, "is_sprint": True
+    },
+    "Las Vegas (USA)": {
+        "description": "Cold night strip straight. Long 1.9km straight with low tyre thermal warmup.",
+        "engine_mod": 1.55, "aero_mod": 0.7, "tyre_mod": 1.2, "is_sprint": False
+    },
+    "Qatar (Lusail)": {
+        "description": "Official Sprint Track. Ultra high-speed flowing curves & intense G-force heat.",
+        "tyre_mod": 1.6, "heat_mod": 1.5, "aero_mod": 1.4, "is_sprint": True
+    },
+    "Abu Dhabi (Yas Marina)": {
+        "description": "Twilight season finale. Balanced sector 1 & technical hotel sector 3.",
+        "engine_mod": 1.2, "aero_mod": 1.2, "tyre_mod": 1.1, "is_sprint": False
+    }
 }
+
+# 20-Car Grid AI Driver Roster
+AI_GRID_DRIVERS = [
+    {"user_id": 9001, "team_name": "Red Bull (Verstappen)", "discord_id": 9001, "engine": 16, "aerodynamics": 16, "tyres": 15, "ers": 15, "reliability": 16, "pit_crew": 16, "pace": 96, "qual": 96, "wet_skill": 95, "consistency": 94, "aggression": 90, "overtaking": 92, "is_ai": True},
+    {"user_id": 9002, "team_name": "Mercedes (Hamilton)", "discord_id": 9002, "engine": 15, "aerodynamics": 15, "tyres": 15, "ers": 15, "reliability": 15, "pit_crew": 15, "pace": 94, "qual": 94, "wet_skill": 96, "consistency": 95, "aggression": 85, "overtaking": 90, "is_ai": True},
+    {"user_id": 9003, "team_name": "Ferrari (Leclerc)", "discord_id": 9003, "engine": 16, "aerodynamics": 15, "tyres": 14, "ers": 15, "reliability": 14, "pit_crew": 14, "pace": 93, "qual": 97, "wet_skill": 88, "consistency": 88, "aggression": 88, "overtaking": 89, "is_ai": True},
+    {"user_id": 9004, "team_name": "McLaren (Norris)", "discord_id": 9004, "engine": 15, "aerodynamics": 16, "tyres": 15, "ers": 14, "reliability": 15, "pit_crew": 15, "pace": 93, "qual": 92, "wet_skill": 90, "consistency": 91, "aggression": 86, "overtaking": 89, "is_ai": True},
+    {"user_id": 9005, "team_name": "Aston Martin (Alonso)", "discord_id": 9005, "engine": 14, "aerodynamics": 14, "tyres": 15, "ers": 13, "reliability": 14, "pit_crew": 13, "pace": 91, "qual": 90, "wet_skill": 94, "consistency": 92, "aggression": 91, "overtaking": 91, "is_ai": True},
+    {"user_id": 9006, "team_name": "McLaren (Piastri)", "discord_id": 9006, "engine": 14, "aerodynamics": 15, "tyres": 14, "ers": 14, "reliability": 14, "pit_crew": 14, "pace": 90, "qual": 91, "wet_skill": 86, "consistency": 89, "aggression": 84, "overtaking": 87, "is_ai": True},
+    {"user_id": 9007, "team_name": "Mercedes (Russell)", "discord_id": 9007, "engine": 14, "aerodynamics": 14, "tyres": 14, "ers": 14, "reliability": 14, "pit_crew": 14, "pace": 89, "qual": 92, "wet_skill": 85, "consistency": 87, "aggression": 87, "overtaking": 86, "is_ai": True},
+    {"user_id": 9008, "team_name": "Ferrari (Sainz)", "discord_id": 9008, "engine": 14, "aerodynamics": 14, "tyres": 13, "ers": 14, "reliability": 13, "pit_crew": 14, "pace": 89, "qual": 91, "wet_skill": 87, "consistency": 86, "aggression": 88, "overtaking": 88, "is_ai": True},
+    {"user_id": 9009, "team_name": "Williams (Albon)", "discord_id": 9009, "engine": 14, "aerodynamics": 11, "tyres": 12, "ers": 13, "reliability": 13, "pit_crew": 12, "pace": 85, "qual": 88, "wet_skill": 82, "consistency": 84, "aggression": 82, "overtaking": 84, "is_ai": True},
+    {"user_id": 9010, "team_name": "Alpine (Gasly)", "discord_id": 9010, "engine": 12, "aerodynamics": 12, "tyres": 12, "ers": 12, "reliability": 11, "pit_crew": 12, "pace": 84, "qual": 83, "wet_skill": 86, "consistency": 82, "aggression": 86, "overtaking": 83, "is_ai": True},
+    {"user_id": 9011, "team_name": "Alpine (Ocon)", "discord_id": 9011, "engine": 12, "aerodynamics": 12, "tyres": 12, "ers": 12, "reliability": 11, "pit_crew": 12, "pace": 83, "qual": 82, "wet_skill": 85, "consistency": 80, "aggression": 88, "overtaking": 84, "is_ai": True},
+    {"user_id": 9012, "team_name": "RB (Tsunoda)", "discord_id": 9012, "engine": 12, "aerodynamics": 12, "tyres": 12, "ers": 12, "reliability": 12, "pit_crew": 12, "pace": 82, "qual": 84, "wet_skill": 83, "consistency": 79, "aggression": 85, "overtaking": 83, "is_ai": True},
+    {"user_id": 9013, "team_name": "Haas (Hulkenberg)", "discord_id": 9013, "engine": 12, "aerodynamics": 11, "tyres": 11, "ers": 11, "reliability": 12, "pit_crew": 11, "pace": 81, "qual": 84, "wet_skill": 80, "consistency": 82, "aggression": 83, "overtaking": 81, "is_ai": True},
+    {"user_id": 9014, "team_name": "Aston Martin (Stroll)", "discord_id": 9014, "engine": 11, "aerodynamics": 11, "tyres": 11, "ers": 11, "reliability": 11, "pit_crew": 11, "pace": 78, "qual": 79, "wet_skill": 78, "consistency": 80, "aggression": 79, "overtaking": 78, "is_ai": True},
+    {"user_id": 9015, "team_name": "Sauber (Bottas)", "discord_id": 9015, "engine": 10, "aerodynamics": 10, "tyres": 10, "ers": 10, "reliability": 10, "pit_crew": 10, "pace": 77, "qual": 78, "wet_skill": 80, "consistency": 81, "aggression": 75, "overtaking": 76, "is_ai": True},
+    {"user_id": 9016, "team_name": "Haas (Magnussen)", "discord_id": 9016, "engine": 10, "aerodynamics": 10, "tyres": 10, "ers": 10, "reliability": 10, "pit_crew": 10, "pace": 76, "qual": 76, "wet_skill": 77, "consistency": 78, "aggression": 80, "overtaking": 77, "is_ai": True},
+    {"user_id": 9017, "team_name": "Sauber (Zhou)", "discord_id": 9017, "engine": 9, "aerodynamics": 9, "tyres": 9, "ers": 9, "reliability": 9, "pit_crew": 9, "pace": 74, "qual": 75, "wet_skill": 76, "consistency": 76, "aggression": 74, "overtaking": 74, "is_ai": True},
+    {"user_id": 9018, "team_name": "Williams (Sargeant)", "discord_id": 9018, "engine": 9, "aerodynamics": 9, "tyres": 9, "ers": 9, "reliability": 9, "pit_crew": 9, "pace": 73, "qual": 74, "wet_skill": 74, "consistency": 74, "aggression": 75, "overtaking": 73, "is_ai": True},
+    {"user_id": 9019, "team_name": "Williams (Colapinto)", "discord_id": 9019, "engine": 8, "aerodynamics": 8, "tyres": 8, "ers": 8, "reliability": 8, "pit_crew": 8, "pace": 71, "qual": 72, "wet_skill": 72, "consistency": 72, "aggression": 76, "overtaking": 72, "is_ai": True},
+    {"user_id": 9020, "team_name": "Haas (Bearman)", "discord_id": 9020, "engine": 8, "aerodynamics": 8, "tyres": 8, "ers": 8, "reliability": 8, "pit_crew": 8, "pace": 70, "qual": 71, "wet_skill": 71, "consistency": 71, "aggression": 75, "overtaking": 70, "is_ai": True}
+]
 
 class SimTeam:
     """Class to wrap team, driver, strategist, and car stats for the race simulation."""
@@ -20,9 +134,17 @@ class SimTeam:
         self.user_id = data["user_id"]
         self.team_name = data["team_name"]
         self.discord_id = data["discord_id"]
+        self.is_ai = data.get("is_ai", False)
+        self.ai_rival = None
+        self.engine_temp = 85.0
         
         # Car Stats
         self.engine = data.get("engine", 1)
+        self.aerodynamics = data.get("aerodynamics", 1)
+        self.tyres_stat = data.get("tyres", 1)
+        self.ers = data.get("ers", 1)
+        self.reliability = data.get("reliability", 1)
+        self.pit_crew = data.get("pit_crew", 1)
         self.aerodynamics = data.get("aerodynamics", 1)
         self.tyres_stat = data.get("tyres", 1)
         self.ers = data.get("ers", 1)
@@ -102,25 +224,35 @@ class SimTeam:
         self.fastest_lap_time = 999.9
         
     def calculate_base_car_power(self, track_name: str) -> float:
-        """Calculate car power adjusted for track profiles and existing damage."""
-        # Get track modifiers
+        """Calculate car power adjusted for rarity base level offsets, tier scaling, track profiles and damage."""
         profile = TRACK_PROFILES.get(track_name, {"aero_mod": 1.0, "engine_mod": 1.0, "tyre_mod": 1.0})
         aero_mult = profile.get("aero_mod", 1.0)
         eng_mult = profile.get("engine_mod", 1.0)
         tyre_mult = profile.get("tyre_mod", 1.0)
         
-        # Weighted car power
-        engine_contrib = self.engine * 3.0 * eng_mult
-        aero_contrib = self.aerodynamics * 2.0 * aero_mult
-        tyre_contrib = self.tyres_stat * 2.0 * tyre_mult
-        ers_contrib = self.ers * 2.0
-        reliability_contrib = self.reliability * 1.0
+        equipped = database.get_equipped_inventory(self.user_id) if not self.is_ai else {}
+        from crates import RARITY_BASE_OFFSETS, RARITY_BONUS_MULTIPLIERS
+        
+        def calculate_effective_stat(category: str, base_level: int) -> float:
+            item = equipped.get(category)
+            rarity = item.get('rarity', 'Common') if item else 'Common'
+            offset = RARITY_BASE_OFFSETS.get(rarity, 0)
+            effective_level = base_level + offset
+            tier_mult = config.get_tier_stat_multiplier(effective_level)
+            bonus_mult = RARITY_BONUS_MULTIPLIERS.get(rarity, 1.0)
+            return effective_level * tier_mult * bonus_mult
+
+        engine_contrib = calculate_effective_stat('engine', self.engine) * 3.0 * eng_mult
+        aero_contrib = calculate_effective_stat('aerodynamics', self.aerodynamics) * 2.0 * aero_mult
+        tyre_contrib = calculate_effective_stat('tyres', self.tyres_stat) * 2.0 * tyre_mult
+        ers_contrib = calculate_effective_stat('ers', self.ers) * 2.0
+        reliability_contrib = calculate_effective_stat('reliability', self.reliability) * 1.0
         
         base_power = engine_contrib + aero_contrib + tyre_contrib + ers_contrib + reliability_contrib
         
         # Apply damage penalty: e.g. -1% power per 10% damage_total
-        damage_penalty = (self.damage_total / 10.0) / 100.0 # percentage penalty
-        base_power *= (1.0 - min(0.5, damage_penalty)) # cap damage penalty at 50%
+        damage_penalty = (self.damage_total / 10.0) / 100.0
+        base_power *= (1.0 - min(0.5, damage_penalty))
         
         return base_power
 
@@ -310,7 +442,7 @@ def simulate_duel(team1_data: Dict[str, Any], team2_data: Dict[str, Any], total_
     l_data["tyre_health"] = loser.tyre_health
     
     return w_data, l_data, lap_logs, qual_logs
-def simulate_gp_generator(entries_data: List[Dict[str, Any]], track_name: str, total_laps: int = 15, weather_timeline: List[str] = None):
+def simulate_gp_generator(entries_data: List[Dict[str, Any]], track_name: str, total_laps: int = 15, weather_timeline: List[str] = None, is_sprint: bool = False):
     """
     Generator that simulates a Grand Prix lap-by-lap, yielding intermediate states.
     Yields:
@@ -318,7 +450,23 @@ def simulate_gp_generator(entries_data: List[Dict[str, Any]], track_name: str, t
       ('lap', lap_number, lap_logs, lap_snapshot, current_weather)
       ('finish', results_list, finish_logs)
     """
-    teams = [SimTeam(entry) for entry in entries_data]
+    entries_copy = [dict(e) for e in entries_data]
+    human_count = len(entries_copy)
+    ai_needed = max(0, 20 - human_count)
+    if ai_needed > 0:
+        human_names = {e.get("team_name", "").lower() for e in entries_copy}
+        available_ais = [ai for ai in AI_GRID_DRIVERS if ai["team_name"].lower() not in human_names]
+        selected_ais = available_ais[:ai_needed]
+        entries_copy.extend(selected_ais)
+        
+    teams = [SimTeam(entry) for entry in entries_copy]
+    
+    # Assign AI Rival to each human driver
+    ai_drivers = [t for t in teams if t.is_ai]
+    for idx, t in enumerate(teams):
+        if not t.is_ai and ai_drivers:
+            t.ai_rival = ai_drivers[idx % len(ai_drivers)]
+
     setup_logs = [f"🚥 **Grand Prix of {track_name} - Race Start!**"]
     
     # 1. Setup track details
@@ -722,36 +870,72 @@ def simulate_gp_generator(entries_data: List[Dict[str, Any]], track_name: str, t
     
     final_order = active_finishers + dnf_finishers
     
+    # Find fastest lap driver
+    fastest_driver = None
+    min_fl_time = 999.9
+    for t in teams:
+        if getattr(t, 'fastest_lap_time', 999.9) < min_fl_time:
+            min_fl_time = t.fastest_lap_time
+            fastest_driver = t
+            
+    is_sprint_event = is_sprint or track_profile.get("is_sprint", False)
+    points_distribution = config.SPRINT_POINTS_DISTRIBUTION if is_sprint_event else config.GP_POINTS_DISTRIBUTION
+    
     results_list = []
     finish_logs = ["\n🏁 **Checkered Flag! The race is finished!**"]
     
+    if fastest_driver and min_fl_time < 900.0:
+        finish_logs.append(f"⚡ **Fastest Lap:** **{fastest_driver.team_name}** (`{min_fl_time:.3f}s`)")
+        
     for idx, t in enumerate(final_order):
         pos = idx + 1
-        points = utils.get_points_for_position(pos) if not t.dnf else 0
         
+        # Base points distribution
+        if not t.dnf and pos <= len(points_distribution):
+            points = points_distribution[pos - 1]
+        else:
+            points = 0
+            
+        # Fastest lap bonus point (must finish in top 10 and not DNF)
+        if fastest_driver and t.user_id == fastest_driver.user_id and not t.dnf and pos <= 10:
+            points += 1
+            finish_logs.append(f"🟣 **{t.team_name}** earned **+1 Bonus Point** for Fastest Lap!")
+            
         credits_won = config.GP_BASE_PARTICIPATION_REWARD
         if not t.dnf and pos in config.GP_PODIUM_REWARDS:
             credits_won += config.GP_PODIUM_REWARDS[pos]
             
-        finish_logs.append(f"P{pos}: **{t.team_name}** {'(DNF)' if t.dnf else ''} - Points: +{points}, Credits: +{credits_won}¢")
-        
+        # AI Rival defeat bonus for human drivers
+        rival_msg = ""
+        if not t.is_ai and t.ai_rival:
+            # Check if human finished ahead of AI rival
+            if not t.dnf and (t.ai_rival.dnf or pos < t.ai_rival.current_position):
+                credits_won += 500
+                rival_msg = f" ⚔️ *(Defeated AI Rival {t.ai_rival.team_name}: +500¢!)*"
+                
+        if not t.is_ai:
+            finish_logs.append(f"P{pos}: **{t.team_name}** {'(DNF)' if t.dnf else ''} — Points: +{points}, Credits: +{credits_won}¢{rival_msg}")
+        else:
+            finish_logs.append(f"P{pos}: 🤖 **{t.team_name}** {'(DNF)' if t.dnf else ''} — Points: +{points}")
+            
         results_list.append({
             "user_id": t.user_id,
             "discord_id": t.discord_id,
             "team_name": t.team_name,
             "finish_position": pos,
             "points_earned": points,
-            "credits_won": credits_won,
-            "dnf": t.dnf
+            "credits_won": credits_won if not t.is_ai else 0,
+            "dnf": t.dnf,
+            "is_ai": t.is_ai
         })
         
     yield ("finish", results_list, finish_logs)
 
-def simulate_gp(entries_data: List[Dict[str, Any]], track_name: str, total_laps: int = 15, weather_timeline: List[str] = None) -> Tuple[List[Dict[str, Any]], List[str], Dict[int, Any]]:
+def simulate_gp(entries_data: List[Dict[str, Any]], track_name: str, total_laps: int = 15, weather_timeline: List[str] = None, is_sprint: bool = False) -> Tuple[List[Dict[str, Any]], List[str], Dict[int, Any]]:
     """
     Backward-compatible wrapper around simulate_gp_generator.
     """
-    generator = simulate_gp_generator(entries_data, track_name, total_laps, weather_timeline)
+    generator = simulate_gp_generator(entries_data, track_name, total_laps, weather_timeline, is_sprint=is_sprint)
     
     setup_event = next(generator)
     setup_logs = setup_event[2]

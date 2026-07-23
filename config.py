@@ -28,14 +28,26 @@ STARTING_MONEY = 1500
 STARTING_LEVEL = 1
 STARTING_XP = 0
 
-# Economy caps & earnings
-CHAT_CREDITS_PER_MSG = 5
-CHAT_DAILY_LIMIT = 200  # max 40 messages/day
-VOICE_CREDITS_PER_MIN = 2
-VOICE_DAILY_LIMIT = 200  # max 100 minutes/day (100 mins * 2 credits)
+# Economy caps & earnings (Upgraded for Crate & Upgrade Economy)
+CHAT_CREDITS_PER_MSG = 25
+CHAT_DAILY_LIMIT = 1000   # max 40 credited messages/day
+VOICE_CREDITS_PER_MIN = 15
+VOICE_DAILY_LIMIT = 1500  # max 100 minutes/day
 DAILY_BONUS = 500
-WORK_MIN_CREDITS = 100
-WORK_MAX_CREDITS = 500
+WORK_MIN_CREDITS = 200
+WORK_MAX_CREDITS = 800
+
+# Level Tier Stat Scaling (Higher level categories cost more, but provide exponentially higher stat scaling)
+def get_tier_stat_multiplier(level: int) -> float:
+    """Returns stat gain multiplier based on component level category."""
+    if level >= 16:
+        return 2.0   # Tier 4 (Elite/Extreme): 200% stat efficiency
+    elif level >= 11:
+        return 1.6   # Tier 3 (Advanced): 160% stat efficiency
+    elif level >= 6:
+        return 1.25  # Tier 2 (Performance): 125% stat efficiency
+    return 1.0       # Tier 1 (Spec/Rookie): 100% base stat efficiency
+
 
 # Parts & Upgrades configuration
 # Upgrade level costs for Engine (Level 1 -> 2, etc.)
@@ -91,7 +103,10 @@ GP_PODIUM_REWARDS = {
     3: 1500
 }
 GP_BASE_PARTICIPATION_REWARD = 500
-GP_POINTS_DISTRIBUTION = [8, 7, 6, 5, 4, 3, 2, 1]  # Top 8 Sprint points
+
+# Official F1 Points Systems
+GP_POINTS_DISTRIBUTION = [25, 18, 15, 12, 10, 8, 6, 4, 2, 1]  # Top 10 Main GP points
+SPRINT_POINTS_DISTRIBUTION = [8, 7, 6, 5, 4, 3, 2, 1]          # Top 8 Sprint points
 
 def get_upgrade_cost(part_name: str, target_level: int) -> int:
     """Calculate credit cost to upgrade a part to target_level."""
@@ -103,3 +118,4 @@ def get_upgrade_cost(part_name: str, target_level: int) -> int:
     base_cost = ENGINE_UPGRADE_COSTS[target_level]
     multiplier = PART_MULTIPLIERS[part_name]
     return int(base_cost * multiplier)
+

@@ -59,8 +59,9 @@ async def on_ready():
                         print(f"Failed to clear commands for guild {g.id}: {guild_err}")
             synced = await bot.tree.sync()
             print(f"Synced {len(synced)} commands globally.")
-    except Exception as e:
-        print(f"Failed to sync commands: {e}")
+    if not periodic_voice_credits_check.is_running():
+        periodic_voice_credits_check.start()
+        print("Started periodic voice credits check background task.")
 
 # ----------------- Economy Activity Trackers -----------------
 
@@ -91,24 +92,32 @@ async def on_message(message: discord.Message):
             
     await bot.process_commands(message)
 
+def is_active_voice(state: discord.VoiceState) -> bool:
+    """Check if member is actively in a valid voice channel with mic unmuted and undeafened."""
+    if not state or not state.channel:
+        return False
+    if getattr(state.channel, 'afk', False):
+        return False
+    if state.self_mute or state.mute:
+        return False
+    if state.self_deaf or state.deaf:
+        return False
+    return True
+
 @bot.event
 async def on_voice_state_update(member: discord.Member, before: discord.VoiceState, after: discord.VoiceState):
     if member.bot:
         return
         
-    # User joins a voice channel
-    if before.channel is None and after.channel is not None:
-        voice_tracking[member.id] = datetime.now()
-        if debug_mode:
-            print(f"{member.name} joined voice channel {after.channel.name}.")
-            
-    # User leaves a voice channel
-    elif before.channel is not None and after.channel is None:
-        join_time = voice_tracking.pop(member.id, None)
-        if join_time:
-            duration = datetime.now() - join_time
+    was_active = is_active_voice(before)
+    is_active = is_active_voice(after)
+    
+    # 1. State changed from active to inactive (muted, deafened, left channel, or moved to AFK)
+    if was_active and not is_active:
+        start_time = voice_tracking.pop(member.id, None)
+        if start_time:
+            duration = datetime.now() - start_time
             minutes = duration.total_seconds() / 60.0
-            
             if minutes >= 1.0:
                 user = database.get_user_by_discord_id(member.id, member.guild.id)
                 if user:
@@ -118,7 +127,40 @@ async def on_voice_state_update(member: discord.Member, before: discord.VoiceSta
                         'voice'
                     )
                     if debug_mode and earned > 0:
-                        print(f"Awarded {earned}¢ to {member.name} for {int(minutes)} mins in voice.")
+                        print(f"Awarded {earned}¢ to {member.name} for {int(minutes)} mins active in voice.")
+
+    # 2. State changed from inactive to active (unmuted & undeafened in valid voice channel)
+    elif not was_active and is_active:
+        voice_tracking[member.id] = datetime.now()
+        if debug_mode:
+            print(f"{member.name} is now active in voice channel {after.channel.name}.")
+
+@tasks.loop(minutes=2.0)
+async def periodic_voice_credits_check():
+    """Periodically award voice activity credits to members active in VC without requiring them to leave."""
+    now = datetime.now()
+    active_ids = list(voice_tracking.keys())
+    for member_id in active_ids:
+        start_time = voice_tracking.get(member_id)
+        if not start_time:
+            continue
+        duration = now - start_time
+        minutes = duration.total_seconds() / 60.0
+        if minutes >= 2.0:
+            for guild in bot.guilds:
+                member = guild.get_member(member_id)
+                if member and member.voice and is_active_voice(member.voice):
+                    user = database.get_user_by_discord_id(member.id, guild.id)
+                    if user:
+                        earned = database.award_daily_activity_credits(
+                            user['user_id'],
+                            int(minutes) * config.VOICE_CREDITS_PER_MIN,
+                            'voice'
+                        )
+                        voice_tracking[member_id] = now
+                        if debug_mode and earned > 0:
+                            print(f"Periodic VC credit: awarded {earned}¢ to {member.name}.")
+                    break
 
 # ----------------- Check Helpers -----------------
 
@@ -142,52 +184,57 @@ def is_admin():
 @admin_group.command(name="setstat", description="Set a driver skill level or garage part level for a user.")
 @app_commands.describe(
     user="Select the user/driver to edit",
-    category="Select Category (driver or garage)",
-    stat_name="Enter the exact stat or part column name (e.g. pace, engine, reliability)",
-    value="Enter the target value (e.g. 1 to 100 for driver, 1 to 20 for garage)"
+    stat_name="Select the stat or garage part to edit",
+    value="Target value (1-100 for driver skills, 1-20 for garage parts)"
 )
-@app_commands.choices(category=[
-    app_commands.Choice(name="Driver Skill", value="driver"),
-    app_commands.Choice(name="Garage Part Upgrade", value="garage")
+@app_commands.choices(stat_name=[
+    app_commands.Choice(name="🏎️ Driver: Race Pace (1-100)", value="pace"),
+    app_commands.Choice(name="🏎️ Driver: Qualifying Skill (1-100)", value="qual"),
+    app_commands.Choice(name="🏎️ Driver: Wet Weather Skill (1-100)", value="wet_skill"),
+    app_commands.Choice(name="🏎️ Driver: Consistency (1-100)", value="consistency"),
+    app_commands.Choice(name="🏎️ Driver: Aggression (1-100)", value="aggression"),
+    app_commands.Choice(name="🏎️ Driver: Overtaking (1-100)", value="overtaking"),
+    app_commands.Choice(name="🛠️ Garage: Engine Level (1-20)", value="engine"),
+    app_commands.Choice(name="🛠️ Garage: Aerodynamics Level (1-20)", value="aerodynamics"),
+    app_commands.Choice(name="🛠️ Garage: Tyres Level (1-20)", value="tyres"),
+    app_commands.Choice(name="🛠️ Garage: ERS Level (1-20)", value="ers"),
+    app_commands.Choice(name="🛠️ Garage: Reliability Level (1-20)", value="reliability"),
+    app_commands.Choice(name="🛠️ Garage: Pit Crew Level (1-20)", value="pit_crew"),
 ])
 @is_admin()
 @app_commands.guild_only()
-async def admin_set_stat(interaction: discord.Interaction, user: discord.Member, category: app_commands.Choice[str], stat_name: str, value: int):
+async def admin_set_stat(interaction: discord.Interaction, user: discord.Member, stat_name: app_commands.Choice[str], value: int):
     prof = database.get_user_by_discord_id(user.id, interaction.guild_id)
     if not prof:
         await interaction.response.send_message(f"❌ User {user.display_name} does not have a profile.", ephemeral=True)
         return
         
-    category_val = category.value
-    stat_name_clean = stat_name.strip().lower()
+    stat_key = stat_name.value
+    driver_stats = ["pace", "qual", "wet_skill", "consistency", "aggression", "overtaking"]
+    garage_parts = ["engine", "aerodynamics", "tyres", "ers", "reliability", "pit_crew"]
     
-    if category_val == "driver":
-        valid_stats = ["pace", "qual", "wet_skill", "consistency", "aggression", "overtaking"]
-        if stat_name_clean not in valid_stats:
-            await interaction.response.send_message(f"❌ Invalid driver skill name. Must be one of: {', '.join(valid_stats)}", ephemeral=True)
-            return
+    if stat_key in driver_stats:
         if value < 1 or value > 100:
             await interaction.response.send_message("❌ Driver skill value must be between 1 and 100.", ephemeral=True)
             return
         table_name = "drivers"
-    else:
-        valid_parts = ["engine", "aerodynamics", "tyres", "ers", "reliability", "pit_crew"]
-        if stat_name_clean not in valid_parts:
-            await interaction.response.send_message(f"❌ Invalid garage part name. Must be one of: {', '.join(valid_parts)}", ephemeral=True)
-            return
+    elif stat_key in garage_parts:
         if value < 1 or value > 20:
             await interaction.response.send_message("❌ Garage part level must be between 1 and 20.", ephemeral=True)
             return
         table_name = "garage"
+    else:
+        await interaction.response.send_message("❌ Invalid stat selected.", ephemeral=True)
+        return
         
     conn = database.get_db_connection()
     cursor = conn.cursor()
     try:
-        cursor.execute(f"UPDATE {table_name} SET {stat_name_clean} = ? WHERE user_id = ?", (value, prof['user_id']))
+        cursor.execute(f"UPDATE {table_name} SET {stat_key} = ? WHERE user_id = ?", (value, prof['user_id']))
         conn.commit()
         await interaction.response.send_message(embed=utils.create_embed(
             title="⚙️ Admin Stat Override",
-            description=f"✅ Successfully set **{stat_name_clean.capitalize()}** to **{value}** for **{prof['team_name']}** (Driver: {user.mention})!",
+            description=f"✅ Successfully set **{stat_name.name}** to **{value}** for **{prof['team_name']}** (Driver: {user.mention})!",
             color=utils.COLOR_SUCCESS
         ))
     except Exception as e:
@@ -227,7 +274,56 @@ async def admin_reset_profile(interaction: discord.Interaction, user: discord.Me
     except Exception as e:
         await interaction.response.send_message(f"❌ Error resetting profile: {e}", ephemeral=True)
 
+# Season Admin Controls Subgroup
+season_admin_group = app_commands.Group(name="season", description="Admin controls for World Driver Championship (WDC) Seasons")
+admin_group.add_command(season_admin_group)
+
+@season_admin_group.command(name="create", description="Create a new World Driver Championship Season (e.g. Season 1, Season 2).")
+@app_commands.describe(name="Season Name (e.g. Season 1, 2026 Championship)")
+@is_admin()
+@app_commands.guild_only()
+async def admin_season_create(interaction: discord.Interaction, name: str):
+    success, msg = database.create_season(interaction.guild_id, name)
+    color = utils.COLOR_SUCCESS if success else utils.COLOR_WARNING
+    await interaction.response.send_message(embed=utils.create_embed(title="🏆 Season Championship Setup", description=msg, color=color))
+
+@season_admin_group.command(name="end", description="Conclude active season and declare the World Driver Champion!")
+@is_admin()
+@app_commands.guild_only()
+async def admin_season_end(interaction: discord.Interaction):
+    success, msg, season, standings = database.end_active_season(interaction.guild_id)
+    if not success:
+        await interaction.response.send_message(f"❌ {msg}", ephemeral=True)
+        return
+        
+    standings_text = ""
+    for idx, row in enumerate(standings[:10]):
+        pos_emoji = "🥇" if idx == 0 else ("🥈" if idx == 1 else ("🥉" if idx == 2 else f"**P{idx+1}**"))
+        standings_text += f"{pos_emoji} **{row['team_name']}** — **{row['total_points']} pts** ({row['races_entered']} races)\n"
+        
+    champion_name = standings[0]['team_name'] if standings else "No Driver"
+    desc = (
+        f"🏆 **WORLD DRIVER CHAMPION:** **{champion_name}**!\n\n"
+        f"📊 **Final Driver Championship Standings:**\n{standings_text}\n"
+        f"🎉 *Congratulations to the World Champion! Admin can award giveaways directly.*"
+    )
+    embed = utils.create_embed(
+        title=f"👑 {season['name']} — Checkered Flag & World Champion",
+        description=desc,
+        color=utils.COLOR_WARNING
+    )
+    await interaction.response.send_message(embed=embed)
+
+@season_admin_group.command(name="cancel", description="Cancel the active Season.")
+@is_admin()
+@app_commands.guild_only()
+async def admin_season_cancel(interaction: discord.Interaction):
+    success, msg = database.cancel_active_season(interaction.guild_id)
+    color = utils.COLOR_SUCCESS if success else utils.COLOR_WARNING
+    await interaction.response.send_message(embed=utils.create_embed(title="🚫 Season Cancelled", description=msg, color=color))
+
 # ----------------- Slash Commands -----------------
+
 
 @bot.tree.command(name="start", description="Initialize your Discord Grand Prix racing team!")
 @app_commands.describe(team_name="Your racing team name", country="Your home country flag or name (optional)")
@@ -267,10 +363,7 @@ async def start(interaction: discord.Interaction, team_name: str, country: str =
             ephemeral=True
         )
 
-@bot.tree.command(name="profile", description="View your team profile and overall standings.")
-@app_commands.describe(member="Select another team owner to view their profile (optional)")
-@app_commands.guild_only()
-async def profile(interaction: discord.Interaction, member: discord.Member = None):
+async def _send_profile_embed(interaction: discord.Interaction, member: discord.Member = None):
     target = member or interaction.user
     prof = database.get_full_team_profile(target.id, interaction.guild_id)
     
@@ -281,10 +374,8 @@ async def profile(interaction: discord.Interaction, member: discord.Member = Non
             await interaction.response.send_message("❌ You haven't registered a profile yet in this server! Run `/start` to begin.", ephemeral=True)
         return
         
-    # Calculate overall power
     overall_power = utils.calculate_overall_power(prof, prof["pace"])
     
-    # Format embed output mimicking the design specifications (Page 3)
     title = f"🏎️ {prof['team_name']}"
     if prof['country']:
         title = f"{prof['country']} " + title
@@ -333,14 +424,27 @@ async def profile(interaction: discord.Interaction, member: discord.Member = Non
         footer_text=f"Last updated: {datetime.now().strftime('%Y-%m-%d')}"
     )
     
-    await interaction.response.send_message(embed=embed)
+    try:
+        card_buf = utils.generate_profile_card(prof)
+        card_file = discord.File(card_buf, filename="profile_card.png")
+        embed.set_image(url="attachment://profile_card.png")
+        await interaction.response.send_message(embed=embed, file=card_file)
+    except Exception as e:
+        if debug_mode:
+            print(f"Failed to render profile card image: {e}")
+        await interaction.response.send_message(embed=embed)
+
+@bot.tree.command(name="profile", description="View your team profile and overall standings.")
+@app_commands.describe(member="Select another team owner to view their profile (optional)")
+@app_commands.guild_only()
+async def profile(interaction: discord.Interaction, member: discord.Member = None):
+    await _send_profile_embed(interaction, member)
 
 @bot.tree.command(name="team", description="Show detailed summary of a team.")
 @app_commands.describe(member="Select another team owner (optional)")
 @app_commands.guild_only()
 async def team_info(interaction: discord.Interaction, member: discord.Member = None):
-    # Map to profile command directly as required by PRD
-    await profile(interaction, member)
+    await _send_profile_embed(interaction, member)
 
 @bot.tree.command(name="garage", description="View your current car component levels and damage.")
 @app_commands.guild_only()
@@ -606,7 +710,7 @@ async def run_duel_simulation(channel, p1_member: discord.Member, p2_member: dis
     await channel.send(embed=embed)
     await asyncio.sleep(4.0)
     
-    # 2. Stream Laps
+    # 2. Stream Laps - Announce as leader completes each lap
     for idx, lap_events in enumerate(lap_logs):
         lap_num = idx + 1
         is_last = (lap_num == len(lap_logs))
@@ -617,7 +721,7 @@ async def run_duel_simulation(channel, p1_member: discord.Member, p2_member: dis
             color=utils.COLOR_SUCCESS if is_last else utils.COLOR_QUALIFYING
         )
         await channel.send(embed=embed)
-        await asyncio.sleep(5.0)
+        await asyncio.sleep(12.0)
         
     # 3. Apply database updates & rewards
     conn = database.get_db_connection()
@@ -634,7 +738,7 @@ async def run_duel_simulation(channel, p1_member: discord.Member, p2_member: dis
             payout = wager_amount * 2
             cursor.execute("UPDATE users SET money = money + ? WHERE user_id = ?", (payout, w_uid))
             
-            # Insert bet record (race_id is nullable, insert NULL for duels to avoid foreign key errors)
+            # Insert bet record
             cursor.execute("INSERT INTO bets (race_id, bettor_id, target_id, amount, outcome, payout) VALUES (NULL, ?, ?, ?, ?, ?)",
                            (p1_prof['user_id'], p2_prof['user_id'], wager_amount, "win" if w_uid == p1_prof['user_id'] else "lose", payout))
         else:
@@ -647,20 +751,7 @@ async def run_duel_simulation(channel, p1_member: discord.Member, p2_member: dis
         cursor.execute("UPDATE users SET wins = wins + 1 WHERE user_id = ?", (w_uid,))
         cursor.execute("UPDATE users SET losses = losses + 1 WHERE user_id = ?", (l_uid,))
         
-        # Award XP for duels: +150 XP for winning, +50 XP for losing
-        for uid, xp_to_add in [(w_uid, 150), (l_uid, 50)]:
-            cursor.execute("SELECT xp, level FROM users WHERE user_id = ?", (uid,))
-            user_row = cursor.fetchone()
-            if user_row:
-                new_xp = user_row['xp'] + xp_to_add
-                new_level = user_row['level']
-                while new_xp >= new_level * 1000:
-                    new_xp -= new_level * 1000
-                    new_level += 1
-                cursor.execute("UPDATE users SET xp = ?, level = ? WHERE user_id = ?", (new_xp, new_level, uid))
-        
         # Calculate car damage based on whether they crashed (DNF)
-        # Winner DNF check
         if winner.get("dnf", False):
             w_dmg_eng = random.randint(15, 30)
             w_dmg_tyr = random.randint(30, 60)
@@ -668,7 +759,6 @@ async def run_duel_simulation(channel, p1_member: discord.Member, p2_member: dis
             w_dmg_eng = random.randint(1, 4)
             w_dmg_tyr = random.randint(2, 8)
             
-        # Loser DNF check
         if loser.get("dnf", False):
             l_dmg_eng = random.randint(15, 30)
             l_dmg_tyr = random.randint(30, 60)
@@ -697,25 +787,51 @@ async def run_duel_simulation(channel, p1_member: discord.Member, p2_member: dis
             cursor.execute("UPDATE garage SET damage_total = ? WHERE user_id = ?", (d['damage_engine'] + d['damage_tyres'], uid))
             
         conn.commit()
+
+        # Award XP and handle level up via add_user_xp
+        w_xp, w_lvl, w_up = database.add_user_xp(w_uid, 150)
+        l_xp, l_lvl, l_up = database.add_user_xp(l_uid, 50)
+        
+        w_lvl_msg = f" ⭐ **LEVEL UP!** Reached Level {w_lvl} (+{w_lvl * 500}¢ reward!)" if w_up else ""
+        l_lvl_msg = f" ⭐ **LEVEL UP!** Reached Level {l_lvl} (+{l_lvl * 500}¢ reward!)" if l_up else ""
+        
+        # Team radio victory quote & Podium Section
+        radio_broadcast = utils.get_victory_team_radio(winner['team_name'])
         
         # Post summary ONLY if commit succeeds
         if wager_amount > 0:
             desc = (
-                f"🏆 **Winner:** **{winner['team_name']}** takes the pot of **{wager_amount * 2}¢**!\n"
-                f"📉 **{loser['team_name']}** loses **{wager_amount}¢**."
+                f"{radio_broadcast}\n\n"
+                f"🥇 **P1 (Winner):** **{winner['team_name']}** (+150 XP{w_lvl_msg}) — **+{wager_amount * 2}¢**\n"
+                f"🥈 **P2 (Runner-up):** **{loser['team_name']}** (+50 XP{l_lvl_msg}) — **-{wager_amount}¢**"
             )
         else:
             desc = (
-                f"🏆 **Winner:** **{winner['team_name']}** (+{config.DUEL_WIN_CREDITS}¢)\n"
-                f"🏎️ **Runner-up:** **{loser['team_name']}** (+{config.DUEL_LOSS_CREDITS}¢)"
+                f"{radio_broadcast}\n\n"
+                f"🥇 **P1 (Winner):** **{winner['team_name']}** (+{config.DUEL_WIN_CREDITS}¢, +150 XP{w_lvl_msg})\n"
+                f"🥈 **P2 (Runner-up):** **{loser['team_name']}** (+{config.DUEL_LOSS_CREDITS}¢, +50 XP{l_lvl_msg})"
             )
             
         final_embed = utils.create_embed(
-            title="🏁 Race Duel: Checkered Flag",
+            title="🏁 Race Duel: Checkered Flag & Victory Podium",
             description=desc,
             color=utils.COLOR_SUCCESS
         )
-        await channel.send(embed=final_embed)
+
+        # Build lap telemetry plot
+        lap_history = []
+        for i in range(1, laps + 1):
+            lap_history.append({"lap": i, "drivers": {winner['team_name']: 1, loser['team_name']: 2}})
+
+        try:
+            graph_buf = utils.generate_race_telemetry_graph(lap_history)
+            graph_file = discord.File(graph_buf, filename="telemetry_graph.png")
+            final_embed.set_image(url="attachment://telemetry_graph.png")
+            await channel.send(embed=final_embed, file=graph_file)
+        except Exception as e:
+            if debug_mode:
+                print(f"Failed to generate duel telemetry graph: {e}")
+            await channel.send(embed=final_embed)
         
     except Exception as e:
         conn.rollback()
@@ -853,7 +969,7 @@ class BetAcceptView(discord.ui.View):
 @bot.tree.command(name="race", description="Challenge another user to a racing duel!")
 @app_commands.describe(opponent="The player you want to challenge", wager="Optional credit wager (both players contribute this amount)", laps="Number of laps (1-20)")
 @app_commands.guild_only()
-async def race_duel(interaction: discord.Interaction, opponent: discord.Member, wager: int = 0, laps: int = 1):
+async def race_duel(interaction: discord.Interaction, opponent: discord.Member, wager: int = 0, laps: int = 5):
     if opponent.id == interaction.user.id:
         await interaction.response.send_message("❌ You cannot race against yourself!", ephemeral=True)
         return
@@ -1121,24 +1237,27 @@ class QualiTyresSelectView(discord.ui.View):
         self.stop()
 
 class GPTrackSelect(discord.ui.Select):
-    def __init__(self, laps=15):
-        options = [
-            discord.SelectOption(label="Monza Grand Prix", value="Monza", description="Fast track, rewards high Engine Power"),
-            discord.SelectOption(label="Spa-Francorchamps Grand Prix", value="Spa", description="Medium track, rewards Aerodynamics & ERS"),
-            discord.SelectOption(label="Silverstone Grand Prix", value="Silverstone", description="High speed corners, rewards Aerodynamics"),
-            discord.SelectOption(label="Monaco Grand Prix", value="Monaco", description="Tight street circuit, rewards Reliability & Pit Crew"),
-            discord.SelectOption(label="Suzuka Grand Prix", value="Suzuka", description="Technical track, rewards balanced setups"),
-            discord.SelectOption(label="Bahrain Grand Prix", value="Bahrain", description="Heavy braking, rewards ERS & tyres")
-        ]
-        super().__init__(placeholder="Select a Track to Schedule GP...", min_values=1, max_values=1, options=options)
+    def __init__(self, laps=15, is_sprint=False):
+        options = []
+        for t_name, profile in list(race.TRACK_PROFILES.items())[:25]:
+            sprint_tag = "⚡ [Sprint Track] " if profile.get("is_sprint") else ""
+            desc = f"{sprint_tag}{profile.get('description', '')}"[:100]
+            options.append(discord.SelectOption(
+                label=t_name[:100],
+                value=t_name,
+                description=desc
+            ))
+        super().__init__(placeholder="Select an Official F1 Track to Schedule...", min_values=1, max_values=1, options=options)
         self.laps = laps
+        self.is_sprint = is_sprint
 
     async def callback(self, interaction: discord.Interaction):
         track_choice = self.values[0]
-        gp_name = f"{track_choice} Grand Prix"
+        event_type = "Sprint Race" if self.is_sprint else "Grand Prix"
+        gp_name = f"{track_choice} {event_type}"
         laps = self.laps
         
-        success, msg = database.create_gp_race(interaction.guild_id, gp_name, track_choice, laps)
+        success, msg = database.create_gp_race(interaction.guild_id, gp_name, track_choice, laps, is_sprint=self.is_sprint)
         if success:
             active_gp = database.get_active_gp_race(interaction.guild_id)
             view = GPAdminView(interaction.guild_id)
@@ -1152,7 +1271,7 @@ class GPTrackSelect(discord.ui.Select):
             embed = utils.create_embed(title="🏁 Grand Prix Admin Panel", description=desc, color=utils.COLOR_WARNING)
             
             announcement = utils.create_embed(
-                title="🏁 Grand Prix Scheduled!",
+                title=f"🏁 {event_type} Scheduled!",
                 description=(
                     f"A new event **{gp_name}** has been scheduled at **{track_choice}** ({laps} laps)!\n\n"
                     f"Type **`/joinrace`** to register and secure your spot on the starting grid!"
@@ -1508,8 +1627,9 @@ class GPLapTelemetryView(discord.ui.View):
                 if str(entry['user_id']) == str(user_id):
                     team_name = entry['team_name']
                     break
+            pos_val = state.get("position")
             standings_list.append({
-                "position": state.get("position", 99),
+                "position": pos_val,
                 "team_name": team_name,
                 "gap_to_leader": state.get("gap_to_leader", "Leader"),
                 "gap_to_front": state.get("gap_to_front", "—"),
@@ -1518,7 +1638,7 @@ class GPLapTelemetryView(discord.ui.View):
                 "dnf": state.get("dnf", False)
             })
             
-        standings_list.sort(key=lambda x: x["position"])
+        standings_list.sort(key=lambda x: (1 if (x["dnf"] or x["position"] is None) else 0, x["position"] if x["position"] is not None else 999))
         
         # Paginate results in chunks of 25 to fit within Discord character limits
         chunks = [standings_list[i:i + 25] for i in range(0, len(standings_list), 25)]
@@ -1531,13 +1651,16 @@ class GPLapTelemetryView(discord.ui.View):
             table_lines.append(f"-------------------------------------------")
             
             for driver in chunk:
-                pos_str = f"P{driver['position']}".ljust(4)
+                if driver['dnf'] or driver['position'] is None:
+                    pos_str = "DNF ".ljust(4)
+                else:
+                    pos_str = f"P{driver['position']}".ljust(4)
                 team_str = driver['team_name'][:18].ljust(19)
                 
                 gap_str = driver['gap_to_leader']
                 if driver['dnf']:
                     gap_str = "DNF"
-                gap_str = gap_str.ljust(10)
+                gap_str = str(gap_str).ljust(10)
                 
                 tyre_name = driver['tyre_type']
                 tyre_pct = int(driver['tyre_health'])
@@ -1558,7 +1681,7 @@ class GPLapTelemetryView(discord.ui.View):
         # Send up to 10 embeds at once in a single ephemeral message
         await interaction.response.send_message(embeds=embeds[:10], ephemeral=True)
 
-    @discord.ui.button(label="📊 My Telemetry", style=discord.ButtonStyle.secondary, custom_id="gp_lap_telemetry")
+    @discord.ui.button(label="📊 My Telemetry & Strategy", style=discord.ButtonStyle.success, custom_id="gp_lap_telemetry")
     async def telemetry_click(self, interaction: discord.Interaction, button: discord.ui.Button):
         user_id = None
         team_name = None
@@ -1717,18 +1840,6 @@ class GPStartRaceButton(discord.ui.Button):
                             
                             if t_obj:
                                 active_lap_times.append(t_obj.last_lap_time)
-                                asyncio.create_task(send_driver_lap_telemetry(
-                                    guild_id=interaction.guild_id,
-                                    driver_discord_id=dr_discord_id,
-                                    team_name=entry['team_name'],
-                                    lap_num=l_num,
-                                    lap_time=t_obj.last_lap_time,
-                                    position=dr_state.get('position'),
-                                    gap_to_leader=dr_state.get('gap_to_leader'),
-                                    gap_to_front=dr_state.get('gap_to_front'),
-                                    tyre_type=dr_state.get('tyre_type'),
-                                    tyre_health=dr_state.get('tyre_health', 100.0)
-                                ))
                                 
                     leader_lap_time = 45.0
                     if active_lap_times:
@@ -1953,6 +2064,43 @@ async def gp_admin(interaction: discord.Interaction, laps: int = 15):
     )
     
     view = GPAdminView(interaction.guild_id, laps=laps)
+    await interaction.response.send_message(embed=embed, view=view)
+
+@bot.tree.command(name="sprint", description="Schedule a Sprint Race Weekend (Admin control panel).")
+@app_commands.describe(
+    laps="Specify the Sprint race distance length (number of laps, default 8)"
+)
+@is_admin()
+@app_commands.guild_only()
+async def sprint_admin(interaction: discord.Interaction, laps: int = 8):
+    if laps < 1 or laps > 50:
+        await interaction.response.send_message("❌ Invalid Sprint lap count. Laps must be between 1 and 50.", ephemeral=True)
+        return
+        
+    active_gp = database.get_active_gp_race(interaction.guild_id)
+    if active_gp:
+        entries = database.get_gp_entries_full(active_gp['race_id'])
+        desc = (
+            f"⚡ **Active Event:** **{active_gp['name']}**\n"
+            f"🗺️ **Track:** `{active_gp['track']}`\n"
+            f"⏱️ **Sprint Distance:** `{active_gp['laps']} Laps`\n"
+            f"📊 **Stage:** `{active_gp.get('status', 'Created')}`\n"
+            f"👥 **Entrants:** `{len(entries)} driver(s) registered`"
+        )
+    else:
+        desc = f"❌ **No active Sprint Race scheduled.**\nUse the **Select an Official F1 Track** dropdown below to schedule a **{laps}-lap** Sprint Weekend."
+        
+    embed = utils.create_embed(
+        title="⚡ Sprint Race Weekend Admin Panel",
+        description=desc,
+        color=utils.COLOR_QUALIFYING
+    )
+    
+    view = GPAdminView(interaction.guild_id, laps=laps)
+    if not active_gp:
+        view.clear_items()
+        view.add_item(GPTrackSelect(laps=laps, is_sprint=True))
+        
     await interaction.response.send_message(embed=embed, view=view)
 
 @bot.tree.command(name="joinrace", description="Register and pay 1000¢ entry fee to join the upcoming Grand Prix.")
@@ -2261,6 +2409,273 @@ async def admin_debug(interaction: discord.Interaction, toggle: bool):
             color=utils.COLOR_SUCCESS
         )
     )
+
+# ----------------- Phase 3: Crates, Inventory, Practice & Boosters -----------------
+
+import crates
+
+@bot.tree.command(name="crate", description="View available loot crates, unboxing drop chances, and credit rewards.")
+@app_commands.guild_only()
+async def view_crates(interaction: discord.Interaction):
+    desc = (
+        "📦 **DISCORD GRAND PRIX LOOT CRATE STORE**\n"
+        "Unbox rare car components, tuning parts, and credit rewards!\n\n"
+        "📦 **Rookie Crate — 500¢**\n"
+        "  • **Guaranteed Gold:** `100¢ – 400¢` refund!\n"
+        "  • **Part Drop Chance:** `60%` (⚪ Common 70% | 🟢 Uncommon 25% | 🔵 Rare 5%)\n"
+        "  • Command: `/open crate_tier:rookie`\n\n"
+        "💼 **Pro Crate — 2,500¢**\n"
+        "  • **Guaranteed Gold:** `500¢ – 1,800¢` refund!\n"
+        "  • **Part Drop Chance:** `85%` (🟢 Uncommon 40% | 🔵 Rare 45% | 🟣 Epic 12% | 🟡 Legendary 3%)\n"
+        "  • Command: `/open crate_tier:pro`\n\n"
+        "🏆 **Champion Crate — 6,000¢**\n"
+        "  • **Guaranteed Gold:** `1,500¢ – 5,000¢` refund!\n"
+        "  • **Part Drop Chance:** `100% Guaranteed` (🔵 Rare 35% | 🟣 Epic 50% | 🟡 Legendary 15%)\n"
+        "  • Command: `/open crate_tier:champion`"
+    )
+    embed = utils.create_embed(title="🎁 Loot Crates & Unboxing Store", description=desc, color=utils.COLOR_QUALIFYING)
+    await interaction.response.send_message(embed=embed)
+
+@bot.tree.command(name="open", description="Unbox a Rookie, Pro, or Champion Loot Crate.")
+@app_commands.describe(crate_tier="Select crate tier to unbox (rookie, pro, champion)")
+@app_commands.choices(crate_tier=[
+    app_commands.Choice(name="📦 Rookie Crate (500¢)", value="rookie"),
+    app_commands.Choice(name="💼 Pro Crate (2,500¢)", value="pro"),
+    app_commands.Choice(name="🏆 Champion Crate (6,000¢)", value="champion")
+])
+@app_commands.guild_only()
+async def open_crate_cmd(interaction: discord.Interaction, crate_tier: app_commands.Choice[str]):
+    prof = database.get_user_by_discord_id(interaction.user.id, interaction.guild_id)
+    if not prof:
+        await interaction.response.send_message("❌ You do not have a profile yet. Use `/start`.", ephemeral=True)
+        return
+        
+    success, msg, summary = crates.unbox_crate(prof['user_id'], crate_tier.value)
+    if not success:
+        await interaction.response.send_message(f"{msg}", ephemeral=True)
+        return
+        
+    part = summary["part_dropped"]
+    part_desc = ""
+    if part:
+        part_desc = (
+            f"\n\n✨ **NEW CAR PART UNBOXED!**\n"
+            f"{part['emoji']} **{part['rarity']} {part['part_name']}**\n"
+            f"⚙️ **Category:** `{part['category'].upper()}` | **Level:** `{part['level']}`\n"
+            f"⚡ **Efficiency Bonus:** `{part['efficiency_bonus']}` tuning boost!\n"
+            f"*Equip it in `/inventory` to install it onto your car!*"
+        )
+    else:
+        part_desc = "\n\n⚙️ *No car part dropped this time, better luck next crate!*"
+        
+    desc = (
+        f"🎉 **{summary['crate_name']} Unboxed!**\n\n"
+        f"💰 **Gold Returned:** `+{summary['gold_reward']:,}¢`\n"
+        f"📊 **Net Cost:** `{summary['net_cost']:,}¢`{part_desc}"
+    )
+    
+    embed = utils.create_embed(
+        title="🎁 UNBOXING CEREMONY",
+        description=desc,
+        color=utils.COLOR_SUCCESS
+    )
+    await interaction.response.send_message(embed=embed)
+
+class InventorySelectMenu(discord.ui.Select):
+    def __init__(self, user_id, category):
+        self.user_id = user_id
+        self.category = category
+        items = database.get_user_inventory(user_id, category)
+        options = []
+        if not items:
+            options.append(discord.SelectOption(label="No parts in this category", value="none"))
+        else:
+            for item in items[:25]:
+                status = "🟢 [Equipped]" if item['is_equipped'] else "⚪ [Storage]"
+                from crates import RARITY_EMOJIS
+                emoji_str = RARITY_EMOJIS.get(item['rarity'], '⚪')
+                label = f"{emoji_str} {item['part_name'][:25]} (Lvl {item['level']})"
+                desc = f"{status} {item['rarity']} | +{item['stat_bonus']} Stat"
+                options.append(discord.SelectOption(label=label, value=str(item['item_id']), description=desc))
+                
+        super().__init__(placeholder=f"Select {category.upper()} part to equip...", min_values=1, max_values=1, options=options)
+
+    async def callback(self, interaction: discord.Interaction):
+        val = self.values[0]
+        if val == "none":
+            await interaction.response.send_message("❌ No parts available in this category.", ephemeral=True)
+            return
+            
+        item_id = int(val)
+        success, msg = database.equip_inventory_part(self.user_id, item_id)
+        color = utils.COLOR_SUCCESS if success else utils.COLOR_ERROR
+        await interaction.response.send_message(embed=utils.create_embed(title="🔧 Garage Equipment", description=msg, color=color), ephemeral=True)
+
+class InventoryCategorySelect(discord.ui.Select):
+    def __init__(self, user_id):
+        self.user_id = user_id
+        options = [
+            discord.SelectOption(label="Engine Parts", value="engine", description="View stored engine blocks & turbochargers"),
+            discord.SelectOption(label="Aerodynamics Parts", value="aerodynamics", description="View wings & floor diffusers"),
+            discord.SelectOption(label="Tyre Compounds", value="tyres", description="View tyre tread compounds"),
+            discord.SelectOption(label="ERS Hybrid Units", value="ers", description="View MGU-K and battery cells"),
+            discord.SelectOption(label="Reliability Parts", value="reliability", description="View coolers & gearboxes"),
+            discord.SelectOption(label="Pit Crew Gear", value="pit_crew", description="View wheel guns & jacks")
+        ]
+        super().__init__(placeholder="Filter Inventory by Category...", min_values=1, max_values=1, options=options)
+
+    async def callback(self, interaction: discord.Interaction):
+        cat = self.values[0]
+        view = discord.ui.View(timeout=180.0)
+        view.add_item(InventoryCategorySelect(self.user_id))
+        view.add_item(InventorySelectMenu(self.user_id, cat))
+        
+        items = database.get_user_inventory(self.user_id, cat)
+        from crates import RARITY_EMOJIS, RARITY_BONUS_MULTIPLIERS
+        desc = f"🧰 **GARAGE INVENTORY — {cat.upper()}**\n\n"
+        if not items:
+            desc += "⚙️ *No parts owned in this category yet. Unbox crates via `/open` to find rare parts!*"
+        else:
+            for item in items:
+                status = "🟢 **[EQUIPPED]**" if item['is_equipped'] else "⚪ *(Storage)*"
+                e_emoji = RARITY_EMOJIS.get(item['rarity'], '⚪')
+                bonus_pct = f"+{(RARITY_BONUS_MULTIPLIERS.get(item['rarity'], 1.0) - 1.0)*100:.0f}%"
+                desc += f"{status} {e_emoji} **{item['rarity']} {item['part_name']}** (Level {item['level']}) — Efficiency: `{bonus_pct}`\n"
+                
+        embed = utils.create_embed(title="🧰 Part Inventory & Equipment", description=desc, color=utils.COLOR_INFO)
+        await interaction.response.edit_message(embed=embed, view=view)
+
+@bot.tree.command(name="inventory", description="View stored car parts and equip preferred setups.")
+@app_commands.guild_only()
+async def view_inventory(interaction: discord.Interaction):
+    prof = database.get_user_by_discord_id(interaction.user.id, interaction.guild_id)
+    if not prof:
+        await interaction.response.send_message("❌ You do not have a profile. Use `/start`.", ephemeral=True)
+        return
+        
+    view = discord.ui.View(timeout=180.0)
+    view.add_item(InventoryCategorySelect(prof['user_id']))
+    view.add_item(InventorySelectMenu(prof['user_id'], "engine"))
+    
+    items = database.get_user_inventory(prof['user_id'], "engine")
+    from crates import RARITY_EMOJIS, RARITY_BONUS_MULTIPLIERS
+    desc = "🧰 **GARAGE INVENTORY — ENGINE**\n\n"
+    if not items:
+        desc += "⚙️ *No custom parts in inventory yet. Upgrade your car via `/upgrade` or unbox crates via `/open`!*"
+    else:
+        for item in items:
+            status = "🟢 **[EQUIPPED]**" if item['is_equipped'] else "⚪ *(Storage)*"
+            e_emoji = RARITY_EMOJIS.get(item['rarity'], '⚪')
+            bonus_pct = f"+{(RARITY_BONUS_MULTIPLIERS.get(item['rarity'], 1.0) - 1.0)*100:.0f}%"
+            desc += f"{status} {e_emoji} **{item['rarity']} {item['part_name']}** (Level {item['level']}) — Efficiency: `{bonus_pct}`\n"
+            
+    embed = utils.create_embed(title="🧰 Part Inventory & Equipment", description=desc, color=utils.COLOR_INFO)
+    await interaction.response.send_message(embed=embed, view=view)
+
+@bot.tree.command(name="practice", description="Run a solo practice session on an official F1 track to gain Track Mastery.")
+@app_commands.guild_only()
+async def practice_track(interaction: discord.Interaction):
+    prof = database.get_user_by_discord_id(interaction.user.id, interaction.guild_id)
+    if not prof:
+        await interaction.response.send_message("❌ You do not have a profile. Use `/start`.", ephemeral=True)
+        return
+        
+    class PracticeTrackSelect(discord.ui.Select):
+        def __init__(self, user_id):
+            self.user_id = user_id
+            options = []
+            for t_name, profile in list(race.TRACK_PROFILES.items())[:25]:
+                options.append(discord.SelectOption(label=t_name[:100], value=t_name, description=profile.get('description', '')[:100]))
+            super().__init__(placeholder="Select an Official F1 Track to Practice...", min_values=1, max_values=1, options=options)
+
+        async def callback(self, interaction: discord.Interaction):
+            track_choice = self.values[0]
+            success, msg, bonus = database.record_track_practice(self.user_id, track_choice)
+            color = utils.COLOR_SUCCESS if success else utils.COLOR_WARNING
+            await interaction.response.send_message(embed=utils.create_embed(title="🏎️ Track Simulator Practice Session", description=msg, color=color))
+
+    view = discord.ui.View(timeout=180.0)
+    view.add_item(PracticeTrackSelect(prof['user_id']))
+    embed = utils.create_embed(
+        title="🏎️ Track Practice & Simulator",
+        description=(
+            "Run a solo practice session on any official F1 calendar track to build **Track Mastery**.\n\n"
+            "⏱️ **Mastery Benefit:** Up to **`-0.15s` lap time bonus** per track (+4% Track Familiarity per session).\n"
+            "📅 **Daily Limit:** Maximum **3 practice sessions per day** to prevent single-track spamming.\n\n"
+            "Select a track below to begin your practice run:"
+        ),
+        color=utils.COLOR_QUALIFYING
+    )
+    await interaction.response.send_message(embed=embed, view=view)
+
+@bot.tree.command(name="shop", description="View consumable race & qualifying boosters (Max 2 boosters cap).")
+@app_commands.guild_only()
+async def shop_boosters(interaction: discord.Interaction):
+    prof = database.get_user_by_discord_id(interaction.user.id, interaction.guild_id)
+    if not prof:
+        await interaction.response.send_message("❌ You do not have a profile. Use `/start`.", ephemeral=True)
+        return
+        
+    user_boosters = database.get_user_boosters(prof['user_id'])
+    booster_list = ""
+    if user_boosters:
+        for b in user_boosters:
+            booster_list += f"  • **{b['booster_name']}** ({b['charges']} charge(s))\n"
+    else:
+        booster_list = "  • *No active boosters held*\n"
+        
+    desc = (
+        "🛒 **CONSUMABLE BOOSTERS SHOP**\n"
+        "Purchase single-use tactical boosters for upcoming qualifying & race sessions.\n"
+        "🔒 **Inventory Limit:** Max **2 active boosters** held at a time.\n\n"
+        f"🎒 **Your Active Boosters:**\n{booster_list}\n"
+        "🔥 **Available Boosters:**\n"
+        "1. **🔥 Tyre Blanket Warmer — 1,500¢**\n"
+        "   • *Effect:* Adds **`-0.15s` Qualifying Lap Pace** advantage.\n"
+        "   • Buy command: `/booster item:tyre_warmer`\n\n"
+        "2. **⚡ ERS High-Flow Injector — 2,000¢**\n"
+        "   • *Effect:* Grants **+1 Lap extra ERS Boost** during races.\n"
+        "   • Buy command: `/booster item:ers_injector`\n\n"
+        "3. **🛡️ Heavy Duty Radiator — 1,200¢**\n"
+        "   • *Effect:* Reduces engine thermal heat buildup by **-30%**.\n"
+        "   • Buy command: `/booster item:radiator`"
+    )
+    embed = utils.create_embed(title="🛒 Consumable Boosters Shop", description=desc, color=utils.COLOR_QUALIFYING)
+    await interaction.response.send_message(embed=embed)
+
+@bot.tree.command(name="booster", description="Purchase a consumable booster from the shop.")
+@app_commands.describe(item="Select booster to purchase")
+@app_commands.choices(item=[
+    app_commands.Choice(name="🔥 Tyre Blanket Warmer (1,500¢)", value="tyre_warmer"),
+    app_commands.Choice(name="⚡ ERS High-Flow Injector (2,000¢)", value="ers_injector"),
+    app_commands.Choice(name="🛡️ Heavy Duty Radiator (1,200¢)", value="radiator")
+])
+@app_commands.guild_only()
+async def buy_booster_cmd(interaction: discord.Interaction, item: app_commands.Choice[str]):
+    prof = database.get_user_by_discord_id(interaction.user.id, interaction.guild_id)
+    if not prof:
+        await interaction.response.send_message("❌ You do not have a profile. Use `/start`.", ephemeral=True)
+        return
+        
+    booster_map = {
+        "tyre_warmer": ("quali", "Tyre Blanket Warmer", 1500),
+        "ers_injector": ("race", "ERS High-Flow Injector", 2000),
+        "radiator": ("reliability", "Heavy Duty Radiator", 1200)
+    }
+    
+    b_type, b_name, price = booster_map[item.value]
+    if prof['money'] < price:
+        await interaction.response.send_message(f"❌ Insufficient funds! **{b_name}** costs **{price:,}¢**, but you have **{prof['money']:,}¢**.", ephemeral=True)
+        return
+        
+    success, msg = database.add_user_booster(prof['user_id'], b_type, b_name)
+    if success:
+        database.update_user_balance(prof['user_id'], -price)
+        color = utils.COLOR_SUCCESS
+    else:
+        color = utils.COLOR_WARNING
+        
+    await interaction.response.send_message(embed=utils.create_embed(title="🛒 Booster Purchase", description=msg, color=color))
 
 # ----------------- Start Bot -----------------
 if __name__ == "__main__":
