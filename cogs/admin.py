@@ -24,11 +24,19 @@ def is_admin():
 class AdminCog(commands.Cog):
     """Cog containing all Administrator and Server Management commands."""
     
-    def __init__(self, bot: commands.Bot):
-        self.bot = bot
-
     admin_group = app_commands.Group(name="admin", description="Game administrator controls for economy and stats.")
     season_admin_group = app_commands.Group(name="season", description="Admin controls for World Driver Championship (WDC) Seasons")
+
+    def __init__(self, bot: commands.Bot):
+        self.bot = bot
+        try:
+            self.bot.tree.add_command(self.admin_group)
+        except Exception:
+            pass
+        try:
+            self.bot.tree.add_command(self.season_admin_group)
+        except Exception:
+            pass
 
     @admin_group.command(name="setstat", description="Set a driver skill level or garage part level for a user.")
     @app_commands.describe(

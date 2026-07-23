@@ -38,7 +38,31 @@ async def setup_hook():
 
 bot.setup_hook = setup_hook
 
-# ----------------- Event Handlers -----------------
+# ----------------- Event Handlers & Sync Commands -----------------
+
+@bot.command(name="sync")
+async def sync_prefix_command(ctx: commands.Context):
+    """Force sync all slash commands directly to the current Discord server (Prefix command !sync)."""
+    if not ctx.author.guild_permissions.administrator:
+        await ctx.send("❌ Only server administrators can run `!sync`.")
+        return
+        
+    guild = ctx.guild
+    bot.tree.copy_global_to(guild=guild)
+    synced = await bot.tree.sync(guild=guild)
+    await ctx.send(f"✅ **Slash Command Sync Complete!** Synced **{len(synced)}** commands (`/admin`, `/season`, `/race`, `/profile`, etc.) directly to **{guild.name}**!")
+
+@bot.tree.command(name="sync", description="Force sync all slash commands to this server (Admin only).")
+@app_commands.guild_only()
+async def sync_slash_command(interaction: discord.Interaction):
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message("❌ Only server administrators can run `/sync`.", ephemeral=True)
+        return
+        
+    guild = interaction.guild
+    bot.tree.copy_global_to(guild=guild)
+    synced = await bot.tree.sync(guild=guild)
+    await interaction.response.send_message(f"✅ **Slash Command Sync Complete!** Synced **{len(synced)}** commands (`/admin`, `/season`, `/race`, `/profile`, etc.) directly to **{guild.name}**!")
 
 @bot.event
 async def on_ready():
@@ -46,6 +70,12 @@ async def on_ready():
     print("Initializing database schema and performance indexes...")
     database.init_db()
     
+    try:
+        synced_global = await bot.tree.sync()
+        print(f"Synced {len(synced_global)} global commands.")
+    except Exception as global_err:
+        print(f"Global sync notice: {global_err}")
+
     try:
         if config.GUILD_ID:
             guild = discord.Object(id=config.GUILD_ID)
