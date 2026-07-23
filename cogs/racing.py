@@ -333,65 +333,11 @@ class StrategyConfigView(discord.ui.View):
 
 
 
-@bot.tree.command(name="strategy", description="Configure your starting race pacing strategy and tyres.")
-@app_commands.guild_only()
-async def strategy_setup(interaction: discord.Interaction):
-    prof = database.get_full_team_profile(interaction.user.id, interaction.guild_id)
-    if not prof:
-        await interaction.response.send_message("❌ You do not have a profile. Use `/start` first.", ephemeral=True)
-        return
-        
-    view = StrategyConfigView(interaction.user.id, interaction.guild_id)
-    
-    desc = (
-        f"🏎️ **Starting Pacing Mode:** `{view.pace}`\n"
-        f"🛞 **Starting Tyres:** `{view.start_tyre}`\n\n"
-        f"*💡 Selections are saved in real-time. This configuration sheet is private and hidden from other competitors.*"
-    )
-    embed = utils.create_embed(
-        title="⚙️ Racing Strategy Configuration Board",
-        description=desc,
-        color=utils.COLOR_SUCCESS
-    )
-    await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
 
 
 
-@bot.tree.command(name="pit", description="Schedule a pit stop for the very next lap of the active Grand Prix.")
-@app_commands.describe(
-    tyre="Select the tyre compound to switch to"
-)
-@app_commands.choices(tyre=[
-    app_commands.Choice(name="🟥 Soft Tyres", value="Soft"),
-    app_commands.Choice(name="🟨 Medium Tyres", value="Medium"),
-    app_commands.Choice(name="⬜ Hard Tyres", value="Hard"),
-    app_commands.Choice(name="🟦 Intermediates", value="Intermediates")
-])
-@app_commands.guild_only()
-async def gp_pit_command(interaction: discord.Interaction, tyre: app_commands.Choice[str]):
-    race_state = ACTIVE_RACES.get(interaction.guild_id)
-    if not race_state or "teams" not in race_state:
-        await interaction.response.send_message("❌ There is no active Grand Prix running right now.", ephemeral=True)
-        return
-        
-    team_obj = None
-    for t in race_state["teams"]:
-        if t.discord_id == interaction.user.id:
-            team_obj = t
-            break
-            
-    if not team_obj:
-        await interaction.response.send_message("❌ You are not participating in the active Grand Prix.", ephemeral=True)
-        return
-        
-    if team_obj.dnf:
-        await interaction.response.send_message("❌ You have already retired from this race.", ephemeral=True)
-        return
-        
-    team_obj.pit_next_lap = True
-    team_obj.pit_next_lap_tyre = tyre.value
-    
-    await interaction.response.send_message(f"✅ **Pit stop scheduled!** Your driver will pit at the end of the current lap to switch to **{tyre.name}** tyres.", ephemeral=True)
+
+
 
 
 
@@ -1236,88 +1182,21 @@ class GPAdminView(discord.ui.View):
 
 
 
-@bot.tree.command(name="gp", description="Manage Grand Prix events (Admin control panel).")
-@app_commands.describe(
-    laps="Specify the race distance length (number of laps, default 15)"
-)
-@is_admin()
-@app_commands.guild_only()
-async def gp_admin(interaction: discord.Interaction, laps: int = 15):
-    if laps < 1 or laps > 200:
-        await interaction.response.send_message("❌ Invalid lap count. Laps must be between 1 and 200.", ephemeral=True)
-        return
-        
-    active_gp = database.get_active_gp_race(interaction.guild_id)
-    
-    if active_gp:
-        entries = database.get_gp_entries_full(active_gp['race_id'])
-        import json
-        weather_raw = active_gp.get('weather', 'Sunny')
-        forecast = "Sunny"
-        try:
-            weather_data = json.loads(weather_raw)
-            forecast = weather_data.get('forecast', 'Sunny')
-        except Exception:
-            forecast = weather_raw
-            
-        desc = (
-            f"🏁 **Active GP:** **{active_gp['name']}**\n"
-            f"🗺️ **Track:** `{active_gp['track']}`\n"
-            f"⏱️ **Distance:** `{active_gp['laps']} Laps`\n"
-            f"📊 **Stage:** `{active_gp.get('status', 'Created')}`\n"
-            f"🌦️ **Forecast:** `{forecast}`\n"
-            f"👥 **Entrants:** `{len(entries)} driver(s) registered`"
-        )
-    else:
-        desc = f"❌ **No active Grand Prix scheduled.**\nUse the **Select a Track** dropdown below to schedule a **{laps}-lap** event."
-        
-    embed = utils.create_embed(
-        title="🏁 Grand Prix Admin Panel",
-        description=desc,
-        color=utils.COLOR_WARNING
-    )
-    
-    view = GPAdminView(interaction.guild_id, laps=laps)
-    await interaction.response.send_message(embed=embed, view=view)
 
 
 
-@bot.tree.command(name="sprint", description="Schedule a Sprint Race Weekend (Admin control panel).")
-@app_commands.describe(
-    laps="Specify the Sprint race distance length (number of laps, default 8)"
-)
-@is_admin()
-@app_commands.guild_only()
-async def sprint_admin(interaction: discord.Interaction, laps: int = 8):
-    if laps < 1 or laps > 50:
-        await interaction.response.send_message("❌ Invalid Sprint lap count. Laps must be between 1 and 50.", ephemeral=True)
-        return
-        
-    active_gp = database.get_active_gp_race(interaction.guild_id)
-    if active_gp:
-        entries = database.get_gp_entries_full(active_gp['race_id'])
-        desc = (
-            f"⚡ **Active Event:** **{active_gp['name']}**\n"
-            f"🗺️ **Track:** `{active_gp['track']}`\n"
-            f"⏱️ **Sprint Distance:** `{active_gp['laps']} Laps`\n"
-            f"📊 **Stage:** `{active_gp.get('status', 'Created')}`\n"
-            f"👥 **Entrants:** `{len(entries)} driver(s) registered`"
-        )
-    else:
-        desc = f"❌ **No active Sprint Race scheduled.**\nUse the **Select an Official F1 Track** dropdown below to schedule a **{laps}-lap** Sprint Weekend."
-        
-    embed = utils.create_embed(
-        title="⚡ Sprint Race Weekend Admin Panel",
-        description=desc,
-        color=utils.COLOR_QUALIFYING
-    )
-    
-    view = GPAdminView(interaction.guild_id, laps=laps)
-    if not active_gp:
-        view.clear_items()
-        view.add_item(GPTrackSelect(laps=laps, is_sprint=True))
-        
-    await interaction.response.send_message(embed=embed, view=view)
+
+
+
+
+async def track_autocomplete(interaction: discord.Interaction, current: str) -> List[app_commands.Choice[str]]:
+    choices = []
+    for t_name in race.TRACK_PROFILES.keys():
+        if current.lower() in t_name.lower():
+            choices.append(app_commands.Choice(name=t_name[:100], value=t_name))
+        if len(choices) >= 25:
+            break
+    return choices
 
 
 class RacingCog(commands.Cog):
@@ -1325,15 +1204,6 @@ class RacingCog(commands.Cog):
     
     def __init__(self, bot: commands.Bot):
         self.bot = bot
-
-    async def track_autocomplete(self, interaction: discord.Interaction, current: str) -> List[app_commands.Choice[str]]:
-        choices = []
-        for t_name in race.TRACK_PROFILES.keys():
-            if current.lower() in t_name.lower():
-                choices.append(app_commands.Choice(name=t_name[:100], value=t_name))
-            if len(choices) >= 25:
-                break
-        return choices
 
     @app_commands.command(name="race", description="Challenge another user to a 1v1 racing duel!")
     @app_commands.describe(
@@ -1468,6 +1338,145 @@ class RacingCog(commands.Cog):
         await interaction.response.send_message(embed=embed)
 
 
+
+    @app_commands.command(name="strategy", description="Configure your starting race pacing strategy and tyres.")
+    @app_commands.guild_only()
+    async def strategy_setup(self, interaction: discord.Interaction):
+        prof = database.get_full_team_profile(interaction.user.id, interaction.guild_id)
+        if not prof:
+            await interaction.response.send_message("❌ You do not have a profile. Use `/start` first.", ephemeral=True)
+            return
+
+        view = StrategyConfigView(interaction.user.id, interaction.guild_id)
+
+        desc = (
+            f"🏎️ **Starting Pacing Mode:** `{view.pace}`\n"
+            f"🛞 **Starting Tyres:** `{view.start_tyre}`\n\n"
+            f"*💡 Selections are saved in real-time. This configuration sheet is private and hidden from other competitors.*"
+        )
+        embed = utils.create_embed(
+            title="⚙️ Racing Strategy Configuration Board",
+            description=desc,
+            color=utils.COLOR_SUCCESS
+        )
+        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+
+    @app_commands.command(name="pit", description="Schedule a pit stop for the very next lap of the active Grand Prix.")
+    @app_commands.describe(
+        tyre="Select the tyre compound to switch to"
+    )
+    @app_commands.choices(tyre=[
+        app_commands.Choice(name="🟥 Soft Tyres", value="Soft"),
+        app_commands.Choice(name="🟨 Medium Tyres", value="Medium"),
+        app_commands.Choice(name="⬜ Hard Tyres", value="Hard"),
+        app_commands.Choice(name="🟦 Intermediates", value="Intermediates")
+    ])
+    @app_commands.guild_only()
+    async def gp_pit_command(self, interaction: discord.Interaction, tyre: app_commands.Choice[str]):
+        race_state = ACTIVE_RACES.get(interaction.guild_id)
+        if not race_state or "teams" not in race_state:
+            await interaction.response.send_message("❌ There is no active Grand Prix running right now.", ephemeral=True)
+            return
+
+        team_obj = None
+        for t in race_state["teams"]:
+            if t.discord_id == interaction.user.id:
+                team_obj = t
+                break
+
+        if not team_obj:
+            await interaction.response.send_message("❌ You are not participating in the active Grand Prix.", ephemeral=True)
+            return
+
+        if team_obj.dnf:
+            await interaction.response.send_message("❌ You have already retired from this race.", ephemeral=True)
+            return
+
+        team_obj.pit_next_lap = True
+        team_obj.pit_next_lap_tyre = tyre.value
+
+        await interaction.response.send_message(f"✅ **Pit stop scheduled!** Your driver will pit at the end of the current lap to switch to **{tyre.name}** tyres.", ephemeral=True)
+
+    @app_commands.command(name="gp", description="Manage Grand Prix events (Admin control panel).")
+    @app_commands.describe(
+        laps="Specify the race distance length (number of laps, default 15)"
+    )
+    @is_admin()
+    @app_commands.guild_only()
+    async def gp_admin(self, interaction: discord.Interaction, laps: int = 15):
+        if laps < 1 or laps > 200:
+            await interaction.response.send_message("❌ Invalid lap count. Laps must be between 1 and 200.", ephemeral=True)
+            return
+
+        active_gp = database.get_active_gp_race(interaction.guild_id)
+
+        if active_gp:
+            entries = database.get_gp_entries_full(active_gp['race_id'])
+            import json
+            weather_raw = active_gp.get('weather', 'Sunny')
+            forecast = "Sunny"
+            try:
+                weather_data = json.loads(weather_raw)
+                forecast = weather_data.get('forecast', 'Sunny')
+            except Exception:
+                forecast = weather_raw
+
+            desc = (
+                f"🏁 **Active GP:** **{active_gp['name']}**\n"
+                f"🗺️ **Track:** `{active_gp['track']}`\n"
+                f"⏱️ **Distance:** `{active_gp['laps']} Laps`\n"
+                f"📊 **Stage:** `{active_gp.get('status', 'Created')}`\n"
+                f"🌦️ **Forecast:** `{forecast}`\n"
+                f"👥 **Entrants:** `{len(entries)} driver(s) registered`"
+            )
+        else:
+            desc = f"❌ **No active Grand Prix scheduled.**\nUse the **Select a Track** dropdown below to schedule a **{laps}-lap** event."
+
+        embed = utils.create_embed(
+            title="🏁 Grand Prix Admin Panel",
+            description=desc,
+            color=utils.COLOR_WARNING
+        )
+
+        view = GPAdminView(interaction.guild_id, laps=laps)
+        await interaction.response.send_message(embed=embed, view=view)
+
+    @app_commands.command(name="sprint", description="Schedule a Sprint Race Weekend (Admin control panel).")
+    @app_commands.describe(
+        laps="Specify the Sprint race distance length (number of laps, default 8)"
+    )
+    @is_admin()
+    @app_commands.guild_only()
+    async def sprint_admin(self, interaction: discord.Interaction, laps: int = 8):
+        if laps < 1 or laps > 50:
+            await interaction.response.send_message("❌ Invalid Sprint lap count. Laps must be between 1 and 50.", ephemeral=True)
+            return
+
+        active_gp = database.get_active_gp_race(interaction.guild_id)
+        if active_gp:
+            entries = database.get_gp_entries_full(active_gp['race_id'])
+            desc = (
+                f"⚡ **Active Event:** **{active_gp['name']}**\n"
+                f"🗺️ **Track:** `{active_gp['track']}`\n"
+                f"⏱️ **Sprint Distance:** `{active_gp['laps']} Laps`\n"
+                f"📊 **Stage:** `{active_gp.get('status', 'Created')}`\n"
+                f"👥 **Entrants:** `{len(entries)} driver(s) registered`"
+            )
+        else:
+            desc = f"❌ **No active Sprint Race scheduled.**\nUse the **Select an Official F1 Track** dropdown below to schedule a **{laps}-lap** Sprint Weekend."
+
+        embed = utils.create_embed(
+            title="⚡ Sprint Race Weekend Admin Panel",
+            description=desc,
+            color=utils.COLOR_QUALIFYING
+        )
+
+        view = GPAdminView(interaction.guild_id, laps=laps)
+        if not active_gp:
+            view.clear_items()
+            view.add_item(GPTrackSelect(laps=laps, is_sprint=True))
+
+        await interaction.response.send_message(embed=embed, view=view)
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(RacingCog(bot))

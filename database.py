@@ -743,7 +743,7 @@ def repair_part(user_id: int, part_name: str) -> Tuple[bool, str]:
 def get_leaderboard(guild_id: int, by_type: str = 'points', limit: int = 10) -> List[Dict[str, Any]]:
     """
     Get leaderboard top lists filtered by guild_id.
-    by_type can be 'points' (sum of race entries points) or 'money' (user's credit balance).
+    by_type can be 'points', 'wins', 'money', or 'level'.
     """
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -754,6 +754,22 @@ def get_leaderboard(guild_id: int, by_type: str = 'points', limit: int = 10) -> 
             FROM users
             WHERE guild_id = ?
             ORDER BY money DESC
+            LIMIT ?
+        """, (guild_id, limit))
+    elif by_type == 'wins':
+        cursor.execute("""
+            SELECT team_name, wins as score, level
+            FROM users
+            WHERE guild_id = ?
+            ORDER BY wins DESC
+            LIMIT ?
+        """, (guild_id, limit))
+    elif by_type == 'level':
+        cursor.execute("""
+            SELECT team_name, level as score, level
+            FROM users
+            WHERE guild_id = ?
+            ORDER BY level DESC, xp DESC
             LIMIT ?
         """, (guild_id, limit))
     else:  # Default to championship points

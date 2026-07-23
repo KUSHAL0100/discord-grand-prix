@@ -163,8 +163,7 @@ class GarageCog(commands.Cog):
                 f"> Pace `{prof['pace']}` · Quali `{prof['qual']}` · Wet `{prof['wet_skill']}`\n"
                 f"> Consistency `{prof['consistency']}` · Aggression `{prof['aggression']}` · Overtaking `{prof['overtaking']}`\n\n"
                 f"🔧 **Garage Components** — Use `/upgrade <part>` to upgrade\n"
-                f"{parts_desc}\n\n"
-                f"⚙️ **Upgrade Rules:** Spec: Lvl 1-5 | Performance: Lvl 6-10 | Advanced: Lvl 11-15 | Extreme: Lvl 16-20"
+                f"{parts_desc}"
             ),
             color=utils.COLOR_INFO
         )

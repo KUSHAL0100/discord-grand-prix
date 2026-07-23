@@ -114,6 +114,17 @@ class AdminCog(commands.Cog):
         )
         await interaction.response.send_message(embed=embed)
 
+async def track_autocomplete(interaction: discord.Interaction, current: str) -> List[app_commands.Choice[str]]:
+    import race
+    choices = []
+    for t_name in race.TRACK_PROFILES.keys():
+        if current.lower() in t_name.lower():
+            choices.append(app_commands.Choice(name=t_name[:100], value=t_name))
+        if len(choices) >= 25:
+            break
+    return choices
+
+
     @season_admin_group.command(name="cancel", description="Cancel the active Season.")
     @is_admin()
     @app_commands.guild_only()
@@ -127,6 +138,7 @@ class AdminCog(commands.Cog):
         track="Select official F1 track to schedule",
         laps="Race distance length (number of laps, default 15)"
     )
+    @app_commands.autocomplete(track=track_autocomplete)
     @is_admin()
     @app_commands.guild_only()
     async def add_season_race_cmd(self, interaction: discord.Interaction, track: str, laps: int = 15):
@@ -148,6 +160,7 @@ class AdminCog(commands.Cog):
         track="Select official F1 track to schedule",
         laps="Sprint race distance length (number of laps, default 8)"
     )
+    @app_commands.autocomplete(track=track_autocomplete)
     @is_admin()
     @app_commands.guild_only()
     async def add_season_sprint_cmd(self, interaction: discord.Interaction, track: str, laps: int = 8):
@@ -346,7 +359,7 @@ class SeasonCalendarAdminView(discord.ui.View):
         else:
             await interaction.response.send_message(f"❌ {msg}", ephemeral=True)
 
-    @app_commands.command(name="give", description="Give credits to a player (Admin only).")
+    @admin_group.command(name="give", description="Give credits to a player (Admin only).")
     @app_commands.describe(user="The player to receive credits", amount="Amount of credits to award")
     @is_admin()
     @app_commands.guild_only()
