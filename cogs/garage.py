@@ -136,12 +136,16 @@ class GarageCog(commands.Cog):
                 f"💰 **Credits:** `{prof['money']:,}¢`\n"
                 f"🏎️ **Overall Power:** `{overall_power:.1f}` | **Category:** `{tier_label}`\n"
                 f"🏆 **W:** `{prof['wins']}` / **L:** `{prof['losses']}`\n\n"
-                f"🏋️ **Driver Personnel** — Use `/train <skill>` (`{config.TRAINING_BASE_COST:,}¢` per level)\n"
-                f"> Pace `{prof['pace']}` · Quali `{prof['qual']}` · Wet `{prof['wet_skill']}` · "
-                f"Consistency `{prof['consistency']}` · Aggression `{prof['aggression']}` · Overtaking `{prof['overtaking']}`\n\n"
-                f"🔧 **Garage** — Use `/upgrade <part>` to upgrade\n"
-                f"> Engine `{prof['engine']}` · Aero `{prof['aerodynamics']}` · Tyres `{prof['tyres']}` · "
-                f"ERS `{prof['ers']}` · Reliability `{prof['reliability']}` · Pit Crew `{prof['pit_crew']}`"
+                f"🏋️ **Driver Personnel**\n"
+                f"💰 **Training Fee:** `{config.TRAINING_BASE_COST:,} credits` per skill level upgrade.\n"
+                f"Use `/train <skill>` to train driver skill attributes!\n"
+                f"> Pace `{prof['pace']}` · Quali `{prof['qual']}` · Wet `{prof['wet_skill']}`\n"
+                f"> Consistency `{prof['consistency']}` · Aggression `{prof['aggression']}` · Overtaking `{prof['overtaking']}`\n\n"
+                f"🔧 **Garage Components** — Use `/upgrade <part>` to upgrade\n"
+                f"> Engine `{prof['engine']}` · Aero `{prof['aerodynamics']}` · Tyres `{prof['tyres']}`\n"
+                f"> ERS `{prof['ers']}` · Reliability `{prof['reliability']}` · Pit Crew `{prof['pit_crew']}`\n\n"
+                f"⚙️ **Part Categories (Tiers):**\n"
+                f"• **Spec:** Lvl 1-5 | **Performance:** Lvl 6-10 | **Advanced:** Lvl 11-15 | **Extreme:** Lvl 16-20"
             ),
             color=utils.COLOR_INFO
         )

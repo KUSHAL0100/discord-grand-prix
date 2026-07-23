@@ -212,6 +212,9 @@ class AdminCog(commands.Cog):
 
 async def setup(bot: commands.Bot):
     cog = AdminCog(bot)
+    # Remove season group from Cog's top-level app commands to prevent CommandAlreadyRegistered
+    cog.__cog_app_commands__ = [cmd for cmd in cog.__cog_app_commands__ if cmd.name != "season"]
+    # Add season group as a subcommand under admin group
     cog.admin_group.add_command(cog.season_admin_group)
-    bot.tree.add_command(cog.admin_group)
+    # Register the Cog (which automatically registers admin_group and top-level commands)
     await bot.add_cog(cog)

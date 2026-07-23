@@ -208,27 +208,7 @@ class EconomyCog(commands.Cog):
         color = utils.COLOR_SUCCESS if success else utils.COLOR_ERROR
         await interaction.response.send_message(embed=utils.create_embed(title="🏎️ Driver Training", description=msg, color=color))
 
-    @app_commands.command(name="personnel", description="View driver skill ratings and training options.")
-    @app_commands.guild_only()
-    async def personnel_cmd(self, interaction: discord.Interaction):
-        prof = database.get_full_team_profile(interaction.user.id, interaction.guild_id)
-        if not prof:
-            await interaction.response.send_message("❌ You do not have a profile. Use `/start`.", ephemeral=True)
-            return
 
-        desc = (
-            f"🏎️ **Driver Ratings & Skill Attributes:**\n\n"
-            f"  • **Pace:** Level `{prof['pace']}`/{config.MAX_DRIVER_STAT_LEVEL}\n"
-            f"  • **Quali:** Level `{prof['qual']}`/{config.MAX_DRIVER_STAT_LEVEL}\n"
-            f"  • **Wet Skill:** Level `{prof['wet_skill']}`/{config.MAX_DRIVER_STAT_LEVEL}\n"
-            f"  • **Consistency:** Level `{prof['consistency']}`/{config.MAX_DRIVER_STAT_LEVEL}\n"
-            f"  • **Aggression:** Level `{prof['aggression']}`/{config.MAX_DRIVER_STAT_LEVEL}\n"
-            f"  • **Overtaking:** Level `{prof['overtaking']}`/{config.MAX_DRIVER_STAT_LEVEL}\n\n"
-            f"💰 **Training Fee:** `{config.TRAINING_BASE_COST:,} credits` per skill level upgrade.\n"
-            f"*Use `/train <skill>` to train driver skill attributes!*"
-        )
-        embed = utils.create_embed(title="🏋️ Driver Personnel Training", description=desc, color=utils.COLOR_INFO)
-        await interaction.response.send_message(embed=embed)
 
     @app_commands.command(name="leaderboard", description="View top racing teams in the server.")
     @app_commands.describe(sort_by="Sort leaderboard by money, level, wins, or points")
