@@ -169,15 +169,22 @@ def is_admin():
     async def predicate(interaction: discord.Interaction) -> bool:
         if interaction.user.guild_permissions.administrator:
             return True
-        role = discord.utils.get(interaction.user.roles, name=config.ADMIN_ROLE_NAME)
-        if role is not None:
-            return True
-        await interaction.response.send_message(
-            "❌ You do not have permission to use this command. Requires Administrator or Admin role.",
-            ephemeral=True
-        )
+        if hasattr(interaction.user, 'roles'):
+            role = discord.utils.get(interaction.user.roles, name=config.ADMIN_ROLE_NAME)
+            if role is not None:
+                return True
         return False
     return app_commands.check(predicate)
+
+@bot.tree.error
+async def on_app_command_error(interaction: discord.Interaction, error: app_commands.AppCommandError):
+    if isinstance(error, app_commands.CheckFailure):
+        if not interaction.response.is_done():
+            await interaction.response.send_message("❌ **Permission Denied!** Requires Administrator permissions or the configured Admin role.", ephemeral=True)
+    else:
+        print(f"App command error: {error}")
+        if not interaction.response.is_done():
+            await interaction.response.send_message(f"❌ An error occurred: {str(error)}", ephemeral=True)
 
 # ----------------- Admin Commands -----------------
 
