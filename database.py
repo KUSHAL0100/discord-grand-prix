@@ -669,13 +669,13 @@ def upgrade_part(user_id: int, part_name: str) -> Tuple[bool, str]:
 
 def repair_part(user_id: int, part_name: str) -> Tuple[bool, str]:
     """
-    Repair a car part. Sets damage to 0 and charges credits.
-    Supported parts: 'engine', 'tyres' (from garage damage columns).
+    Repair a car part or perform a full overhaul.
+    Supported parts: 'engine', 'tyres', 'full', 'all'.
     Returns (success: bool, status_message: str)
     """
-    damage_col = f"damage_{part_name}"
-    if part_name not in ['engine', 'tyres']:
-        return False, "Invalid part for repair. You can only repair 'engine' or 'tyres'."
+    part_name = part_name.lower()
+    if part_name not in ['engine', 'tyres', 'full', 'all']:
+        return False, "Invalid component for repair. Please select 'engine', 'tyres', or 'full' overhaul."
         
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -688,31 +688,50 @@ def repair_part(user_id: int, part_name: str) -> Tuple[bool, str]:
         current_money = user_row['money']
         
         # Get current damage
-        cursor.execute(f"SELECT {damage_col} FROM garage WHERE user_id = ?", (user_id,))
+        cursor.execute("SELECT damage_engine, damage_tyres FROM garage WHERE user_id = ?", (user_id,))
         garage_row = cursor.fetchone()
         if not garage_row:
-            return False, "Garage not found."
-        
-        damage_val = garage_row[damage_col]
-        if damage_val <= 0:
-            return False, f"Your {part_name} is in perfect condition (0% damage)."
+            return False, "Garage record not found."
             
-        cost = damage_val * config.REPAIR_COST_PER_PCT
-        if current_money < cost:
-            return False, f"Insufficient credits! Repairing your {part_name} costs {cost}¢ (You have {current_money}¢)."
+        dmg_engine = garage_row['damage_engine']
+        dmg_tyres = garage_row['damage_tyres']
+        
+        if part_name in ['full', 'all']:
+            total_dmg = dmg_engine + dmg_tyres
+            if total_dmg <= 0:
+                return False, "Your car is already in perfect condition with 0% damage!"
+                
+            cost = int(total_dmg * config.REPAIR_COST_PER_PCT)
+            if current_money < cost:
+                return False, f"Insufficient credits! A full overhaul costs {cost:,}¢, but you have {current_money:,}¢."
+                
+            cursor.execute("UPDATE users SET money = money - ? WHERE user_id = ?", (cost, user_id))
+            cursor.execute("UPDATE garage SET damage_engine = 0, damage_tyres = 0, damage_total = 0 WHERE user_id = ?", (user_id,))
+            conn.commit()
+            return True, f"🛠️ **Full Car Overhaul Complete!** Repaired engine & tyres to 0% damage for **{cost:,} credits**!"
             
-        # Deduct money, reset damage
-        cursor.execute("UPDATE users SET money = money - ? WHERE user_id = ?", (cost, user_id))
-        cursor.execute(f"UPDATE garage SET {damage_col} = 0 WHERE user_id = ?", (user_id,))
-        
-        # Recalculate total damage
-        cursor.execute("SELECT damage_engine, damage_tyres FROM garage WHERE user_id = ?", (user_id,))
-        damages = cursor.fetchone()
-        new_total = damages['damage_engine'] + damages['damage_tyres']
-        cursor.execute("UPDATE garage SET damage_total = ? WHERE user_id = ?", (new_total, user_id))
-        
-        conn.commit()
-        return True, f"Repaired your {part_name}! Cost: {cost}¢. Damage is now 0%."
+        else:
+            damage_col = f"damage_{part_name}"
+            damage_val = garage_row[damage_col]
+            if damage_val <= 0:
+                return False, f"Your **{part_name.capitalize()}** is already in perfect condition (0% damage)."
+                
+            cost = int(damage_val * config.REPAIR_COST_PER_PCT)
+            if current_money < cost:
+                return False, f"Insufficient credits! Repairing your **{part_name.capitalize()}** costs {cost:,}¢, but you have {current_money:,}¢."
+                
+            cursor.execute("UPDATE users SET money = money - ? WHERE user_id = ?", (cost, user_id))
+            cursor.execute(f"UPDATE garage SET {damage_col} = 0 WHERE user_id = ?", (user_id,))
+            
+            # Recalculate total damage
+            cursor.execute("SELECT damage_engine, damage_tyres FROM garage WHERE user_id = ?", (user_id,))
+            damages = cursor.fetchone()
+            new_total = damages['damage_engine'] + damages['damage_tyres']
+            cursor.execute("UPDATE garage SET damage_total = ? WHERE user_id = ?", (new_total, user_id))
+            
+            conn.commit()
+            return True, f"🔧 Repaired your **{part_name.capitalize()}**! Cost: **{cost:,} credits**. Damage is now 0%."
+            
     except sqlite3.Error as e:
         conn.rollback()
         return False, f"Database error: {str(e)}"
@@ -1610,7 +1629,7 @@ def mark_calendar_race_status(calendar_id: int, status: str) -> None:
         conn.close()
 
 def reset_user_profile(discord_id: int, guild_id: int) -> Tuple[bool, str]:
-    """Delete a user's profile and all associated data on a guild (Admin reset)."""
+    """Reset a user's stats, credits, skills, garage parts, and inventory back to starting defaults without deleting their profile."""
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
@@ -1619,10 +1638,47 @@ def reset_user_profile(discord_id: int, guild_id: int) -> Tuple[bool, str]:
         if not row:
             return False, "User profile not found on this server."
             
+        uid = row['user_id']
         team_name = row['team_name']
-        cursor.execute("DELETE FROM users WHERE user_id = ?", (row['user_id'],))
+        
+        # Reset users table baseline
+        cursor.execute("""
+            UPDATE users 
+            SET money = ?, 
+                xp = ?, 
+                level = ?, 
+                wins = 0, 
+                losses = 0,
+                daily_chat_credits = 0,
+                daily_voice_credits = 0,
+                pref_strategy = 'Balanced',
+                pref_tyres = 'Medium',
+                pref_pit_stops = 1
+            WHERE user_id = ?
+        """, (config.STARTING_MONEY, config.STARTING_XP, config.STARTING_LEVEL, uid))
+        
+        # Reset driver skills
+        cursor.execute("""
+            UPDATE drivers
+            SET pace = 50, qual = 50, wet_skill = 50, consistency = 50, aggression = 50, overtaking = 50, experience = 0
+            WHERE user_id = ?
+        """, (uid,))
+        
+        # Reset garage component levels and damage
+        cursor.execute("""
+            UPDATE garage
+            SET engine = 1, aerodynamics = 1, tyres = 1, ers = 1, reliability = 1, pit_crew = 1,
+                damage_engine = 0, damage_tyres = 0
+            WHERE user_id = ?
+        """, (uid,))
+        
+        # Clear custom inventory, boosters, and track mastery
+        cursor.execute("DELETE FROM user_inventory WHERE user_id = ?", (uid,))
+        cursor.execute("DELETE FROM user_boosters WHERE user_id = ?", (uid,))
+        cursor.execute("DELETE FROM track_mastery WHERE user_id = ?", (uid,))
+        
         conn.commit()
-        return True, f"Successfully reset and deleted profile for team **{team_name}**."
+        return True, f"Successfully reset all stats, credits, garage parts, and inventory for **{team_name}** back to default starting levels!"
     except sqlite3.Error as e:
         conn.rollback()
         return False, f"Database error: {e}"

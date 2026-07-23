@@ -33,30 +33,39 @@ class AdminCog(commands.Cog):
     @admin_group.command(name="setstat", description="Set a driver skill level or garage part level for a user.")
     @app_commands.describe(
         target="The user to modify",
-        stat_name="Stat to modify (engine, aerodynamics, tyres, ers, reliability, pace, qual, wet_skill, etc.)",
-        value="New level (1 to 20 for parts, 1 to 100 for skills)"
+        stat_name="Select the garage component or driver skill to modify",
+        value="New level (1 to 20 for garage parts, 1 to 100 for driver skills)"
     )
+    @app_commands.choices(stat_name=[
+        app_commands.Choice(name="🛠️ Engine Level (1 - 20)", value="engine"),
+        app_commands.Choice(name="🛠️ Aerodynamics Level (1 - 20)", value="aerodynamics"),
+        app_commands.Choice(name="🛠️ Tyres Level (1 - 20)", value="tyres"),
+        app_commands.Choice(name="🛠️ ERS System Level (1 - 20)", value="ers"),
+        app_commands.Choice(name="🛠️ Reliability Level (1 - 20)", value="reliability"),
+        app_commands.Choice(name="🛠️ Pit Crew Level (1 - 20)", value="pit_crew"),
+        app_commands.Choice(name="👤 Pace Skill (1 - 100)", value="pace"),
+        app_commands.Choice(name="👤 Qualifying Skill (1 - 100)", value="qual"),
+        app_commands.Choice(name="👤 Wet Skill (1 - 100)", value="wet_skill"),
+        app_commands.Choice(name="👤 Consistency Skill (1 - 100)", value="consistency"),
+        app_commands.Choice(name="👤 Aggression Skill (1 - 100)", value="aggression"),
+        app_commands.Choice(name="👤 Overtaking Skill (1 - 100)", value="overtaking"),
+    ])
     @is_admin()
     @app_commands.guild_only()
-    async def admin_setstat(self, interaction: discord.Interaction, target: discord.User, stat_name: str, value: int):
-        stat_name = stat_name.lower()
+    async def admin_setstat(self, interaction: discord.Interaction, target: discord.User, stat_name: app_commands.Choice[str], value: int):
+        stat_key = stat_name.value
         valid_garage = ["engine", "aerodynamics", "tyres", "ers", "reliability", "pit_crew"]
         valid_driver = ["pace", "qual", "wet_skill", "consistency", "aggression", "overtaking"]
 
-        if stat_name not in valid_garage and stat_name not in valid_driver:
-            valid_list = ", ".join(valid_garage + valid_driver)
-            await interaction.response.send_message(f"❌ Invalid stat name. Must be one of: `{valid_list}`", ephemeral=True)
-            return
-
-        if stat_name in valid_garage and (value < 1 or value > config.MAX_STAT_LEVEL):
+        if stat_key in valid_garage and (value < 1 or value > config.MAX_STAT_LEVEL):
             await interaction.response.send_message(f"❌ Garage part levels must be between 1 and {config.MAX_STAT_LEVEL}.", ephemeral=True)
             return
 
-        if stat_name in valid_driver and (value < 1 or value > config.MAX_DRIVER_STAT_LEVEL):
+        if stat_key in valid_driver and (value < 1 or value > config.MAX_DRIVER_STAT_LEVEL):
             await interaction.response.send_message(f"❌ Driver skill levels must be between 1 and {config.MAX_DRIVER_STAT_LEVEL}.", ephemeral=True)
             return
 
-        success, msg = database.admin_set_user_stat(target.id, interaction.guild_id, stat_name, value)
+        success, msg = database.admin_set_user_stat(target.id, interaction.guild_id, stat_key, value)
         color = utils.COLOR_SUCCESS if success else utils.COLOR_ERROR
         await interaction.response.send_message(embed=utils.create_embed(title="⚙️ Admin Stat Modification", description=msg, color=color))
 
