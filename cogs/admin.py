@@ -200,6 +200,16 @@ class SeasonCalendarAdminView(discord.ui.View):
         self.selected_index = None
         self.update_components()
 
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.guild_permissions.administrator:
+            return True
+        if hasattr(interaction.user, 'roles'):
+            role = discord.utils.get(interaction.user.roles, name=config.ADMIN_ROLE_NAME)
+            if role is not None:
+                return True
+        await interaction.response.send_message("❌ Only server administrators can manage the WDC Season Calendar.", ephemeral=True)
+        return False
+
     def build_embed(self):
         desc = f"📅 **WDC Season:** **{self.active_season['name']}**\n\n"
         if not self.calendar:
