@@ -55,13 +55,13 @@ async def on_ready():
         else:
             for g in bot.guilds:
                 try:
-                    bot.tree.copy_global_to(guild=g)
+                    bot.tree.clear_commands(guild=g)
                     await bot.tree.sync(guild=g)
                 except Exception as guild_err:
                     if debug_mode:
-                        print(f"Failed to sync commands for guild {g.id}: {guild_err}")
+                        print(f"Cleared guild commands notice for {g.id}: {guild_err}")
             synced = await bot.tree.sync()
-            print(f"Synced {len(synced)} commands globally across all guilds.")
+            print(f"Synced {len(synced)} commands globally across Discord.")
     except Exception as sync_err:
         print(f"Command sync notice: {sync_err}")
 

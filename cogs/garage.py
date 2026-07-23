@@ -107,7 +107,7 @@ class GarageCog(commands.Cog):
 
     @app_commands.command(name="profile", description="View your team profile card PNG and overall standings.")
     @app_commands.guild_only()
-    async def profile_cmd(interaction: discord.Interaction):
+    async def profile_cmd(self, interaction: discord.Interaction):
         prof = database.get_full_team_profile(interaction.user.id, interaction.guild_id)
         if not prof:
             await interaction.response.send_message("❌ You do not have a profile yet. Use `/start` to create one!", ephemeral=True)
