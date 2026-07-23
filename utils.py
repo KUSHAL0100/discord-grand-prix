@@ -2,6 +2,7 @@ import discord
 from datetime import datetime
 from typing import Dict, Any, List, Tuple
 import config
+import database
 
 # Standard color palette for Discord Grand Prix
 COLOR_F1_RED = 0xE10600

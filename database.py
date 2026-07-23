@@ -1603,3 +1603,23 @@ def mark_calendar_race_status(calendar_id: int, status: str) -> None:
         conn.rollback()
     finally:
         conn.close()
+
+def reset_user_profile(discord_id: int, guild_id: int) -> Tuple[bool, str]:
+    """Delete a user's profile and all associated data on a guild (Admin reset)."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT user_id, team_name FROM users WHERE discord_id = ? AND guild_id = ?", (discord_id, guild_id))
+        row = cursor.fetchone()
+        if not row:
+            return False, "User profile not found on this server."
+            
+        team_name = row['team_name']
+        cursor.execute("DELETE FROM users WHERE user_id = ?", (row['user_id'],))
+        conn.commit()
+        return True, f"Successfully reset and deleted profile for team **{team_name}**."
+    except sqlite3.Error as e:
+        conn.rollback()
+        return False, f"Database error: {e}"
+    finally:
+        conn.close()
