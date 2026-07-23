@@ -22,60 +22,56 @@ class RacePaceView(discord.ui.View):
         self.p2_strategy = "Balanced"
         self.p1_done = False
         self.p2_done = False
+        self.ready_event = asyncio.Event()
 
-    @discord.ui.button(label="🔥 Push (P1)", style=discord.ButtonStyle.danger)
-    async def p1_push(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if interaction.user.id != self.user1_id:
-            await interaction.response.send_message("❌ This button is for Driver 1.", ephemeral=True)
-            return
-        self.p1_strategy = "Push"
-        self.p1_done = True
-        await interaction.response.send_message("✅ Selected **Push (Aggressive)** pace!", ephemeral=True)
+    def check_done(self):
+        if self.p1_done and self.p2_done:
+            self.ready_event.set()
 
-    @discord.ui.button(label="🟡 Standard (P1)", style=discord.ButtonStyle.primary)
-    async def p1_standard(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if interaction.user.id != self.user1_id:
-            await interaction.response.send_message("❌ This button is for Driver 1.", ephemeral=True)
-            return
-        self.p1_strategy = "Balanced"
-        self.p1_done = True
-        await interaction.response.send_message("✅ Selected **Standard (Balanced)** pace!", ephemeral=True)
+    @discord.ui.button(label="🔥 Push", style=discord.ButtonStyle.danger)
+    async def push_click(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id == self.user1_id:
+            self.p1_strategy = "Push"
+            self.p1_done = True
+            await interaction.response.send_message("✅ **Driver 1:** Selected **Push (Aggressive)** pace!", ephemeral=True)
+            self.check_done()
+        elif interaction.user.id == self.user2_id:
+            self.p2_strategy = "Push"
+            self.p2_done = True
+            await interaction.response.send_message("✅ **Driver 2:** Selected **Push (Aggressive)** pace!", ephemeral=True)
+            self.check_done()
+        else:
+            await interaction.response.send_message("❌ You are not a participating driver in this race.", ephemeral=True)
 
-    @discord.ui.button(label="🟢 Save (P1)", style=discord.ButtonStyle.success)
-    async def p1_save(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if interaction.user.id != self.user1_id:
-            await interaction.response.send_message("❌ This button is for Driver 1.", ephemeral=True)
-            return
-        self.p1_strategy = "Conservative"
-        self.p1_done = True
-        await interaction.response.send_message("✅ Selected **Save (Conservative)** pace!", ephemeral=True)
+    @discord.ui.button(label="🟡 Standard", style=discord.ButtonStyle.primary)
+    async def standard_click(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id == self.user1_id:
+            self.p1_strategy = "Balanced"
+            self.p1_done = True
+            await interaction.response.send_message("✅ **Driver 1:** Selected **Standard (Balanced)** pace!", ephemeral=True)
+            self.check_done()
+        elif interaction.user.id == self.user2_id:
+            self.p2_strategy = "Balanced"
+            self.p2_done = True
+            await interaction.response.send_message("✅ **Driver 2:** Selected **Standard (Balanced)** pace!", ephemeral=True)
+            self.check_done()
+        else:
+            await interaction.response.send_message("❌ You are not a participating driver in this race.", ephemeral=True)
 
-    @discord.ui.button(label="🔥 Push (P2)", style=discord.ButtonStyle.danger)
-    async def p2_push(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if interaction.user.id != self.user2_id:
-            await interaction.response.send_message("❌ This button is for Driver 2.", ephemeral=True)
-            return
-        self.p2_strategy = "Push"
-        self.p2_done = True
-        await interaction.response.send_message("✅ Selected **Push (Aggressive)** pace!", ephemeral=True)
-
-    @discord.ui.button(label="🟡 Standard (P2)", style=discord.ButtonStyle.primary)
-    async def p2_standard(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if interaction.user.id != self.user2_id:
-            await interaction.response.send_message("❌ This button is for Driver 2.", ephemeral=True)
-            return
-        self.p2_strategy = "Balanced"
-        self.p2_done = True
-        await interaction.response.send_message("✅ Selected **Standard (Balanced)** pace!", ephemeral=True)
-
-    @discord.ui.button(label="🟢 Save (P2)", style=discord.ButtonStyle.success)
-    async def p2_save(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if interaction.user.id != self.user2_id:
-            await interaction.response.send_message("❌ This button is for Driver 2.", ephemeral=True)
-            return
-        self.p2_strategy = "Conservative"
-        self.p2_done = True
-        await interaction.response.send_message("✅ Selected **Save (Conservative)** pace!", ephemeral=True)
+    @discord.ui.button(label="🟢 Save", style=discord.ButtonStyle.success)
+    async def save_click(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id == self.user1_id:
+            self.p1_strategy = "Conservative"
+            self.p1_done = True
+            await interaction.response.send_message("✅ **Driver 1:** Selected **Save (Conservative)** pace!", ephemeral=True)
+            self.check_done()
+        elif interaction.user.id == self.user2_id:
+            self.p2_strategy = "Conservative"
+            self.p2_done = True
+            await interaction.response.send_message("✅ **Driver 2:** Selected **Save (Conservative)** pace!", ephemeral=True)
+            self.check_done()
+        else:
+            await interaction.response.send_message("❌ You are not a participating driver in this race.", ephemeral=True)
 
 class RaceChallengeView(discord.ui.View):
     def __init__(self, challenger_prof, opponent_prof, guild_id, wager=0):
@@ -116,7 +112,12 @@ class RaceChallengeView(discord.ui.View):
             color=utils.COLOR_QUALIFYING
         )
         msg = await interaction.followup.send(embed=pace_embed, view=pace_view)
-        await asyncio.sleep(8)
+        
+        # Wait for both drivers to select or max 15 seconds timeout
+        try:
+            await asyncio.wait_for(pace_view.ready_event.wait(), timeout=15.0)
+        except asyncio.TimeoutError:
+            pass
 
         t1_data = database.get_full_team_profile(self.challenger_prof['discord_id'], self.guild_id)
         t2_data = database.get_full_team_profile(self.opponent_prof['discord_id'], self.guild_id)
@@ -200,11 +201,6 @@ class RacingCog(commands.Cog):
         )
         await interaction.response.send_message(content=opponent.mention, embed=embed, view=view)
 
-    @app_commands.command(name="duel", description="Alias for /race: Challenge another user to a 1v1 sprint duel.")
-    @app_commands.describe(opponent="The user to challenge to a 1v1 duel")
-    @app_commands.guild_only()
-    async def duel_cmd(self, interaction: discord.Interaction, opponent: discord.User):
-        await self.race_cmd.callback(self, interaction, opponent)
 
     @app_commands.command(name="joinrace", description="Register and pay 1000¢ entry fee to join the upcoming Grand Prix.")
     @app_commands.guild_only()
