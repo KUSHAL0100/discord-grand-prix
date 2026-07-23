@@ -1445,9 +1445,49 @@ def get_track_mastery_bonus(user_id: int, track_name: str) -> float:
     """Return track pace bonus in seconds (0.0 to 0.15)."""
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT pace_bonus FROM track_mastery WHERE user_id = ? AND track_name = ?", (user_id, track_name))
-    row = cursor.fetchone()
-    conn.close()
-    return float(row['pace_bonus']) if row else 0.0
+    try:
+        cursor.execute("SELECT pace_bonus FROM track_mastery WHERE user_id = ? AND track_name = ?", (user_id, track_name))
+        row = cursor.fetchone()
+        return float(row['pace_bonus']) if row else 0.0
+    finally:
+        conn.close()
 
+def record_race_result(winner_user_id: int, loser_user_id: int, guild_id: int) -> bool:
+    """Record 1v1 duel race results: update wins/losses, award XP and prize credits."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        # Update winner: +1 win, +WIN_XP, +WIN_PRIZE_CREDITS
+        cursor.execute("""
+            UPDATE users
+            SET wins = wins + 1,
+                xp = xp + ?,
+                money = money + ?
+            WHERE user_id = ?
+        """, (config.WIN_XP, config.WIN_PRIZE_CREDITS, winner_user_id))
+        
+        # Update loser: +1 loss, +LOSS_XP, +LOSS_PRIZE_CREDITS
+        cursor.execute("""
+            UPDATE users
+            SET losses = losses + 1,
+                xp = xp + ?,
+                money = money + ?
+            WHERE user_id = ?
+        """, (config.LOSS_XP, config.LOSS_PRIZE_CREDITS, loser_user_id))
 
+        # Level up checks
+        for uid in [winner_user_id, loser_user_id]:
+            cursor.execute("SELECT level, xp FROM users WHERE user_id = ?", (uid,))
+            row = cursor.fetchone()
+            if row:
+                needed_xp = row['level'] * 1000
+                if row['xp'] >= needed_xp:
+                    cursor.execute("UPDATE users SET level = level + 1 WHERE user_id = ?", (uid,))
+
+        conn.commit()
+        return True
+    except sqlite3.Error:
+        conn.rollback()
+        return False
+    finally:
+        conn.close()

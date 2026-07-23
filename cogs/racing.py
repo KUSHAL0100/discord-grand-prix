@@ -74,12 +74,13 @@ class RacePaceView(discord.ui.View):
             await interaction.response.send_message("❌ You are not a participating driver in this race.", ephemeral=True)
 
 class RaceChallengeView(discord.ui.View):
-    def __init__(self, challenger_prof, opponent_prof, guild_id, wager=0):
+    def __init__(self, challenger_prof, opponent_prof, guild_id, wager=0, laps=3):
         super().__init__(timeout=60.0)
         self.challenger_prof = challenger_prof
         self.opponent_prof = opponent_prof
         self.guild_id = guild_id
-        self.wager = wager
+        self.wager = max(0, wager)
+        self.laps = max(1, min(10, laps))
 
     @discord.ui.button(label="🏁 Accept Challenge", style=discord.ButtonStyle.green)
     async def accept_challenge(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -101,7 +102,7 @@ class RaceChallengeView(discord.ui.View):
 
         pace_view = RacePaceView(self.challenger_prof['discord_id'], self.opponent_prof['discord_id'], self.guild_id)
         pace_embed = utils.create_embed(
-            title="⏱️ Strategy Setup — Choose Your Race Pacing!",
+            title=f"⏱️ Strategy Setup — Choose Your Race Pacing ({self.laps} Laps)!",
             description=(
                 f"**{self.challenger_prof['team_name']}** vs **{self.opponent_prof['team_name']}**\n\n"
                 f"Click your pace strategy button below before the lights go out!\n"
@@ -125,7 +126,7 @@ class RaceChallengeView(discord.ui.View):
         t1_data['pref_strategy'] = pace_view.p1_strategy
         t2_data['pref_strategy'] = pace_view.p2_strategy
 
-        winner, loser, lap_logs, qual_logs = race.simulate_duel(t1_data, t2_data)
+        winner, loser, lap_logs, qual_logs = race.simulate_duel(t1_data, t2_data, total_laps=self.laps)
 
         if self.wager > 0:
             database.update_user_balance(winner['user_id'], self.wager)
@@ -144,6 +145,7 @@ class RaceChallengeView(discord.ui.View):
         summary_desc = (
             f"🏆 **WINNER:** **{winner['team_name']}**!{wager_str}\n"
             f"{victory_radio}\n\n"
+            f"⏱️ **Distance:** `{self.laps} Laps`\n"
             f"📊 **Rewards Earned:**\n"
             f"  • **Winner ({winner['team_name']}):** `+{config.WIN_PRIZE_CREDITS:,}¢` | `+{config.WIN_XP:,} XP`\n"
             f"  • **Runner-up ({loser['team_name']}):** `+{config.LOSS_PRIZE_CREDITS:,}¢` | `+{config.LOSS_XP:,} XP`\n\n"
@@ -177,12 +179,24 @@ class RacingCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
-    @app_commands.command(name="race", description="Challenge another user to a racing duel!")
-    @app_commands.describe(opponent="The user to challenge to a 1v1 duel")
+    @app_commands.command(name="race", description="Challenge another user to a 1v1 racing duel!")
+    @app_commands.describe(
+        opponent="The user to challenge to a 1v1 duel",
+        wager="Optional credit wager amount (e.g. 500)",
+        laps="Race distance in laps (1 to 10 laps, default 3 laps)"
+    )
     @app_commands.guild_only()
-    async def race_cmd(self, interaction: discord.Interaction, opponent: discord.User):
+    async def race_cmd(self, interaction: discord.Interaction, opponent: discord.User, wager: int = 0, laps: int = 3):
         if opponent.bot or opponent == interaction.user:
             await interaction.response.send_message("❌ Invalid opponent.", ephemeral=True)
+            return
+
+        if wager < 0:
+            await interaction.response.send_message("❌ Wager amount cannot be negative.", ephemeral=True)
+            return
+
+        if laps < 1 or laps > 10:
+            await interaction.response.send_message("❌ Race distance must be between 1 and 10 laps.", ephemeral=True)
             return
 
         p1 = database.get_user_by_discord_id(interaction.user.id, interaction.guild_id)
@@ -193,10 +207,22 @@ class RacingCog(commands.Cog):
             await interaction.response.send_message(f"❌ {msg}", ephemeral=True)
             return
 
-        view = RaceChallengeView(p1, p2, interaction.guild_id)
+        if wager > 0:
+            if p1['money'] < wager:
+                await interaction.response.send_message(f"❌ You do not have `{wager:,} credits` to wager.", ephemeral=True)
+                return
+            if p2['money'] < wager:
+                await interaction.response.send_message(f"❌ {opponent.mention} does not have `{wager:,} credits` to wager.", ephemeral=True)
+                return
+
+        view = RaceChallengeView(p1, p2, interaction.guild_id, wager=wager, laps=laps)
+        wager_text = f"\n💰 **Wager Amount:** `{wager:,} credits` (Winner takes **{wager * 2:,}¢**!)" if wager > 0 else ""
         embed = utils.create_embed(
-            title="🏁 1v1 Race Duel Challenge!",
-            description=f"{interaction.user.mention} (**{p1['team_name']}**) has challenged {opponent.mention} (**{p2['team_name']}**) to a head-to-head Grand Prix duel!\n\nClick **Accept Challenge** to line up on the grid!",
+            title=f"🏁 1v1 Race Challenge ({laps} Laps)!",
+            description=(
+                f"{interaction.user.mention} (**{p1['team_name']}**) has challenged {opponent.mention} (**{p2['team_name']}**) to a {laps}-lap duel!{wager_text}\n\n"
+                f"Click **Accept Challenge** to line up on the grid!"
+            ),
             color=utils.COLOR_QUALIFYING
         )
         await interaction.response.send_message(content=opponent.mention, embed=embed, view=view)
