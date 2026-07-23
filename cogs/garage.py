@@ -124,14 +124,24 @@ class GarageCog(commands.Cog):
         overall_power = utils.calculate_overall_power(prof, prof["pace"])
         country_prefix = f"{prof['country']} " if prof.get('country') else ""
         
+        # Determine tier category
+        highest_lvl = max([prof.get(p, 1) for p in config.PART_MULTIPLIERS.keys()])
+        tier_label = utils.get_tier_label(highest_lvl)
+
         embed = utils.create_embed(
             title=f"🏎️ {country_prefix}{prof['team_name']}",
             description=(
                 f"👤 **Driver:** {target.mention}\n"
-                f"⭐ **Level:** `{prof['level']}` | **XP:** `{prof['xp']:,}`\n"
-                f"💰 **Money:** `{prof['money']:,} credits`\n"
-                f"🏎️ **Overall Car Rating:** `{overall_power:.1f}`\n"
-                f"🏆 **Wins:** `{prof['wins']}` | **Losses:** `{prof['losses']}`"
+                f"⭐ **Level:** `{prof['level']}` | **XP:** `{prof['xp']:,}/{prof['level']*1000:,}`\n"
+                f"💰 **Credits:** `{prof['money']:,}¢`\n"
+                f"🏎️ **Overall Power:** `{overall_power:.1f}` | **Category:** `{tier_label}`\n"
+                f"🏆 **W:** `{prof['wins']}` / **L:** `{prof['losses']}`\n\n"
+                f"🏋️ **Driver Personnel** — Use `/train <skill>` (`{config.TRAINING_BASE_COST:,}¢` per level)\n"
+                f"> Pace `{prof['pace']}` · Quali `{prof['qual']}` · Wet `{prof['wet_skill']}` · "
+                f"Consistency `{prof['consistency']}` · Aggression `{prof['aggression']}` · Overtaking `{prof['overtaking']}`\n\n"
+                f"🔧 **Garage** — Use `/upgrade <part>` to upgrade\n"
+                f"> Engine `{prof['engine']}` · Aero `{prof['aerodynamics']}` · Tyres `{prof['tyres']}` · "
+                f"ERS `{prof['ers']}` · Reliability `{prof['reliability']}` · Pit Crew `{prof['pit_crew']}`"
             ),
             color=utils.COLOR_INFO
         )

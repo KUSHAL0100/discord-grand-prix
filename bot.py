@@ -53,17 +53,26 @@ async def on_ready():
             synced = await bot.tree.sync(guild=guild)
             print(f"Synced {len(synced)} commands to test guild {config.GUILD_ID}.")
         else:
-            # Sync globally first
-            synced = await bot.tree.sync()
-            print(f"Synced {len(synced)} commands globally.")
-            # Then copy to each guild for instant availability
+            # Clear stale global commands to remove duplicates
+            bot.tree.clear_commands(guild=None)
+            await bot.tree.sync()  # Pushes empty global set to Discord
+            print("Cleared global command registrations (prevents duplicates).")
+
+            # Restore global tree from cogs and sync per-guild only (instant)
+            for cog_name, cog_obj in bot.cogs.items():
+                for cmd in cog_obj.__cog_app_commands__:
+                    try:
+                        bot.tree.add_command(cmd)
+                    except Exception:
+                        pass  # Already added by cog setup
+
             for g in bot.guilds:
                 try:
                     bot.tree.copy_global_to(guild=g)
-                    await bot.tree.sync(guild=g)
-                    print(f"  ↳ Synced commands to guild: {g.name} ({g.id})")
+                    synced = await bot.tree.sync(guild=g)
+                    print(f"Synced {len(synced)} commands to guild: {g.name} ({g.id})")
                 except Exception as guild_err:
-                    print(f"  ↳ Guild sync notice for {g.id}: {guild_err}")
+                    print(f"Guild sync notice for {g.id}: {guild_err}")
     except Exception as sync_err:
         print(f"Command sync notice: {sync_err}")
 
