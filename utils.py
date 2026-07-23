@@ -12,6 +12,7 @@ COLOR_WARNING = 0xF1C40F
 COLOR_ERROR = 0xE74C3C
 COLOR_QUALIFYING = 0xFF6F00
 COLOR_RACE_RESULTS = 0x00AAFF
+COLOR_GOLD = 0xFFD700
 
 def calculate_car_power(garage: Dict[str, Any]) -> int:
     """
@@ -164,8 +165,8 @@ def generate_profile_card(prof: Dict[str, Any]) -> io.BytesIO:
     font_small = FONT_SMALL
 
     # --- Fetch Equipped Parts Rarities ---
-    discord_id = prof.get('discord_id')
-    equipped = database.get_equipped_inventory(discord_id) if discord_id else {}
+    uid = prof.get('user_id') or prof.get('discord_id')
+    equipped = database.get_equipped_inventory(uid) if uid else {}
     overall_rarity = get_team_category(equipped)
 
     # --- Header Gradient (Teal/Blue Carbon look) ---

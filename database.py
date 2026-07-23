@@ -1330,11 +1330,16 @@ def equip_inventory_part(user_id: int, item_id: int) -> Tuple[bool, str]:
     finally:
         conn.close()
 
-def get_equipped_inventory(user_id: int) -> Dict[str, Dict[str, Any]]:
+def get_equipped_inventory(user_id_or_discord_id: int) -> Dict[str, Dict[str, Any]]:
     """Return dictionary of currently equipped parts per category."""
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT * FROM user_inventory WHERE user_id = ? AND is_equipped = 1", (user_id,))
+    cursor.execute("SELECT user_id FROM users WHERE user_id = ? OR discord_id = ?", (user_id_or_discord_id, user_id_or_discord_id))
+    rows = cursor.fetchall()
+    user_ids = [r['user_id'] for r in rows] if rows else [user_id_or_discord_id]
+    
+    placeholders = ",".join(["?"] * len(user_ids))
+    cursor.execute(f"SELECT * FROM user_inventory WHERE user_id IN ({placeholders}) AND is_equipped = 1", user_ids)
     rows = cursor.fetchall()
     conn.close()
     res = {}
@@ -1623,3 +1628,100 @@ def reset_user_profile(discord_id: int, guild_id: int) -> Tuple[bool, str]:
         return False, f"Database error: {e}"
     finally:
         conn.close()
+
+def admin_set_user_stat(discord_id: int, guild_id: int, stat_name: str, value: int) -> Tuple[bool, str]:
+    """Set a driver skill or garage part level for a target user on a guild."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT user_id, team_name FROM users WHERE discord_id = ? AND guild_id = ?", (discord_id, guild_id))
+        user_row = cursor.fetchone()
+        if not user_row:
+            return False, "Target user profile not found."
+            
+        uid = user_row['user_id']
+        team = user_row['team_name']
+        
+        valid_garage = ["engine", "aerodynamics", "tyres", "ers", "reliability", "pit_crew"]
+        valid_driver = ["pace", "qual", "wet_skill", "consistency", "aggression", "overtaking"]
+        
+        if stat_name in valid_garage:
+            cursor.execute(f"UPDATE garage SET {stat_name} = ? WHERE user_id = ?", (value, uid))
+            conn.commit()
+            return True, f"Successfully set **{stat_name.capitalize()}** to **Lvl {value}** for **{team}**!"
+        elif stat_name in valid_driver:
+            cursor.execute(f"UPDATE drivers SET {stat_name} = ? WHERE user_id = ?", (value, uid))
+            conn.commit()
+            return True, f"Successfully set **{stat_name.capitalize()}** to **Lvl {value}** for **{team}**!"
+        else:
+            return False, f"Invalid stat name `{stat_name}`."
+    except sqlite3.Error as e:
+        conn.rollback()
+        return False, f"Database error: {e}"
+    finally:
+        conn.close()
+
+def claim_daily_bonus(user_id: int) -> Tuple[bool, str]:
+    """Claim daily credit bonus (500 credits)."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT last_daily_claim FROM users WHERE user_id = ?", (user_id,))
+        row = cursor.fetchone()
+        today_str = datetime.now().date().isoformat()
+        
+        if row and row['last_daily_claim'] == today_str:
+            return False, "⏳ You have already claimed your daily bonus today! Come back tomorrow."
+            
+        reward = 500
+        cursor.execute("UPDATE users SET money = money + ?, last_daily_claim = ? WHERE user_id = ?", (reward, today_str, user_id))
+        conn.commit()
+        return True, f"🎉 **Daily Bonus Claimed!** Received **+{reward:,} credits**!"
+    except sqlite3.Error as e:
+        conn.rollback()
+        return False, f"Database error: {e}"
+    finally:
+        conn.close()
+
+def claim_work_rewards(user_id: int) -> Tuple[bool, str]:
+    """Perform team work for daily credits."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT last_work_claim FROM users WHERE user_id = ?", (user_id,))
+        row = cursor.fetchone()
+        today_str = datetime.now().date().isoformat()
+        
+        if row and row['last_work_claim'] == today_str:
+            return False, "⏳ You have already completed your team work today! Come back tomorrow."
+            
+        import random
+        reward = random.randint(250, 600)
+        jobs = [
+            "cleaned and polished the pit garage",
+            "serviced the team transporter truck",
+            "calibrated the tyre temperature sensors",
+            "assisted the chief mechanic with engine telemetry",
+            "managed sponsorship hospitality in the paddock"
+        ]
+        job = random.choice(jobs)
+        cursor.execute("UPDATE users SET money = money + ?, last_work_claim = ? WHERE user_id = ?", (reward, today_str, user_id))
+        conn.commit()
+        return True, f"🛠️ You **{job}** and earned **+{reward:,} credits**!"
+    except sqlite3.Error as e:
+        conn.rollback()
+        return False, f"Database error: {e}"
+    finally:
+        conn.close()
+
+def train_personnel_stat(user_id: int, skill_name: str, cost: int = 400) -> Tuple[bool, str]:
+    """Alias for train_personnel_skill for driver attributes."""
+    return train_personnel_skill(user_id, "driver", skill_name, cost)
+
+def upgrade_garage_part(user_id: int, part_name: str, cost: int = 0) -> Tuple[bool, str]:
+    """Alias for upgrade_part."""
+    return upgrade_part(user_id, part_name)
+
+def repair_user_car(user_id: int, part_name: str, cost: int = 0) -> Tuple[bool, str]:
+    """Alias for repair_part."""
+    return repair_part(user_id, part_name)

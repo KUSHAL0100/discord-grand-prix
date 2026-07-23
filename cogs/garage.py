@@ -125,7 +125,7 @@ class GarageCog(commands.Cog):
         country_prefix = f"{prof['country']} " if prof.get('country') else ""
         
         # Fetch equipped inventory parts
-        equipped = database.get_equipped_inventory(target.id)
+        equipped = database.get_equipped_inventory(prof['user_id'])
         overall_rarity = utils.get_team_category(equipped)
 
         # Build detailed equipped parts description
