@@ -130,6 +130,33 @@ class RaceChallengeView(discord.ui.View):
 
         winner, loser, lap_logs, qual_logs = race.simulate_duel(t1_data, t2_data, total_laps=self.laps, track_name=self.track_name)
 
+        # --- PHASE 1: Show Qualifying Info ---
+        quali_text = "\n".join(qual_logs)
+        quali_embed = utils.create_embed(
+            title=f"🏁 Race Starting — {self.laps} Laps!",
+            description=quali_text,
+            color=utils.COLOR_QUALIFYING
+        )
+        race_msg = await interaction.followup.send(embed=quali_embed)
+
+        # --- PHASE 2: Lap-by-Lap Live Updates (4s delay per lap) ---
+        for lap_idx, lap_events in enumerate(lap_logs):
+            await asyncio.sleep(4)
+            if isinstance(lap_events, list):
+                lap_text = "\n".join(lap_events)
+            else:
+                lap_text = str(lap_events)
+            
+            lap_embed = utils.create_embed(
+                title=f"🏎️ Lap {lap_idx + 1} / {self.laps}",
+                description=lap_text,
+                color=0xF5A623
+            )
+            await interaction.followup.send(embed=lap_embed)
+
+        # --- PHASE 3: Final Results & Rewards ---
+        await asyncio.sleep(3)
+
         if self.wager > 0:
             database.update_user_balance(winner['user_id'], self.wager)
             database.update_user_balance(loser['user_id'], -self.wager)
@@ -144,26 +171,13 @@ class RaceChallengeView(discord.ui.View):
 
         victory_radio = utils.get_victory_team_radio(winner['team_name'])
 
-        flattened_logs = []
-        for l_item in lap_logs:
-            if isinstance(l_item, list):
-                flattened_logs.extend(l_item)
-            elif isinstance(l_item, str):
-                flattened_logs.append(l_item)
-
-        log_display = "\n".join(flattened_logs[-6:]) if flattened_logs else "No lap events recorded."
-
         summary_desc = (
             f"🏆 **WINNER:** **{winner['team_name']}**!{wager_str}\n"
             f"{victory_radio}\n\n"
             f"⏱️ **Distance:** `{self.laps} Laps`\n"
             f"📊 **Rewards Earned:**\n"
             f"  • **Winner ({winner['team_name']}):** `+{config.WIN_PRIZE_CREDITS:,}¢` | `+{config.WIN_XP:,} XP`\n"
-            f"  • **Runner-up ({loser['team_name']}):** `+{config.LOSS_PRIZE_CREDITS:,}¢` | `+{config.LOSS_XP:,} XP`\n\n"
-            f"⏱️ **Qualifying Order:**\n"
-            f"  • P1: **{qual_logs[0]}**\n"
-            f"  • P2: **{qual_logs[1]}**\n\n"
-            f"🏎️ **Race Lap Telemetry:**\n{log_display}"
+            f"  • **Runner-up ({loser['team_name']}):** `+{config.LOSS_PRIZE_CREDITS:,}¢` | `+{config.LOSS_XP:,} XP`"
         )
 
         embed = utils.create_embed(

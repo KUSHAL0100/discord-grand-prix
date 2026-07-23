@@ -133,51 +133,91 @@ def get_tier_label(level: int) -> str:
 
 def generate_profile_card(prof: Dict[str, Any]) -> io.BytesIO:
     """
-    Renders a high-tech dark-theme F1 driver profile PNG card (800x470 px).
-    Fixes font glyph missing boxes, adds component category tier badges, and renders crisp progress bars.
+    Renders a premium F1-style dark-theme driver profile PNG card (850x520 px).
+    Features: gradient header, tier-coded progress bars, separator lines, clean typography.
     Returns in-memory BytesIO PNG.
     """
-    width, height = 800, 470
-    img = Image.new("RGBA", (width, height), (15, 18, 25, 255))
+    width, height = 850, 520
+    img = Image.new("RGBA", (width, height), (12, 14, 20, 255))
     draw = ImageDraw.Draw(img)
-    
-    # Header Banner (F1 Red Accent)
-    draw.rectangle([(0, 0), (width, 80)], fill=(225, 6, 0, 255))
-    
+
     font_title = FONT_TITLE
     font_sub = FONT_SUB
     font_body = FONT_BODY
     font_bold = FONT_BOLD
     font_small = FONT_SMALL
-        
-    # Team & Driver Name
+
+    # --- Gradient Header Banner (F1 Red to Dark) ---
+    for y_line in range(85):
+        r = int(225 - (y_line * 2.2))
+        g = int(6 - (y_line * 0.07))
+        b = int(0)
+        draw.line([(0, y_line), (width, y_line)], fill=(max(r, 20), max(g, 0), max(b, 0), 255))
+
+    # Team Name (large, white, uppercase)
     team_title = f"{prof.get('team_name', 'F1 Team')}".upper()
     country_str = prof.get('country') or ""
     if country_str:
-        team_title = f"{country_str} {team_title}"
-    draw.text((25, 12), team_title[:32], fill=(255, 255, 255, 255), font=font_title)
-    
+        team_title = f"{country_str}  {team_title}"
+    draw.text((28, 10), team_title[:34], fill=(255, 255, 255, 255), font=font_title)
+
+    # Subtitle line: Level | Power | Tier
     overall_power = calculate_overall_power(prof, prof.get("pace", 50))
     highest_lvl = max([prof.get(p, 1) for p in config.PART_MULTIPLIERS.keys()])
     tier_name = get_tier_label(highest_lvl)
-    
-    subtitle = f"LEVEL {prof.get('level', 1)} DRIVER  |  OVERALL POWER: {overall_power:.1f}  |  {tier_name}"
-    draw.text((25, 48), subtitle, fill=(255, 220, 220, 255), font=font_sub)
-    
-    # Financials & Stats Strip below header (clean text formatting, no unrendered emoji glyphs)
-    draw.rectangle([(0, 80), (width, 118)], fill=(25, 30, 42, 255))
-    stats_text = (
-        f"Money: {prof.get('money', 0):,}c   |   "
-        f"XP: {prof.get('xp', 0):,}/{prof.get('level', 1)*1000:,} XP   |   "
-        f"Wins: {prof.get('wins', 0)}   |   Losses: {prof.get('losses', 0)}"
-    )
-    draw.text((25, 90), stats_text, fill=(200, 210, 225, 255), font=font_body)
-    
-    # Section Headers
-    draw.text((30, 132), "DRIVER PERSONNEL (1-100)", fill=(225, 6, 0, 255), font=font_sub)
-    draw.text((430, 132), "GARAGE COMPONENTS (1-20)", fill=(0, 170, 255, 255), font=font_sub)
-    
-    # Left Column: Driver Skills
+    subtitle = f"LVL {prof.get('level', 1)}  |  POWER: {overall_power:.1f}  |  {tier_name}"
+    draw.text((28, 48), subtitle, fill=(255, 210, 210, 255), font=font_sub)
+
+    # --- Stats Bar (dark strip under header) ---
+    draw.rectangle([(0, 85), (width, 125)], fill=(20, 24, 35, 255))
+    # Thin accent line
+    draw.rectangle([(0, 85), (width, 87)], fill=(225, 6, 0, 180))
+
+    money_str = f"Credits: {prof.get('money', 0):,}c"
+    xp_str = f"XP: {prof.get('xp', 0):,}/{prof.get('level', 1) * 1000:,}"
+    wins_str = f"W: {prof.get('wins', 0)}"
+    losses_str = f"L: {prof.get('losses', 0)}"
+    record_str = f"{money_str}    |    {xp_str}    |    {wins_str}  /  {losses_str}"
+    draw.text((28, 97), record_str, fill=(180, 195, 215, 255), font=font_body)
+
+    # --- Section Separator ---
+    section_y = 138
+    draw.rectangle([(28, section_y), (width - 28, section_y + 1)], fill=(45, 50, 65, 255))
+
+    # --- Section Headers ---
+    draw.text((30, section_y + 10), "DRIVER PERSONNEL", fill=(225, 6, 0, 255), font=font_sub)
+    draw.text((30, section_y + 28), "Stats scaled 1-100", fill=(100, 110, 130, 255), font=font_small)
+    draw.text((450, section_y + 10), "GARAGE COMPONENTS", fill=(0, 170, 255, 255), font=font_sub)
+    draw.text((450, section_y + 28), "Parts scaled 1-20", fill=(100, 110, 130, 255), font=font_small)
+
+    # --- Helper: Draw a premium progress bar with rounded ends ---
+    def draw_bar(x, y, w, h, value, max_val, bar_color, bg_color=(35, 40, 55, 255)):
+        # Background bar
+        draw.rounded_rectangle([(x, y), (x + w, y + h)], radius=h // 2, fill=bg_color)
+        # Fill bar
+        fill_w = int(w * (min(max_val, max(0, value)) / max_val))
+        if fill_w > 2:
+            draw.rounded_rectangle([(x, y), (x + fill_w, y + h)], radius=h // 2, fill=bar_color)
+
+    def get_skill_color(val):
+        if val >= 80:
+            return (0, 220, 100, 255)   # Green (Elite)
+        elif val >= 60:
+            return (0, 170, 255, 255)   # Blue (Strong)
+        elif val >= 40:
+            return (255, 180, 0, 255)   # Yellow (Average)
+        return (225, 60, 60, 255)       # Red (Weak)
+
+    def get_part_color(lvl):
+        if lvl >= 16:
+            return (200, 50, 255, 255)  # Purple (Extreme)
+        elif lvl >= 11:
+            return (0, 220, 100, 255)   # Green (Advanced)
+        elif lvl >= 6:
+            return (0, 170, 255, 255)   # Blue (Performance)
+        return (255, 180, 0, 255)       # Yellow (Spec)
+
+    # --- Left Column: Driver Personnel Stats ---
     skills = [
         ("Race Pace", prof.get("pace", 50)),
         ("Qualifying", prof.get("qual", 50)),
@@ -186,21 +226,16 @@ def generate_profile_card(prof: Dict[str, Any]) -> io.BytesIO:
         ("Aggression", prof.get("aggression", 50)),
         ("Overtaking", prof.get("overtaking", 50)),
     ]
-    
-    y_start = 168
+
+    y_start = section_y + 52
     for idx, (s_name, val) in enumerate(skills):
-        y = y_start + (idx * 44)
-        draw.text((30, y), s_name, fill=(220, 225, 235, 255), font=font_body)
-        draw.text((140, y), f"{val}/100", fill=(255, 255, 255, 255), font=font_bold)
-        
-        # Skill bar background
-        draw.rectangle([(220, y + 2), (390, y + 16)], fill=(40, 45, 58, 255))
-        # Skill bar fill
-        fill_width = 220 + int(170 * (min(100, max(0, val)) / 100.0))
-        if fill_width > 220:
-            draw.rectangle([(220, y + 2), (fill_width, y + 16)], fill=(225, 6, 0, 255))
-        
-    # Right Column: Garage Component Levels & Tier Category Badges
+        y = y_start + (idx * 48)
+        draw.text((30, y), s_name, fill=(200, 210, 225, 255), font=font_body)
+        val_text = f"{val}"
+        draw.text((175, y), val_text, fill=(255, 255, 255, 255), font=font_bold)
+        draw_bar(210, y + 3, 200, 14, val, 100, get_skill_color(val))
+
+    # --- Right Column: Garage Components ---
     parts = [
         ("Engine", prof.get("engine", 1)),
         ("Aerodynamics", prof.get("aerodynamics", 1)),
@@ -209,24 +244,22 @@ def generate_profile_card(prof: Dict[str, Any]) -> io.BytesIO:
         ("Reliability", prof.get("reliability", 1)),
         ("Pit Crew", prof.get("pit_crew", 1)),
     ]
-    
+
     for idx, (p_name, lvl) in enumerate(parts):
-        y = y_start + (idx * 44)
-        tier_sub = get_tier_label(lvl).split(" ")[0] + " " + get_tier_label(lvl).split(" ")[1]
-        draw.text((430, y), p_name, fill=(220, 225, 235, 255), font=font_body)
-        draw.text((545, y), f"Lvl {lvl}/20", fill=(255, 255, 255, 255), font=font_bold)
-        
-        # Level bar background
-        draw.rectangle([(640, y + 2), (770, y + 16)], fill=(40, 45, 58, 255))
-        # Level bar fill
-        fill_width = 640 + int(130 * (min(20, max(0, lvl)) / 20.0))
-        if fill_width > 640:
-            draw.rectangle([(640, y + 2), (fill_width, y + 16)], fill=(0, 170, 255, 255))
-            
-    # Footer strip
-    draw.rectangle([(0, height - 25), (width, height)], fill=(10, 12, 18, 255))
-    draw.text((25, height - 19), "DISCORD GRAND PRIX  |  OFFICIAL TELEMETRY SHEET", fill=(120, 130, 150, 255), font=font_small)
-    
+        y = y_start + (idx * 48)
+        draw.text((450, y), p_name, fill=(200, 210, 225, 255), font=font_body)
+        lvl_text = f"{lvl}/20"
+        draw.text((575, y), lvl_text, fill=(255, 255, 255, 255), font=font_bold)
+        draw_bar(630, y + 3, 180, 14, lvl, 20, get_part_color(lvl))
+
+    # --- Vertical Separator between columns ---
+    draw.rectangle([(425, section_y + 8), (427, height - 40)], fill=(40, 45, 60, 255))
+
+    # --- Footer ---
+    draw.rectangle([(0, height - 30), (width, height)], fill=(8, 10, 15, 255))
+    draw.rectangle([(0, height - 30), (width, height - 28)], fill=(225, 6, 0, 100))
+    draw.text((28, height - 22), "DISCORD GRAND PRIX  |  OFFICIAL DRIVER TELEMETRY SHEET", fill=(100, 110, 130, 255), font=font_small)
+
     buf = io.BytesIO()
     img.save(buf, format="PNG")
     buf.seek(0)

@@ -105,12 +105,17 @@ class GarageCog(commands.Cog):
         else:
             await interaction.response.send_message("❌ An error occurred creating your profile.", ephemeral=True)
 
-    @app_commands.command(name="profile", description="View your team profile card PNG and overall standings.")
+    @app_commands.command(name="profile", description="View your team profile card or another driver's profile.")
+    @app_commands.describe(user="Optional: View another driver's profile card")
     @app_commands.guild_only()
-    async def profile_cmd(self, interaction: discord.Interaction):
-        prof = database.get_full_team_profile(interaction.user.id, interaction.guild_id)
+    async def profile_cmd(self, interaction: discord.Interaction, user: discord.User = None):
+        target = user or interaction.user
+        prof = database.get_full_team_profile(target.id, interaction.guild_id)
         if not prof:
-            await interaction.response.send_message("❌ You do not have a profile yet. Use `/start` to create one!", ephemeral=True)
+            if target == interaction.user:
+                await interaction.response.send_message("❌ You do not have a profile yet. Use `/start` to create one!", ephemeral=True)
+            else:
+                await interaction.response.send_message(f"❌ {target.mention} does not have a profile yet.", ephemeral=True)
             return
 
         card_buf = utils.generate_profile_card(prof)
@@ -122,7 +127,7 @@ class GarageCog(commands.Cog):
         embed = utils.create_embed(
             title=f"🏎️ {country_prefix}{prof['team_name']}",
             description=(
-                f"👤 **Driver:** {interaction.user.mention}\n"
+                f"👤 **Driver:** {target.mention}\n"
                 f"⭐ **Level:** `{prof['level']}` | **XP:** `{prof['xp']:,}`\n"
                 f"💰 **Money:** `{prof['money']:,} credits`\n"
                 f"🏎️ **Overall Car Rating:** `{overall_power:.1f}`\n"
