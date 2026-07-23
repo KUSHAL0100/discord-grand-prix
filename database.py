@@ -1393,6 +1393,13 @@ def record_track_practice(user_id: int, track_name: str) -> Tuple[bool, str, flo
     cursor = conn.cursor()
     today_str = date.today().isoformat()
     try:
+        # Check user balance for practice fee (500¢)
+        cursor.execute("SELECT money FROM users WHERE user_id = ?", (user_id,))
+        user_row = cursor.fetchone()
+        user_money = user_row['money'] if user_row else 0
+        if user_money < config.PRACTICE_SESSION_COST:
+            return False, f"❌ **Insufficient Funds!** A track practice session costs **{config.PRACTICE_SESSION_COST:,}¢**, but you only have **{user_money:,}¢**.", 0.0
+
         # Check total daily practice count for user
         cursor.execute("SELECT SUM(practice_count) as daily_count FROM track_mastery WHERE user_id = ? AND last_practice_date = ?", (user_id, today_str))
         row = cursor.fetchone()
@@ -1423,8 +1430,11 @@ def record_track_practice(user_id: int, track_name: str) -> Tuple[bool, str, flo
                 VALUES (?, ?, 1, ?, 0.04)
             """, (user_id, track_name, today_str))
             
+        # Deduct practice fee (500¢)
+        cursor.execute("UPDATE users SET money = money - ? WHERE user_id = ?", (config.PRACTICE_SESSION_COST, user_id))
+
         conn.commit()
-        return True, f"🏎️ Practice complete at **{track_name}**! Track Familiarity increased (+{new_count * 4}%). Pace bonus: **-{new_bonus:.2f}s/lap**.", new_bonus
+        return True, f"🏎️ Practice complete at **{track_name}**! (Cost: `{config.PRACTICE_SESSION_COST:,}¢`). Track Familiarity increased. Pace bonus: **-{new_bonus:.2f}s/lap**.", new_bonus
     except sqlite3.Error as e:
         conn.rollback()
         return False, f"Database error: {str(e)}", 0.0

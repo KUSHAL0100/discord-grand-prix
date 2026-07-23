@@ -65,11 +65,7 @@ def test_track_practice_daily_limit_and_cap():
     user_id = user['user_id']
     track = "Monaco (Monte Carlo)"
     
-    # Clean up
-    conn = database.get_db_connection()
-    conn.execute("DELETE FROM track_mastery WHERE user_id = ?", (user_id,))
-    conn.commit()
-    conn.close()
+    database.update_user_balance(user_id, 10000)
     
     # 1. Practice 3 times (allowed)
     for i in range(3):
