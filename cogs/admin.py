@@ -381,7 +381,7 @@ class SeasonCalendarAdminView(discord.ui.View):
         )
         await interaction.response.send_message(embed=embed)
 
-    @app_commands.command(name="remove", description="Deduct credits from a player (Admin only).")
+    @admin_group.command(name="remove", description="Deduct credits from a player (Admin only).")
     @app_commands.describe(user="The player to deduct credits from", amount="Amount of credits to deduct")
     @is_admin()
     @app_commands.guild_only()
@@ -403,7 +403,7 @@ class SeasonCalendarAdminView(discord.ui.View):
         )
         await interaction.response.send_message(embed=embed)
 
-    @app_commands.command(name="broadcast", description="Broadcast an announcement message to a designated channel (Admin only).")
+    @admin_group.command(name="broadcast", description="Broadcast an announcement message to a designated channel (Admin only).")
     @app_commands.describe(channel="The text channel to post the announcement in", message="The announcement message content")
     @is_admin()
     @app_commands.guild_only()
@@ -419,7 +419,7 @@ class SeasonCalendarAdminView(discord.ui.View):
         except Exception as e:
             await interaction.response.send_message(f"❌ Failed to send announcement: {str(e)}", ephemeral=True)
 
-    @app_commands.command(name="dbbackup", description="Trigger manual backup copy of SQLite DB (Admin only).")
+    @admin_group.command(name="dbbackup", description="Trigger manual backup copy of SQLite DB (Admin only).")
     @is_admin()
     @app_commands.guild_only()
     async def admin_dbbackup(self, interaction: discord.Interaction):
@@ -440,7 +440,7 @@ class SeasonCalendarAdminView(discord.ui.View):
         except Exception as e:
             await interaction.response.send_message(f"❌ Backup failed: {str(e)}", ephemeral=True)
 
-    @app_commands.command(name="debug", description="Toggle verbose terminal logs (Admin only).")
+    @admin_group.command(name="debug", description="Toggle verbose terminal logs (Admin only).")
     @app_commands.describe(toggle="Turn debug logs on/off")
     @is_admin()
     @app_commands.guild_only()
