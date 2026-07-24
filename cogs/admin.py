@@ -24,8 +24,8 @@ def is_admin():
 class AdminCog(commands.Cog):
     """Cog containing all Administrator and Server Management commands."""
     
-    admin_group = app_commands.Group(name="admin", description="Game administrator controls for economy and stats.", default_permissions=discord.Permissions(administrator=True))
-    season_admin_group = app_commands.Group(name="season", description="Admin controls for World Driver Championship (WDC) Seasons", default_permissions=discord.Permissions(administrator=True))
+    admin_group = app_commands.Group(name="admin", description="Game administrator controls for economy and stats.")
+    season_admin_group = app_commands.Group(name="season", description="Admin controls for World Driver Championship (WDC) Seasons")
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot

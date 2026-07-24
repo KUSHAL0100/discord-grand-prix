@@ -48,13 +48,9 @@ async def sync_prefix_command(ctx: commands.Context):
         return
         
     guild = ctx.guild
-    # Clear old guild overrides to fix duplicates
-    bot.tree.clear_commands(guild=guild)
-    await bot.tree.sync(guild=guild)
-    
     bot.tree.copy_global_to(guild=guild)
     synced = await bot.tree.sync(guild=guild)
-    await ctx.send(f"✅ **Slash Command Sync Complete!** Cleaned duplicate entries & synced **{len(synced)}** commands (`/admin`, `/season`, `/race`, `/profile`, etc.) to **{guild.name}**!")
+    await ctx.send(f"✅ **Slash Command Sync Complete!** Synced **{len(synced)}** commands (`/admin`, `/season`, `/race`, `/profile`, etc.) to **{guild.name}**!")
 
 @bot.tree.command(name="sync", description="Force sync all slash commands to this server (Admin only).")
 @app_commands.guild_only()
@@ -63,13 +59,11 @@ async def sync_slash_command(interaction: discord.Interaction):
         await interaction.response.send_message("❌ Only server administrators can run `/sync`.", ephemeral=True)
         return
         
+    await interaction.response.defer(ephemeral=True)
     guild = interaction.guild
-    bot.tree.clear_commands(guild=guild)
-    await bot.tree.sync(guild=guild)
-    
     bot.tree.copy_global_to(guild=guild)
     synced = await bot.tree.sync(guild=guild)
-    await interaction.response.send_message(f"✅ **Slash Command Sync Complete!** Cleaned duplicate entries & synced **{len(synced)}** commands (`/admin`, `/season`, `/race`, `/profile`, etc.) to **{guild.name}**!")
+    await interaction.followup.send(f"✅ **Slash Command Sync Complete!** Synced **{len(synced)}** commands (`/admin`, `/season`, `/race`, `/profile`, etc.) to **{guild.name}**!", ephemeral=True)
 
 @bot.event
 async def on_ready():
@@ -182,12 +176,18 @@ async def periodic_voice_credits_check():
 @bot.tree.error
 async def on_app_command_error(interaction: discord.Interaction, error: app_commands.AppCommandError):
     if isinstance(error, app_commands.CheckFailure):
-        if not interaction.response.is_done():
-            await interaction.response.send_message("❌ **Permission Denied!** Requires Administrator permissions or the configured Admin role.", ephemeral=True)
+        msg = "❌ **Permission Denied!** Requires Administrator permissions or the configured Admin role."
     else:
         print(f"App command error: {error}")
-        if not interaction.response.is_done():
-            await interaction.response.send_message(f"❌ An error occurred: {str(error)}", ephemeral=True)
+        msg = f"❌ An error occurred: {str(error)}"
+        
+    try:
+        if interaction.response.is_done():
+            await interaction.followup.send(msg, ephemeral=True)
+        else:
+            await interaction.response.send_message(msg, ephemeral=True)
+    except Exception:
+        pass
 
 # ----------------- Start Bot -----------------
 if __name__ == "__main__":
