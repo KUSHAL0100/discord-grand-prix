@@ -38,55 +38,70 @@ async def setup_hook():
 
 bot.setup_hook = setup_hook
 
-# ----------------- Event Handlers & Sync Commands -----------------
+# ----------------- Event Handlers & Sync Command -----------------
 
 @bot.command(name="sync")
 async def sync_prefix_command(ctx: commands.Context):
-    """Force sync all slash commands directly to the current Discord server (Prefix command !sync)."""
+    """Force sync all slash commands to this Discord server. Admin only."""
     if not ctx.author.guild_permissions.administrator:
         await ctx.send("❌ Only server administrators can run `!sync`.")
         return
-        
-    guild = ctx.guild
-    bot.tree.copy_global_to(guild=guild)
-    synced = await bot.tree.sync(guild=guild)
-    await ctx.send(f"✅ **Slash Command Sync Complete!** Synced **{len(synced)}** commands (`/admin`, `/season`, `/race`, `/profile`, etc.) to **{guild.name}**!")
 
-@bot.tree.command(name="sync", description="Force sync all slash commands to this server (Admin only).")
-@app_commands.guild_only()
-async def sync_slash_command(interaction: discord.Interaction):
-    if not interaction.user.guild_permissions.administrator:
-        await interaction.response.send_message("❌ Only server administrators can run `/sync`.", ephemeral=True)
-        return
-        
-    await interaction.response.defer(ephemeral=True)
-    guild = interaction.guild
-    bot.tree.copy_global_to(guild=guild)
-    synced = await bot.tree.sync(guild=guild)
-    await interaction.followup.send(f"✅ **Slash Command Sync Complete!** Synced **{len(synced)}** commands (`/admin`, `/season`, `/race`, `/profile`, etc.) to **{guild.name}**!", ephemeral=True)
+    msg = await ctx.send("⏳ Syncing slash commands...")
+
+    # Snapshot → clear stale global → restore → sync this guild
+    cmds = list(bot.tree.get_commands())
+    bot.tree.clear_commands(guild=None)
+    await bot.tree.sync()
+    for cmd in cmds:
+        try:
+            bot.tree.add_command(cmd)
+        except app_commands.CommandAlreadyRegistered:
+            pass
+
+    bot.tree.copy_global_to(guild=ctx.guild)
+    synced = await bot.tree.sync(guild=ctx.guild)
+    names = [c.name for c in synced]
+    await msg.edit(content=f"✅ **Synced {len(synced)} commands** to **{ctx.guild.name}**!\nCommands: `{', '.join(names)}`")
 
 @bot.event
 async def on_ready():
     print(f"Logged in as {bot.user.name} (ID: {bot.user.id})")
     print("Initializing database schema and performance indexes...")
     database.init_db()
-    
+
     try:
-        if config.GUILD_ID:
-            guild = discord.Object(id=config.GUILD_ID)
-            bot.tree.copy_global_to(guild=guild)
-            synced = await bot.tree.sync(guild=guild)
-            print(f"✅ Guild Sync: Synced {len(synced)} commands to test guild {config.GUILD_ID}.")
-        else:
-            for g in bot.guilds:
-                try:
-                    bot.tree.copy_global_to(guild=g)
-                    synced = await bot.tree.sync(guild=g)
-                    print(f"✅ Guild Sync: Synced {len(synced)} commands to guild: {g.name} ({g.id})")
-                except Exception as guild_err:
-                    print(f"Guild sync notice for {g.id}: {guild_err}")
-    except Exception as sync_err:
-        print(f"Command sync notice: {sync_err}")
+        # Debug: show what the tree contains after cog loading
+        all_cmds = bot.tree.get_commands()
+        print(f"[SYNC] Tree has {len(all_cmds)} commands: {[c.name for c in all_cmds]}")
+
+        # Step 1: Snapshot all commands from the tree
+        cmds_snapshot = list(all_cmds)
+
+        # Step 2: Clear stale GLOBAL registrations from Discord (fixes duplicates)
+        bot.tree.clear_commands(guild=None)
+        await bot.tree.sync()
+        print("[SYNC] Cleared stale global registrations from Discord")
+
+        # Step 3: Restore commands back into the tree
+        for cmd in cmds_snapshot:
+            try:
+                bot.tree.add_command(cmd)
+            except app_commands.CommandAlreadyRegistered:
+                pass
+
+        # Step 4: Sync per-guild (instant update, zero duplicates)
+        for g in bot.guilds:
+            try:
+                bot.tree.copy_global_to(guild=g)
+                synced = await bot.tree.sync(guild=g)
+                print(f"[SYNC] ✅ Synced {len(synced)} commands to '{g.name}': {[c.name for c in synced]}")
+            except Exception as e:
+                print(f"[SYNC] Guild sync error for {g.name}: {e}")
+    except Exception as e:
+        print(f"[SYNC] Error during command sync: {e}")
+        import traceback
+        traceback.print_exc()
 
     try:
         if not periodic_voice_credits_check.is_running():

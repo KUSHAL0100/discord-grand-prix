@@ -529,13 +529,4 @@ class SeasonCalendarAdminView(discord.ui.View):
         await interaction.response.send_message(embed=embed, view=view)
 
 async def setup(bot: commands.Bot):
-    cog = AdminCog(bot)
-    try:
-        bot.tree.add_command(cog.admin_group)
-    except Exception:
-        pass
-    try:
-        bot.tree.add_command(cog.season_admin_group)
-    except Exception:
-        pass
-    await bot.add_cog(cog)
+    await bot.add_cog(AdminCog(bot))
