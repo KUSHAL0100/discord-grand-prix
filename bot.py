@@ -97,7 +97,7 @@ async def on_ready():
             try:
                 bot.tree.copy_global_to(guild=g)
                 synced = await bot.tree.sync(guild=g)
-                print(f"[SYNC] ✅ Synced {len(synced)} commands to '{g.name}': {[c.name for c in synced]}")
+                print(f"[SYNC] [OK] Synced {len(synced)} commands to '{g.name}': {[c.name for c in synced]}")
             except Exception as e:
                 print(f"[SYNC] Guild sync error for {g.name}: {e}")
     except Exception as e:

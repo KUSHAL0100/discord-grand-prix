@@ -1,6 +1,7 @@
 import discord
 from discord.ext import commands
 from discord import app_commands
+from typing import List, Dict, Optional, Tuple, Any
 import shutil
 import os
 from datetime import datetime
@@ -246,6 +247,167 @@ async def track_autocomplete(interaction: discord.Interaction, current: str) -> 
         await interaction.response.send_message(embed=embed, view=view)
 
 
+
+    @admin_group.command(name="give", description="Give credits to a player (Admin only).")
+    @app_commands.describe(user="The player to receive credits", amount="Amount of credits to award")
+    @is_admin()
+    @app_commands.guild_only()
+    async def admin_give(self, interaction: discord.Interaction, user: discord.User, amount: int):
+        if amount <= 0:
+            await interaction.response.send_message("❌ Amount must be greater than zero.", ephemeral=True)
+            return
+
+        target_prof = database.get_user_by_discord_id(user.id, interaction.guild_id)
+        if not target_prof:
+            await interaction.response.send_message(f"❌ User {user.mention} does not have a profile. They must run `/start` first.", ephemeral=True)
+            return
+
+        database.update_user_balance(target_prof['user_id'], amount)
+        embed = utils.create_embed(
+            title="💰 Admin Grant",
+            description=f"Successfully granted **{amount:,} credits** to {user.mention}!",
+            color=utils.COLOR_SUCCESS
+        )
+        await interaction.response.send_message(embed=embed)
+
+    @admin_group.command(name="remove", description="Deduct credits from a player (Admin only).")
+    @app_commands.describe(user="The player to deduct credits from", amount="Amount of credits to deduct")
+    @is_admin()
+    @app_commands.guild_only()
+    async def admin_remove(self, interaction: discord.Interaction, user: discord.User, amount: int):
+        if amount <= 0:
+            await interaction.response.send_message("❌ Amount must be greater than zero.", ephemeral=True)
+            return
+
+        target_prof = database.get_user_by_discord_id(user.id, interaction.guild_id)
+        if not target_prof:
+            await interaction.response.send_message(f"❌ User {user.mention} does not have a profile.", ephemeral=True)
+            return
+
+        actual_deducted = database.update_user_balance(target_prof['user_id'], -amount)
+        embed = utils.create_embed(
+            title="💰 Admin Deduction",
+            description=f"Successfully deducted **{actual_deducted:,} credits** from {user.mention}.",
+            color=utils.COLOR_SUCCESS
+        )
+        await interaction.response.send_message(embed=embed)
+
+    @admin_group.command(name="broadcast", description="Broadcast an announcement message to a designated channel (Admin only).")
+    @app_commands.describe(channel="The text channel to post the announcement in", message="The announcement message content")
+    @is_admin()
+    @app_commands.guild_only()
+    async def admin_broadcast(self, interaction: discord.Interaction, channel: discord.TextChannel, message: str):
+        embed = utils.create_embed(
+            title="📢 Official Announcement",
+            description=message,
+            color=utils.COLOR_INFO
+        )
+        try:
+            await channel.send(embed=embed)
+            await interaction.response.send_message(f"✅ Announcement sent to {channel.mention}.", ephemeral=True)
+        except Exception as e:
+            await interaction.response.send_message(f"❌ Failed to send announcement: {str(e)}", ephemeral=True)
+
+    @admin_group.command(name="dbbackup", description="Trigger manual backup copy of SQLite DB (Admin only).")
+    @is_admin()
+    @app_commands.guild_only()
+    async def admin_dbbackup(self, interaction: discord.Interaction):
+        if not os.path.exists(config.DATABASE_PATH):
+            await interaction.response.send_message("❌ Database file does not exist yet.", ephemeral=True)
+            return
+            
+        backup_filename = f"backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{config.DATABASE_PATH}"
+        try:
+            shutil.copy2(config.DATABASE_PATH, backup_filename)
+            await interaction.response.send_message(
+                embed=utils.create_embed(
+                    title="💾 Database Backup Success",
+                    description=f"Successfully backed up **{config.DATABASE_PATH}** to **{backup_filename}**.",
+                    color=utils.COLOR_SUCCESS
+                )
+            )
+        except Exception as e:
+            await interaction.response.send_message(f"❌ Backup failed: {str(e)}", ephemeral=True)
+
+    @admin_group.command(name="gp", description="Manage Grand Prix events (Admin control panel).")
+    @app_commands.describe(laps="Specify the race distance length (number of laps, default 15)")
+    @is_admin()
+    @app_commands.guild_only()
+    async def admin_gp_panel(self, interaction: discord.Interaction, laps: int = 15):
+        if laps < 1 or laps > 200:
+            await interaction.response.send_message("❌ Invalid lap count. Laps must be between 1 and 200.", ephemeral=True)
+            return
+
+        active_gp = database.get_active_gp_race(interaction.guild_id)
+        if active_gp:
+            entries = database.get_gp_entries_full(active_gp['race_id'])
+            import json
+            weather_raw = active_gp.get('weather', 'Sunny')
+            forecast = "Sunny"
+            try:
+                weather_data = json.loads(weather_raw)
+                forecast = weather_data.get('forecast', 'Sunny')
+            except Exception:
+                forecast = weather_raw
+
+            desc = (
+                f"🏁 **Active GP:** **{active_gp['name']}**\n"
+                f"🗺️ **Track:** `{active_gp['track']}`\n"
+                f"⏱️ **Distance:** `{active_gp['laps']} Laps`\n"
+                f"📊 **Stage:** `{active_gp.get('status', 'Created')}`\n"
+                f"🌦️ **Forecast:** `{forecast}`\n"
+                f"👥 **Entrants:** `{len(entries)} driver(s) registered`"
+            )
+        else:
+            desc = f"❌ **No active Grand Prix scheduled.**\nUse the **Select a Track** dropdown below to schedule a **{laps}-lap** event."
+
+        embed = utils.create_embed(
+            title="🏁 Grand Prix Admin Panel",
+            description=desc,
+            color=utils.COLOR_WARNING
+        )
+
+        from cogs.racing import GPAdminView
+        view = GPAdminView(interaction.guild_id, laps=laps)
+        await interaction.response.send_message(embed=embed, view=view)
+
+    @admin_group.command(name="sprint", description="Schedule a Sprint Race Weekend (Admin control panel).")
+    @app_commands.describe(laps="Specify the Sprint race distance length (number of laps, default 8)")
+    @is_admin()
+    @app_commands.guild_only()
+    async def admin_sprint_panel(self, interaction: discord.Interaction, laps: int = 8):
+        if laps < 1 or laps > 50:
+            await interaction.response.send_message("❌ Invalid Sprint lap count. Laps must be between 1 and 50.", ephemeral=True)
+            return
+
+        active_gp = database.get_active_gp_race(interaction.guild_id)
+        if active_gp:
+            entries = database.get_gp_entries_full(active_gp['race_id'])
+            desc = (
+                f"⚡ **Active Event:** **{active_gp['name']}**\n"
+                f"🗺️ **Track:** `{active_gp['track']}`\n"
+                f"⏱️ **Sprint Distance:** `{active_gp['laps']} Laps`\n"
+                f"📊 **Stage:** `{active_gp.get('status', 'Created')}`\n"
+                f"👥 **Entrants:** `{len(entries)} driver(s) registered`"
+            )
+        else:
+            desc = f"❌ **No active Sprint Race scheduled.**\nUse the **Select an Official F1 Track** dropdown below to schedule a **{laps}-lap** Sprint Weekend."
+
+        embed = utils.create_embed(
+            title="⚡ Sprint Race Weekend Admin Panel",
+            description=desc,
+            color=utils.COLOR_QUALIFYING
+        )
+
+        from cogs.racing import GPAdminView, GPTrackSelect
+        view = GPAdminView(interaction.guild_id, laps=laps)
+        if not active_gp:
+            view.clear_items()
+            view.add_item(GPTrackSelect(laps=laps, is_sprint=True))
+
+        await interaction.response.send_message(embed=embed, view=view)
+
+
 class SeasonCalendarAdminView(discord.ui.View):
     def __init__(self, active_season, calendar):
         super().__init__(timeout=180.0)
@@ -255,12 +417,16 @@ class SeasonCalendarAdminView(discord.ui.View):
         self.update_components()
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id == interaction.guild.owner_id:
+            return True
         if interaction.user.guild_permissions.administrator:
             return True
         if hasattr(interaction.user, 'roles'):
-            role = discord.utils.get(interaction.user.roles, name=config.ADMIN_ROLE_NAME)
-            if role is not None:
-                return True
+            for role in interaction.user.roles:
+                if role.name.lower() == config.ADMIN_ROLE_NAME.lower():
+                    return True
+        if database.is_bot_admin(interaction.user.id, interaction.guild_id):
+            return True
         await interaction.response.send_message("❌ Only server administrators can manage the WDC Season Calendar.", ephemeral=True)
         return False
 
@@ -423,164 +589,6 @@ class SeasonCalendarAdminView(discord.ui.View):
         else:
             await interaction.response.send_message(f"❌ {msg}", ephemeral=True)
 
-    @admin_group.command(name="give", description="Give credits to a player (Admin only).")
-    @app_commands.describe(user="The player to receive credits", amount="Amount of credits to award")
-    @is_admin()
-    @app_commands.guild_only()
-    async def admin_give(self, interaction: discord.Interaction, user: discord.User, amount: int):
-        if amount <= 0:
-            await interaction.response.send_message("❌ Amount must be greater than zero.", ephemeral=True)
-            return
-
-        target_prof = database.get_user_by_discord_id(user.id, interaction.guild_id)
-        if not target_prof:
-            await interaction.response.send_message(f"❌ User {user.mention} does not have a profile. They must run `/start` first.", ephemeral=True)
-            return
-
-        database.update_user_balance(target_prof['user_id'], amount)
-        embed = utils.create_embed(
-            title="💰 Admin Grant",
-            description=f"Successfully granted **{amount:,} credits** to {user.mention}!",
-            color=utils.COLOR_SUCCESS
-        )
-        await interaction.response.send_message(embed=embed)
-
-    @admin_group.command(name="remove", description="Deduct credits from a player (Admin only).")
-    @app_commands.describe(user="The player to deduct credits from", amount="Amount of credits to deduct")
-    @is_admin()
-    @app_commands.guild_only()
-    async def admin_remove(self, interaction: discord.Interaction, user: discord.User, amount: int):
-        if amount <= 0:
-            await interaction.response.send_message("❌ Amount must be greater than zero.", ephemeral=True)
-            return
-
-        target_prof = database.get_user_by_discord_id(user.id, interaction.guild_id)
-        if not target_prof:
-            await interaction.response.send_message(f"❌ User {user.mention} does not have a profile.", ephemeral=True)
-            return
-
-        actual_deducted = database.update_user_balance(target_prof['user_id'], -amount)
-        embed = utils.create_embed(
-            title="💰 Admin Deduction",
-            description=f"Successfully deducted **{actual_deducted:,} credits** from {user.mention}.",
-            color=utils.COLOR_SUCCESS
-        )
-        await interaction.response.send_message(embed=embed)
-
-    @admin_group.command(name="broadcast", description="Broadcast an announcement message to a designated channel (Admin only).")
-    @app_commands.describe(channel="The text channel to post the announcement in", message="The announcement message content")
-    @is_admin()
-    @app_commands.guild_only()
-    async def admin_broadcast(self, interaction: discord.Interaction, channel: discord.TextChannel, message: str):
-        embed = utils.create_embed(
-            title="📢 Official Announcement",
-            description=message,
-            color=utils.COLOR_INFO
-        )
-        try:
-            await channel.send(embed=embed)
-            await interaction.response.send_message(f"✅ Announcement sent to {channel.mention}.", ephemeral=True)
-        except Exception as e:
-            await interaction.response.send_message(f"❌ Failed to send announcement: {str(e)}", ephemeral=True)
-
-    @admin_group.command(name="dbbackup", description="Trigger manual backup copy of SQLite DB (Admin only).")
-    @is_admin()
-    @app_commands.guild_only()
-    async def admin_dbbackup(self, interaction: discord.Interaction):
-        if not os.path.exists(config.DATABASE_PATH):
-            await interaction.response.send_message("❌ Database file does not exist yet.", ephemeral=True)
-            return
-            
-        backup_filename = f"backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{config.DATABASE_PATH}"
-        try:
-            shutil.copy2(config.DATABASE_PATH, backup_filename)
-            await interaction.response.send_message(
-                embed=utils.create_embed(
-                    title="💾 Database Backup Success",
-                    description=f"Successfully backed up **{config.DATABASE_PATH}** to **{backup_filename}**.",
-                    color=utils.COLOR_SUCCESS
-                )
-            )
-        except Exception as e:
-            await interaction.response.send_message(f"❌ Backup failed: {str(e)}", ephemeral=True)
-
-    @admin_group.command(name="gp", description="Manage Grand Prix events (Admin control panel).")
-    @app_commands.describe(laps="Specify the race distance length (number of laps, default 15)")
-    @is_admin()
-    @app_commands.guild_only()
-    async def admin_gp_panel(self, interaction: discord.Interaction, laps: int = 15):
-        if laps < 1 or laps > 200:
-            await interaction.response.send_message("❌ Invalid lap count. Laps must be between 1 and 200.", ephemeral=True)
-            return
-
-        active_gp = database.get_active_gp_race(interaction.guild_id)
-        if active_gp:
-            entries = database.get_gp_entries_full(active_gp['race_id'])
-            import json
-            weather_raw = active_gp.get('weather', 'Sunny')
-            forecast = "Sunny"
-            try:
-                weather_data = json.loads(weather_raw)
-                forecast = weather_data.get('forecast', 'Sunny')
-            except Exception:
-                forecast = weather_raw
-
-            desc = (
-                f"🏁 **Active GP:** **{active_gp['name']}**\n"
-                f"🗺️ **Track:** `{active_gp['track']}`\n"
-                f"⏱️ **Distance:** `{active_gp['laps']} Laps`\n"
-                f"📊 **Stage:** `{active_gp.get('status', 'Created')}`\n"
-                f"🌦️ **Forecast:** `{forecast}`\n"
-                f"👥 **Entrants:** `{len(entries)} driver(s) registered`"
-            )
-        else:
-            desc = f"❌ **No active Grand Prix scheduled.**\nUse the **Select a Track** dropdown below to schedule a **{laps}-lap** event."
-
-        embed = utils.create_embed(
-            title="🏁 Grand Prix Admin Panel",
-            description=desc,
-            color=utils.COLOR_WARNING
-        )
-
-        from cogs.racing import GPAdminView
-        view = GPAdminView(interaction.guild_id, laps=laps)
-        await interaction.response.send_message(embed=embed, view=view)
-
-    @admin_group.command(name="sprint", description="Schedule a Sprint Race Weekend (Admin control panel).")
-    @app_commands.describe(laps="Specify the Sprint race distance length (number of laps, default 8)")
-    @is_admin()
-    @app_commands.guild_only()
-    async def admin_sprint_panel(self, interaction: discord.Interaction, laps: int = 8):
-        if laps < 1 or laps > 50:
-            await interaction.response.send_message("❌ Invalid Sprint lap count. Laps must be between 1 and 50.", ephemeral=True)
-            return
-
-        active_gp = database.get_active_gp_race(interaction.guild_id)
-        if active_gp:
-            entries = database.get_gp_entries_full(active_gp['race_id'])
-            desc = (
-                f"⚡ **Active Event:** **{active_gp['name']}**\n"
-                f"🗺️ **Track:** `{active_gp['track']}`\n"
-                f"⏱️ **Sprint Distance:** `{active_gp['laps']} Laps`\n"
-                f"📊 **Stage:** `{active_gp.get('status', 'Created')}`\n"
-                f"👥 **Entrants:** `{len(entries)} driver(s) registered`"
-            )
-        else:
-            desc = f"❌ **No active Sprint Race scheduled.**\nUse the **Select an Official F1 Track** dropdown below to schedule a **{laps}-lap** Sprint Weekend."
-
-        embed = utils.create_embed(
-            title="⚡ Sprint Race Weekend Admin Panel",
-            description=desc,
-            color=utils.COLOR_QUALIFYING
-        )
-
-        from cogs.racing import GPAdminView, GPTrackSelect
-        view = GPAdminView(interaction.guild_id, laps=laps)
-        if not active_gp:
-            view.clear_items()
-            view.add_item(GPTrackSelect(laps=laps, is_sprint=True))
-
-        await interaction.response.send_message(embed=embed, view=view)
 
 async def setup(bot: commands.Bot):
     cog = AdminCog(bot)
@@ -592,16 +600,16 @@ async def setup(bot: commands.Bot):
     print(f"[ADMIN COG] season_admin_group subcommands: {[c.name for c in cog.season_admin_group.commands]}")
 
     await bot.add_cog(cog, override=True)
-    print("[ADMIN COG] ✅ AdminCog added via add_cog")
+    print("[ADMIN COG] [OK] AdminCog added via add_cog")
 
     # Fallback: if CogMeta didn't register the groups, add them manually
     tree_names = [c.name for c in bot.tree.get_commands()]
     if 'admin' not in tree_names:
         bot.tree.add_command(cog.admin_group)
-        print("[ADMIN COG] ⚠️ Manually added admin_group (CogMeta missed it)")
+        print("[ADMIN COG] [WARN] Manually added admin_group (CogMeta missed it)")
     if 'season' not in tree_names:
         bot.tree.add_command(cog.season_admin_group)
-        print("[ADMIN COG] ⚠️ Manually added season_admin_group (CogMeta missed it)")
+        print("[ADMIN COG] [WARN] Manually added season_admin_group (CogMeta missed it)")
 
     final = [c.name for c in bot.tree.get_commands()]
     print(f"[ADMIN COG] Final tree commands: {final}")
