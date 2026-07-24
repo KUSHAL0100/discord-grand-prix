@@ -40,6 +40,15 @@ def is_owner_or_mod():
             return True
         return False
     return app_commands.check(predicate)
+async def track_autocomplete(interaction: discord.Interaction, current: str) -> List[app_commands.Choice[str]]:
+    import race
+    choices = []
+    for t_name in race.TRACK_PROFILES.keys():
+        if current.lower() in t_name.lower():
+            choices.append(app_commands.Choice(name=t_name[:100], value=t_name))
+        if len(choices) >= 25:
+            break
+    return choices
 
 class AdminCog(commands.Cog):
     """Cog containing all Administrator and Server Management commands."""
@@ -168,17 +177,6 @@ class AdminCog(commands.Cog):
             color=utils.COLOR_GOLD
         )
         await interaction.response.send_message(embed=embed)
-
-async def track_autocomplete(interaction: discord.Interaction, current: str) -> List[app_commands.Choice[str]]:
-    import race
-    choices = []
-    for t_name in race.TRACK_PROFILES.keys():
-        if current.lower() in t_name.lower():
-            choices.append(app_commands.Choice(name=t_name[:100], value=t_name))
-        if len(choices) >= 25:
-            break
-    return choices
-
 
     @season_admin_group.command(name="cancel", description="Cancel the active Season.")
     @is_admin()
