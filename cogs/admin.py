@@ -583,4 +583,25 @@ class SeasonCalendarAdminView(discord.ui.View):
         await interaction.response.send_message(embed=embed, view=view)
 
 async def setup(bot: commands.Bot):
-    await bot.add_cog(AdminCog(bot))
+    cog = AdminCog(bot)
+
+    # Debug: show what CogMeta detected
+    detected = [c.name for c in cog.__cog_app_commands__]
+    print(f"[ADMIN COG] CogMeta detected app commands: {detected}")
+    print(f"[ADMIN COG] admin_group subcommands: {[c.name for c in cog.admin_group.commands]}")
+    print(f"[ADMIN COG] season_admin_group subcommands: {[c.name for c in cog.season_admin_group.commands]}")
+
+    await bot.add_cog(cog, override=True)
+    print("[ADMIN COG] ✅ AdminCog added via add_cog")
+
+    # Fallback: if CogMeta didn't register the groups, add them manually
+    tree_names = [c.name for c in bot.tree.get_commands()]
+    if 'admin' not in tree_names:
+        bot.tree.add_command(cog.admin_group)
+        print("[ADMIN COG] ⚠️ Manually added admin_group (CogMeta missed it)")
+    if 'season' not in tree_names:
+        bot.tree.add_command(cog.season_admin_group)
+        print("[ADMIN COG] ⚠️ Manually added season_admin_group (CogMeta missed it)")
+
+    final = [c.name for c in bot.tree.get_commands()]
+    print(f"[ADMIN COG] Final tree commands: {final}")
