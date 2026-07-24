@@ -10,14 +10,33 @@ import database
 import utils
 
 def is_admin():
-    """Check if the user is an admin or has the configured Admin role."""
+    """Check if the user is an admin, server owner, has the configured Admin role, or is a game admin."""
     async def predicate(interaction: discord.Interaction) -> bool:
+        # Server owner always has admin access
+        if interaction.user.id == interaction.guild.owner_id:
+            return True
         if interaction.user.guild_permissions.administrator:
             return True
+        # Check configured admin role (case-insensitive)
         if hasattr(interaction.user, 'roles'):
-            role = discord.utils.get(interaction.user.roles, name=config.ADMIN_ROLE_NAME)
-            if role is not None:
-                return True
+            for role in interaction.user.roles:
+                if role.name.lower() == config.ADMIN_ROLE_NAME.lower():
+                    return True
+        # Check database game admin list
+        if database.is_bot_admin(interaction.user.id, interaction.guild_id):
+            return True
+        return False
+    return app_commands.check(predicate)
+
+def is_owner_or_mod():
+    """Check if the user can manage game admins (server owner, administrator, or manage_guild perm)."""
+    async def predicate(interaction: discord.Interaction) -> bool:
+        if interaction.user.id == interaction.guild.owner_id:
+            return True
+        if interaction.user.guild_permissions.administrator:
+            return True
+        if interaction.user.guild_permissions.manage_guild:
+            return True
         return False
     return app_commands.check(predicate)
 
@@ -82,6 +101,41 @@ class AdminCog(commands.Cog):
         success, msg = database.reset_user_profile(target.id, interaction.guild_id)
         color = utils.COLOR_SUCCESS if success else utils.COLOR_ERROR
         await interaction.response.send_message(embed=utils.create_embed(title="⚙️ Admin Profile Reset", description=msg, color=color))
+
+    @admin_group.command(name="addadmin", description="Grant a user Game Admin access for bot commands.")
+    @app_commands.describe(target="The user to grant Game Admin access to")
+    @is_owner_or_mod()
+    @app_commands.guild_only()
+    async def admin_add_admin(self, interaction: discord.Interaction, target: discord.User):
+        if target.bot:
+            await interaction.response.send_message("❌ Cannot add a bot as a game admin.", ephemeral=True)
+            return
+        success, msg = database.add_bot_admin(target.id, interaction.guild_id, interaction.user.id)
+        color = utils.COLOR_SUCCESS if success else utils.COLOR_ERROR
+        await interaction.response.send_message(embed=utils.create_embed(title="🛡️ Game Admin Management", description=msg, color=color))
+
+    @admin_group.command(name="removeadmin", description="Revoke a user's Game Admin access.")
+    @app_commands.describe(target="The user to revoke Game Admin access from")
+    @is_owner_or_mod()
+    @app_commands.guild_only()
+    async def admin_remove_admin(self, interaction: discord.Interaction, target: discord.User):
+        success, msg = database.remove_bot_admin(target.id, interaction.guild_id)
+        color = utils.COLOR_SUCCESS if success else utils.COLOR_ERROR
+        await interaction.response.send_message(embed=utils.create_embed(title="🛡️ Game Admin Management", description=msg, color=color))
+
+    @admin_group.command(name="listadmins", description="View all users with Game Admin access.")
+    @is_owner_or_mod()
+    @app_commands.guild_only()
+    async def admin_list_admins(self, interaction: discord.Interaction):
+        admins = database.get_bot_admins(interaction.guild_id)
+        if not admins:
+            desc = "No game admins have been added yet.\nUse `/admin addadmin` to grant access."
+        else:
+            lines = []
+            for i, a in enumerate(admins, 1):
+                lines.append(f"**{i}.** <@{a['discord_id']}> — added by <@{a['added_by']}>")
+            desc = "\n".join(lines)
+        await interaction.response.send_message(embed=utils.create_embed(title="🛡️ Game Admins", description=desc, color=utils.COLOR_PRIMARY))
 
     @season_admin_group.command(name="create", description="Create a new World Driver Championship Season.")
     @app_commands.describe(name="Season name (e.g. Season 1, 2026 Championship)")

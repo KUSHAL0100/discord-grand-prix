@@ -264,6 +264,17 @@ def init_db():
         cursor.execute("ALTER TABLE garage ADD COLUMN damage_tyres INTEGER NOT NULL DEFAULT 0")
     if "damage_total" not in garage_cols:
         cursor.execute("ALTER TABLE garage ADD COLUMN damage_total INTEGER NOT NULL DEFAULT 0")
+    # Bot admins table (game admins assigned by server owner/mods)
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS bot_admins (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        discord_id BIGINT NOT NULL,
+        guild_id BIGINT NOT NULL,
+        added_by BIGINT NOT NULL,
+        added_at TEXT DEFAULT (datetime('now')),
+        UNIQUE(discord_id, guild_id)
+    );
+    """)
 
     conn.commit()
     conn.close()
@@ -1797,3 +1808,62 @@ def upgrade_garage_part(user_id: int, part_name: str, cost: int = 0) -> Tuple[bo
 def repair_user_car(user_id: int, part_name: str, cost: int = 0) -> Tuple[bool, str]:
     """Alias for repair_part."""
     return repair_part(user_id, part_name)
+
+# ======================== Bot Admin Management ========================
+
+def add_bot_admin(discord_id: int, guild_id: int, added_by: int) -> Tuple[bool, str]:
+    """Add a user as a game admin for this server."""
+    conn = get_db_connection()
+    try:
+        conn.execute(
+            "INSERT OR IGNORE INTO bot_admins (discord_id, guild_id, added_by) VALUES (?, ?, ?)",
+            (discord_id, guild_id, added_by)
+        )
+        conn.commit()
+        return True, f"<@{discord_id}> has been granted **Game Admin** access."
+    except Exception as e:
+        return False, f"Failed to add admin: {str(e)}"
+    finally:
+        conn.close()
+
+def remove_bot_admin(discord_id: int, guild_id: int) -> Tuple[bool, str]:
+    """Remove a user's game admin access for this server."""
+    conn = get_db_connection()
+    try:
+        cursor = conn.execute(
+            "DELETE FROM bot_admins WHERE discord_id = ? AND guild_id = ?",
+            (discord_id, guild_id)
+        )
+        conn.commit()
+        if cursor.rowcount > 0:
+            return True, f"<@{discord_id}>'s **Game Admin** access has been revoked."
+        else:
+            return False, f"<@{discord_id}> is not a game admin."
+    except Exception as e:
+        return False, f"Failed to remove admin: {str(e)}"
+    finally:
+        conn.close()
+
+def is_bot_admin(discord_id: int, guild_id: int) -> bool:
+    """Check if a user is a game admin for this server."""
+    conn = get_db_connection()
+    try:
+        row = conn.execute(
+            "SELECT 1 FROM bot_admins WHERE discord_id = ? AND guild_id = ?",
+            (discord_id, guild_id)
+        ).fetchone()
+        return row is not None
+    finally:
+        conn.close()
+
+def get_bot_admins(guild_id: int) -> list:
+    """Get all game admins for this server."""
+    conn = get_db_connection()
+    try:
+        rows = conn.execute(
+            "SELECT discord_id, added_by, added_at FROM bot_admins WHERE guild_id = ? ORDER BY added_at",
+            (guild_id,)
+        ).fetchall()
+        return [dict(row) for row in rows]
+    finally:
+        conn.close()

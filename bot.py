@@ -43,7 +43,9 @@ bot.setup_hook = setup_hook
 @bot.command(name="sync")
 async def sync_prefix_command(ctx: commands.Context):
     """Force sync all slash commands to this Discord server. Admin only."""
-    if not ctx.author.guild_permissions.administrator:
+    is_owner = ctx.author.id == ctx.guild.owner_id
+    is_admin = ctx.author.guild_permissions.administrator
+    if not (is_owner or is_admin):
         await ctx.send("❌ Only server administrators can run `!sync`.")
         return
 
