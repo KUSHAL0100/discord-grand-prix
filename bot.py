@@ -77,20 +77,22 @@ async def on_ready():
     print("Initializing database schema and performance indexes...")
     database.init_db()
     
-    # 1. Clear any stale guild overrides to fix duplicates (/crate /crate, etc.)
-    for g in bot.guilds:
-        try:
-            bot.tree.clear_commands(guild=g)
-            await bot.tree.sync(guild=g)
-        except Exception:
-            pass
-
-    # 2. Global command sync
     try:
-        synced = await bot.tree.sync()
-        print(f"✅ Synced {len(synced)} global commands ({[c.name for c in synced]}).")
-    except Exception as e:
-        print(f"Global sync notice: {e}")
+        if config.GUILD_ID:
+            guild = discord.Object(id=config.GUILD_ID)
+            bot.tree.copy_global_to(guild=guild)
+            synced = await bot.tree.sync(guild=guild)
+            print(f"✅ Guild Sync: Synced {len(synced)} commands to test guild {config.GUILD_ID}.")
+        else:
+            for g in bot.guilds:
+                try:
+                    bot.tree.copy_global_to(guild=g)
+                    synced = await bot.tree.sync(guild=g)
+                    print(f"✅ Guild Sync: Synced {len(synced)} commands to guild: {g.name} ({g.id})")
+                except Exception as guild_err:
+                    print(f"Guild sync notice for {g.id}: {guild_err}")
+    except Exception as sync_err:
+        print(f"Command sync notice: {sync_err}")
 
     try:
         if not periodic_voice_credits_check.is_running():

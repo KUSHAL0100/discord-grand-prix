@@ -24,18 +24,11 @@ def is_admin():
 class AdminCog(commands.Cog):
     """Cog containing all Administrator and Server Management commands."""
     
-    admin_group = app_commands.Group(name="admin", description="Game administrator controls for economy and stats.")
-    season_admin_group = app_commands.Group(name="season", description="Admin controls for World Driver Championship (WDC) Seasons")
+    admin_group = app_commands.Group(name="admin", description="Game administrator controls for economy and stats.", default_permissions=discord.Permissions(administrator=True))
+    season_admin_group = app_commands.Group(name="season", description="Admin controls for World Driver Championship (WDC) Seasons", default_permissions=discord.Permissions(administrator=True))
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
-        # Register app_commands Groups into Cog app commands list
-        app_cmds = list(self.__cog_app_commands__)
-        if self.admin_group not in app_cmds:
-            app_cmds.append(self.admin_group)
-        if self.season_admin_group not in app_cmds:
-            app_cmds.append(self.season_admin_group)
-        self.__cog_app_commands__ = tuple(app_cmds)
 
     @admin_group.command(name="setstat", description="Set a driver skill level or garage part level for a user.")
     @app_commands.describe(
@@ -457,21 +450,92 @@ class SeasonCalendarAdminView(discord.ui.View):
         except Exception as e:
             await interaction.response.send_message(f"❌ Backup failed: {str(e)}", ephemeral=True)
 
-    @admin_group.command(name="debug", description="Toggle verbose terminal logs (Admin only).")
-    @app_commands.describe(toggle="Turn debug logs on/off")
+    @admin_group.command(name="gp", description="Manage Grand Prix events (Admin control panel).")
+    @app_commands.describe(laps="Specify the race distance length (number of laps, default 15)")
     @is_admin()
     @app_commands.guild_only()
-    async def admin_debug(self, interaction: discord.Interaction, toggle: bool):
-        from bot import set_debug_mode
-        set_debug_mode(toggle)
-        status = "ON" if toggle else "OFF"
-        await interaction.response.send_message(
-            embed=utils.create_embed(
-                title="⚙️ Debug Mode",
-                description=f"Verbose debugging terminal logs have been turned **{status}**.",
-                color=utils.COLOR_SUCCESS
+    async def admin_gp_panel(self, interaction: discord.Interaction, laps: int = 15):
+        if laps < 1 or laps > 200:
+            await interaction.response.send_message("❌ Invalid lap count. Laps must be between 1 and 200.", ephemeral=True)
+            return
+
+        active_gp = database.get_active_gp_race(interaction.guild_id)
+        if active_gp:
+            entries = database.get_gp_entries_full(active_gp['race_id'])
+            import json
+            weather_raw = active_gp.get('weather', 'Sunny')
+            forecast = "Sunny"
+            try:
+                weather_data = json.loads(weather_raw)
+                forecast = weather_data.get('forecast', 'Sunny')
+            except Exception:
+                forecast = weather_raw
+
+            desc = (
+                f"🏁 **Active GP:** **{active_gp['name']}**\n"
+                f"🗺️ **Track:** `{active_gp['track']}`\n"
+                f"⏱️ **Distance:** `{active_gp['laps']} Laps`\n"
+                f"📊 **Stage:** `{active_gp.get('status', 'Created')}`\n"
+                f"🌦️ **Forecast:** `{forecast}`\n"
+                f"👥 **Entrants:** `{len(entries)} driver(s) registered`"
             )
+        else:
+            desc = f"❌ **No active Grand Prix scheduled.**\nUse the **Select a Track** dropdown below to schedule a **{laps}-lap** event."
+
+        embed = utils.create_embed(
+            title="🏁 Grand Prix Admin Panel",
+            description=desc,
+            color=utils.COLOR_WARNING
         )
 
+        from cogs.racing import GPAdminView
+        view = GPAdminView(interaction.guild_id, laps=laps)
+        await interaction.response.send_message(embed=embed, view=view)
+
+    @admin_group.command(name="sprint", description="Schedule a Sprint Race Weekend (Admin control panel).")
+    @app_commands.describe(laps="Specify the Sprint race distance length (number of laps, default 8)")
+    @is_admin()
+    @app_commands.guild_only()
+    async def admin_sprint_panel(self, interaction: discord.Interaction, laps: int = 8):
+        if laps < 1 or laps > 50:
+            await interaction.response.send_message("❌ Invalid Sprint lap count. Laps must be between 1 and 50.", ephemeral=True)
+            return
+
+        active_gp = database.get_active_gp_race(interaction.guild_id)
+        if active_gp:
+            entries = database.get_gp_entries_full(active_gp['race_id'])
+            desc = (
+                f"⚡ **Active Event:** **{active_gp['name']}**\n"
+                f"🗺️ **Track:** `{active_gp['track']}`\n"
+                f"⏱️ **Sprint Distance:** `{active_gp['laps']} Laps`\n"
+                f"📊 **Stage:** `{active_gp.get('status', 'Created')}`\n"
+                f"👥 **Entrants:** `{len(entries)} driver(s) registered`"
+            )
+        else:
+            desc = f"❌ **No active Sprint Race scheduled.**\nUse the **Select an Official F1 Track** dropdown below to schedule a **{laps}-lap** Sprint Weekend."
+
+        embed = utils.create_embed(
+            title="⚡ Sprint Race Weekend Admin Panel",
+            description=desc,
+            color=utils.COLOR_QUALIFYING
+        )
+
+        from cogs.racing import GPAdminView, GPTrackSelect
+        view = GPAdminView(interaction.guild_id, laps=laps)
+        if not active_gp:
+            view.clear_items()
+            view.add_item(GPTrackSelect(laps=laps, is_sprint=True))
+
+        await interaction.response.send_message(embed=embed, view=view)
+
 async def setup(bot: commands.Bot):
-    await bot.add_cog(AdminCog(bot))
+    cog = AdminCog(bot)
+    try:
+        bot.tree.add_command(cog.admin_group)
+    except Exception:
+        pass
+    try:
+        bot.tree.add_command(cog.season_admin_group)
+    except Exception:
+        pass
+    await bot.add_cog(cog)
