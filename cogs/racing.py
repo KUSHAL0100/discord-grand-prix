@@ -175,7 +175,7 @@ class RaceChallengeView(discord.ui.View):
                     color=0xF5A623
                 )
                 
-                # Setup telemetry view so they can change strategy during the 45 second gap!
+                # Setup telemetry view so they can change strategy during the 20 second gap!
                 entries_list = [
                     {"user_id": self.challenger_prof["user_id"], "discord_id": self.challenger_prof["discord_id"], "team_name": self.challenger_prof["team_name"]},
                     {"user_id": self.opponent_prof["user_id"], "discord_id": self.opponent_prof["discord_id"], "team_name": self.opponent_prof["team_name"]}
@@ -184,8 +184,8 @@ class RaceChallengeView(discord.ui.View):
                 view = GPLapTelemetryView(l_num, lap_snapshot, entries_list)
                 await interaction.channel.send(embed=lap_embed, view=view)
                 
-                # Sleep for 45 seconds gap
-                await asyncio.sleep(45.0)
+                # Sleep for 20 seconds gap
+                await asyncio.sleep(20.0)
                 
             elif item[0] == "finish":
                 winner = item[1]
