@@ -290,21 +290,51 @@ class AdminCog(commands.Cog):
         )
         await interaction.response.send_message(embed=embed)
 
-    @admin_group.command(name="broadcast", description="Broadcast an announcement message to a designated channel (Admin only).")
-    @app_commands.describe(channel="The text channel to post the announcement in", message="The announcement message content")
+    @admin_group.command(name="broadcast", description="Broadcast an announcement message to a channel (Admin only).")
+    @app_commands.describe(
+        message="The announcement message content (supports \\n for line breaks)",
+        channel="Target text channel (optional, defaults to current channel)",
+        title="Custom title for announcement embed (optional)",
+        ping="Optional ping: 'everyone' or 'here'"
+    )
+    @app_commands.choices(ping=[
+        app_commands.Choice(name="None", value="none"),
+        app_commands.Choice(name="@everyone", value="everyone"),
+        app_commands.Choice(name="@here", value="here")
+    ])
     @is_admin()
     @app_commands.guild_only()
-    async def admin_broadcast(self, interaction: discord.Interaction, channel: discord.TextChannel, message: str):
+    async def admin_broadcast(
+        self,
+        interaction: discord.Interaction,
+        message: str,
+        channel: Optional[discord.TextChannel] = None,
+        title: Optional[str] = "📢 Official Announcement",
+        ping: Optional[str] = "none"
+    ):
+        target_channel = channel or interaction.channel
+        if not target_channel:
+            await interaction.response.send_message("❌ Channel not found.", ephemeral=True)
+            return
+
+        formatted_message = message.replace("\\n", "\n")
         embed = utils.create_embed(
-            title="📢 Official Announcement",
-            description=message,
+            title=title or "📢 Official Announcement",
+            description=formatted_message,
             color=utils.COLOR_INFO
         )
+
+        content = None
+        if ping == "everyone":
+            content = "@everyone"
+        elif ping == "here":
+            content = "@here"
+
         try:
-            await channel.send(embed=embed)
-            await interaction.response.send_message(f"✅ Announcement sent to {channel.mention}.", ephemeral=True)
+            await target_channel.send(content=content, embed=embed)
+            await interaction.response.send_message(f"✅ Announcement successfully sent to {target_channel.mention}.", ephemeral=True)
         except Exception as e:
-            await interaction.response.send_message(f"❌ Failed to send announcement: {str(e)}", ephemeral=True)
+            await interaction.response.send_message(f"❌ Failed to send announcement to {target_channel.mention}: {str(e)}", ephemeral=True)
 
     @admin_group.command(name="dbbackup", description="Trigger manual backup copy of SQLite DB (Admin only).")
     @is_admin()
