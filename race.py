@@ -242,11 +242,11 @@ class SimTeam:
             bonus_mult = RARITY_BONUS_MULTIPLIERS.get(rarity, 1.0)
             return effective_level * tier_mult * bonus_mult
 
-        engine_contrib = calculate_effective_stat('engine', self.engine) * 3.0 * eng_mult
-        aero_contrib = calculate_effective_stat('aerodynamics', self.aerodynamics) * 2.0 * aero_mult
-        tyre_contrib = calculate_effective_stat('tyres', self.tyres_stat) * 2.0 * tyre_mult
-        ers_contrib = calculate_effective_stat('ers', self.ers) * 2.0
-        reliability_contrib = calculate_effective_stat('reliability', self.reliability) * 1.0
+        engine_contrib = calculate_effective_stat('engine', self.engine) * 1.0 * eng_mult
+        aero_contrib = calculate_effective_stat('aerodynamics', self.aerodynamics) * 0.8 * aero_mult
+        tyre_contrib = calculate_effective_stat('tyres', self.tyres_stat) * 0.8 * tyre_mult
+        ers_contrib = calculate_effective_stat('ers', self.ers) * 0.8
+        reliability_contrib = calculate_effective_stat('reliability', self.reliability) * 0.5
         
         base_power = engine_contrib + aero_contrib + tyre_contrib + ers_contrib + reliability_contrib
         
@@ -410,35 +410,35 @@ def simulate_duel_generator(team1_data: Dict[str, Any], team2_data: Dict[str, An
         T_base = TRACK_BASE_LAP_TIMES.get(track, 45.0)
 
         # Calculate performance for this lap
-        l_tyre_bonus = 2.5 if leader.tyre_type == "Soft" else (0.0 if leader.tyre_type == "Hard" else 1.2)
-        t_tyre_bonus = 2.5 if trailer.tyre_type == "Soft" else (0.0 if trailer.tyre_type == "Hard" else 1.2)
+        l_tyre_bonus = 1.0 if leader.tyre_type == "Soft" else (0.0 if leader.tyre_type == "Hard" else 0.5)
+        t_tyre_bonus = 1.0 if trailer.tyre_type == "Soft" else (0.0 if trailer.tyre_type == "Hard" else 0.5)
         
-        l_perf = leader.calculate_base_car_power(track) + (leader.driver_pace / 10.0) + l_tyre_bonus + random.uniform(-1.0, 1.0)
-        t_perf = trailer.calculate_base_car_power(track) + (trailer.driver_pace / 10.0) + t_tyre_bonus + random.uniform(-1.0, 1.0)
+        l_perf = leader.calculate_base_car_power(track) + (leader.driver_pace / 20.0) + l_tyre_bonus + random.uniform(-0.5, 0.5)
+        t_perf = trailer.calculate_base_car_power(track) + (trailer.driver_pace / 20.0) + t_tyre_bonus + random.uniform(-0.5, 0.5)
         
         # Strategy bonuses
         if leader.strategy in ["Aggressive", "Push"]:
-            l_perf += 1.5
+            l_perf += 0.8
         elif leader.strategy in ["Conservative", "Save"]:
-            l_perf -= 1.0
+            l_perf -= 0.5
             
         if trailer.strategy in ["Aggressive", "Push"]:
-            t_perf += 1.5
+            t_perf += 0.8
         elif trailer.strategy in ["Conservative", "Save"]:
-            t_perf -= 1.0
+            t_perf -= 0.5
             
         # Tyre penalty
         if leader.tyre_health < 40.0:
-            l_perf -= (40.0 - leader.tyre_health) * 0.2
+            l_perf -= (40.0 - leader.tyre_health) * 0.1
         if trailer.tyre_health < 40.0:
-            t_perf -= (40.0 - trailer.tyre_health) * 0.2
+            t_perf -= (40.0 - trailer.tyre_health) * 0.1
             
-        # Calculate dynamic lap times for telemetry chart
-        leader.last_lap_time = max(30.0, round(T_base - (l_perf * 0.08), 2))
-        trailer.last_lap_time = max(30.0, round(T_base - (t_perf * 0.08), 2))
+        # Calculate dynamic lap times for telemetry chart (seconds)
+        leader.last_lap_time = max(30.0, round(T_base - (l_perf * 0.05), 2))
+        trailer.last_lap_time = max(30.0, round(T_base - (t_perf * 0.05), 2))
 
-        # Shift gap realistically
-        perf_diff = (l_perf - t_perf) * 0.08
+        # Shift gap realistically (0.025 scaling for true 0.07s/lap per part level)
+        perf_diff = (l_perf - t_perf) * 0.025
         gap += perf_diff
         
         if gap <= 0:
@@ -634,8 +634,8 @@ def simulate_gp_generator(entries_data: List[Dict[str, Any]], track_name: str, t
             # Base lap time: T_base
             lap_time = T_base
             
-            # Car upgrades bonus (shaves time)
-            car_bonus = (t.engine * 0.12) + (t.aerodynamics * 0.08) + (t.ers * 0.08)
+            # Car upgrades bonus (shaves time realistically)
+            car_bonus = (t.engine * 0.05) + (t.aerodynamics * 0.04) + (t.ers * 0.04)
             lap_time -= car_bonus
             
             # Driver pace bonus (shaves time)
