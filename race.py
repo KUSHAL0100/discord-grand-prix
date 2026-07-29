@@ -600,13 +600,29 @@ def simulate_gp_generator(entries_data: List[Dict[str, Any]], track_name: str, t
         
         # Weather Radar Alerts (runs at start of lap)
         if weather_timeline:
+            # 2 Laps Ahead Radar Check
             if lap + 1 < len(weather_timeline):
                 next_weather_2 = weather_timeline[lap + 1]
+                w_at_lap_plus_1 = weather_timeline[lap]
+                if next_weather_2 != w_at_lap_plus_1:
+                    if next_weather_2 == "Rain":
+                        lap_logs.append(f"⛈️ **WEATHER RADAR:** Radar indicates rain clouds approaching! Expected to hit the track in 2 laps (Lap {lap + 2}).")
+                    elif next_weather_2 == "Sunny":
+                        lap_logs.append(f"☀️ **WEATHER RADAR:** Radar indicates rain clouds clearing! Expected to be Sunny in 2 laps (Lap {lap + 2}).")
+                    else:
+                        lap_logs.append(f"🌤️ **WEATHER RADAR:** Radar indicates weather changing to {next_weather_2} in 2 laps (Lap {lap + 2}).")
+            
+            # 1 Lap Ahead Radar Check
+            if lap < len(weather_timeline):
                 next_weather_1 = weather_timeline[lap]
-                if next_weather_2 == "Rain" and next_weather_1 != "Rain" and current_weather != "Rain":
-                    lap_logs.append(f"⛈️ **WEATHER RADAR:** Radar indicates rain clouds approaching! Expected to hit the track in 2 laps (Lap {lap + 2}).")
-                elif next_weather_1 == "Rain" and current_weather != "Rain" and (lap == 1 or weather_timeline[lap - 2] != "Rain"):
-                    lap_logs.append(f"⛈️ **WEATHER RADAR:** Rain clouds are directly overhead! Expected to hit the track next lap (Lap {lap + 1}).")
+                w_curr = weather_timeline[lap - 1]
+                if next_weather_1 != w_curr:
+                    if next_weather_1 == "Rain":
+                        lap_logs.append(f"⛈️ **WEATHER RADAR:** Rain clouds are directly overhead! Expected to hit the track next lap (Lap {lap + 1}).")
+                    elif next_weather_1 == "Sunny":
+                        lap_logs.append(f"☀️ **WEATHER RADAR:** Rain clearing up! Expected to be Sunny next lap (Lap {lap + 1}).")
+                    else:
+                        lap_logs.append(f"🌤️ **WEATHER RADAR:** Weather changing to {next_weather_1} next lap (Lap {lap + 1}).")
         
         # A. Weather change check
         if weather_timeline and lap <= len(weather_timeline):
@@ -614,12 +630,24 @@ def simulate_gp_generator(entries_data: List[Dict[str, Any]], track_name: str, t
             if new_weather != current_weather:
                 lap_logs.append(f"🌧️ **Lap {lap}: Weather change! It is now {new_weather}.**")
                 current_weather = new_weather
+                for t in teams:
+                    if not t.is_ai and not t.dnf:
+                        if current_weather == "Rain" and t.tyre_type != "Intermediates":
+                            lap_logs.append(f"📻 *[Radio - {t.team_name}]: Rain has started! Call box in telemetry if you want Intermediates.*")
+                        elif current_weather == "Sunny" and t.tyre_type == "Intermediates":
+                            lap_logs.append(f"📻 *[Radio - {t.team_name}]: Track is dry! Call box in telemetry if you want Dry tyres.*")
         else:
             if random.random() < 0.10:
                 old_weather = current_weather
                 current_weather = random.choice(["Sunny", "Mixed", "Rain"])
                 if old_weather != current_weather:
                     lap_logs.append(f"🌧️ **Lap {lap}: Weather change! It is now {current_weather}.**")
+                    for t in teams:
+                        if not t.is_ai and not t.dnf:
+                            if current_weather == "Rain" and t.tyre_type != "Intermediates":
+                                lap_logs.append(f"📻 *[Radio - {t.team_name}]: Rain has started! Call box in telemetry if you want Intermediates.*")
+                            elif current_weather == "Sunny" and t.tyre_type == "Intermediates":
+                                lap_logs.append(f"📻 *[Radio - {t.team_name}]: Track is dry! Call box in telemetry if you want Dry tyres.*")
                 
         # Check for external manual DNFs set during the sleep period
         for t in teams:
@@ -720,16 +748,24 @@ def simulate_gp_generator(entries_data: List[Dict[str, Any]], track_name: str, t
             wants_pit = False
             needed_tyre = t.tyre_type
             
-            if current_weather == "Rain" and t.tyre_type != "Intermediates":
-                wants_pit = True
-                needed_tyre = "Intermediates"
-            elif current_weather == "Sunny" and t.tyre_type == "Intermediates":
-                wants_pit = True
-                needed_tyre = t.pref_tyres
-            elif t.pit_next_lap:
-                wants_pit = True
-                needed_tyre = t.pit_next_lap_tyre
-                t.pit_next_lap = False  # Reset scheduled flag
+            if t.is_ai:
+                if current_weather == "Rain" and t.tyre_type != "Intermediates":
+                    wants_pit = True
+                    needed_tyre = "Intermediates"
+                elif current_weather == "Sunny" and t.tyre_type == "Intermediates":
+                    wants_pit = True
+                    needed_tyre = t.pref_tyres
+                elif getattr(t, "pit_laps", None) and lap in t.pit_laps:
+                    wants_pit = True
+                    needed_tyre = getattr(t, "pit_tyres_plan", {}).get(lap, t.pref_tyres)
+            else:
+                if t.pit_next_lap:
+                    wants_pit = True
+                    needed_tyre = t.pit_next_lap_tyre
+                    t.pit_next_lap = False  # Reset scheduled flag
+                elif getattr(t, "pit_laps", None) and lap in t.pit_laps:
+                    wants_pit = True
+                    needed_tyre = getattr(t, "pit_tyres_plan", {}).get(lap, t.pref_tyres)
                 
             if wants_pit:
                 # Scaled pit stop cost (8s base + crew time for 45s laps)

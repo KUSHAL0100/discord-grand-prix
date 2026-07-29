@@ -1056,31 +1056,47 @@ def save_gp_results(race_id: int, results: List[Dict[str, Any]], winner_user_id:
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
+        # Verify winner exists in users table (AI drivers have user_id like 9001, which is not in users table)
+        valid_winner_id = None
+        if winner_user_id:
+            cursor.execute("SELECT user_id FROM users WHERE user_id = ?", (winner_user_id,))
+            if cursor.fetchone():
+                valid_winner_id = winner_user_id
+
         # Update race winner and status
         cursor.execute(
             "UPDATE races SET status = 'Finished', winner_id = ? WHERE race_id = ?",
-            (winner_user_id, race_id)
+            (valid_winner_id, race_id)
         )
         
         # Save results for each entrant
         for res in results:
+            user_id = res["user_id"]
+            
             cursor.execute("""
                 UPDATE race_entries 
                 SET finish_position = ?, points_earned = ?, credits_won = ?, dnf = ?
                 WHERE race_id = ? AND user_id = ?
-            """, (res["finish_position"], res["points_earned"], res["credits_won"], res["dnf"], race_id, res["user_id"]))
+            """, (res["finish_position"], res["points_earned"], res["credits_won"], res["dnf"], race_id, user_id))
             
+            # Check if this user exists in users table (human user)
+            cursor.execute("SELECT user_id FROM users WHERE user_id = ?", (user_id,))
+            is_human = cursor.fetchone() is not None
+            
+            if not is_human:
+                continue
+                
             # Award credits to user profile
             cursor.execute(
                 "UPDATE users SET money = money + ? WHERE user_id = ?",
-                (res["credits_won"], res["user_id"])
+                (res["credits_won"], user_id)
             )
             
             # Record wins/losses and add experience/XP
             if res["finish_position"] == 1:
-                cursor.execute("UPDATE users SET wins = wins + 1 WHERE user_id = ?", (res["user_id"],))
+                cursor.execute("UPDATE users SET wins = wins + 1 WHERE user_id = ?", (user_id,))
             else:
-                cursor.execute("UPDATE users SET losses = losses + 1 WHERE user_id = ?", (res["user_id"],))
+                cursor.execute("UPDATE users SET losses = losses + 1 WHERE user_id = ?", (user_id,))
                 
             # Award XP (e.g. 500 XP for completing a GP, 1500 XP for podium)
             xp_to_add = 500
@@ -1105,10 +1121,10 @@ def save_gp_results(race_id: int, results: List[Dict[str, Any]], winner_user_id:
                         aggression = MIN(100, aggression + ?),
                         overtaking = MIN(100, overtaking + ?)
                     WHERE user_id = ?
-                """, (stat_boost, stat_boost, stat_boost, stat_boost, stat_boost, stat_boost, res["user_id"]))
+                """, (stat_boost, stat_boost, stat_boost, stat_boost, stat_boost, stat_boost, user_id))
 
             # Add XP using add_user_xp logic (internal transaction, so we update manually here)
-            cursor.execute("SELECT xp, level FROM users WHERE user_id = ?", (res["user_id"],))
+            cursor.execute("SELECT xp, level FROM users WHERE user_id = ?", (user_id,))
             user_row = cursor.fetchone()
             if user_row:
                 new_xp = user_row['xp'] + xp_to_add
@@ -1117,8 +1133,8 @@ def save_gp_results(race_id: int, results: List[Dict[str, Any]], winner_user_id:
                     new_xp -= new_level * 1000
                     new_level += 1
                     # Level up reward: new_level * 500¢
-                    cursor.execute("UPDATE users SET money = money + ? WHERE user_id = ?", (new_level * 500, res["user_id"]))
-                cursor.execute("UPDATE users SET xp = ?, level = ? WHERE user_id = ?", (new_xp, new_level, res["user_id"]))
+                    cursor.execute("UPDATE users SET money = money + ? WHERE user_id = ?", (new_level * 500, user_id))
+                cursor.execute("UPDATE users SET xp = ?, level = ? WHERE user_id = ?", (new_xp, new_level, user_id))
                 
             # Apply race damage to garage
             # If DNF, damage is high. Otherwise moderate.
@@ -1134,13 +1150,14 @@ def save_gp_results(race_id: int, results: List[Dict[str, Any]], winner_user_id:
                 SET damage_engine = MIN(100, damage_engine + ?),
                     damage_tyres = MIN(100, damage_tyres + ?)
                 WHERE user_id = ?
-            """, (dmg_eng, dmg_tyr, res["user_id"]))
+            """, (dmg_eng, dmg_tyr, user_id))
             
             # Recalculate damage_total
-            cursor.execute("SELECT damage_engine, damage_tyres FROM garage WHERE user_id = ?", (res["user_id"],))
+            cursor.execute("SELECT damage_engine, damage_tyres FROM garage WHERE user_id = ?", (user_id,))
             damages = cursor.fetchone()
-            new_total = damages['damage_engine'] + damages['damage_tyres']
-            cursor.execute("UPDATE garage SET damage_total = ? WHERE user_id = ?", (new_total, res["user_id"]))
+            if damages:
+                new_total = damages['damage_engine'] + damages['damage_tyres']
+                cursor.execute("UPDATE garage SET damage_total = ? WHERE user_id = ?", (new_total, user_id))
         
         conn.commit()
     except Exception as e:

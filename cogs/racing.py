@@ -1085,7 +1085,7 @@ class GPStartRaceButton(discord.ui.Button):
         except Exception as e:
             import traceback
             traceback.print_exc()
-            await interaction.followup.send(f"❌ **Error starting GP:** `{e}`")
+            await interaction.followup.send(f"❌ **Error processing GP results:** `{e}`")
 
 
 

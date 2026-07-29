@@ -218,3 +218,91 @@ def test_generator_simulation():
             user_ids = [r["user_id"] for r in results]
             assert 1 in user_ids
 
+def test_ai_winner_save_gp_results(tmp_path):
+    import database
+    import sqlite3
+    database.init_db()
+    
+    # Create a test race in DB
+    conn = database.get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        "INSERT INTO races (guild_id, name, date, track, weather, status, laps) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (12345, "Test GP", "2026-07-29", "Monza", "Sunny", "Qualifying", 10)
+    )
+    race_id = cursor.lastrowid
+    
+    # Create 1 human user entry
+    cursor.execute("INSERT OR IGNORE INTO users (user_id, discord_id, guild_id, team_name) VALUES (?, ?, ?, ?)", (1, 1001, 12345, "Apex Racing"))
+    cursor.execute("INSERT INTO race_entries (race_id, user_id) VALUES (?, ?)", (race_id, 1))
+    conn.commit()
+    conn.close()
+    
+    # Mock results where AI driver (user_id 9001) finishes P1 and human (user_id 1) finishes P2
+    mock_results = [
+        {"user_id": 9001, "finish_position": 1, "points_earned": 25, "credits_won": 5000, "dnf": False, "is_ai": True},
+        {"user_id": 1, "finish_position": 2, "points_earned": 18, "credits_won": 3000, "dnf": False, "is_ai": False}
+    ]
+    
+    # This should execute without raising FOREIGN KEY constraint failed
+    database.save_gp_results(race_id, mock_results, winner_user_id=9001)
+    
+    conn = database.get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT status, winner_id FROM races WHERE race_id = ?", (race_id,))
+    race_row = cursor.fetchone()
+    assert race_row["status"] == "Finished"
+    assert race_row["winner_id"] is None  # Foreign key set to None for AI driver
+
+def test_human_driver_no_auto_pit_on_weather_change():
+    entries = [
+        {
+            "user_id": 1, "team_name": "Human Team", "discord_id": 1001,
+            "engine": 10, "aerodynamics": 10, "tyres": 10, "ers": 10, "reliability": 10,
+            "pace": 90, "qual": 90, "wet_skill": 90, "consistency": 90, "aggression": 90, "overtaking": 90,
+            "is_ai": False
+        }
+    ]
+    # Weather: Lap 1 Sunny, Lap 2 Rain, Lap 3 Rain
+    generator = race.simulate_gp_generator(entries, "Monza", total_laps=3, weather_timeline=["Sunny", "Rain", "Rain"])
+    
+    setup_event = next(generator)
+    teams = setup_event[1]
+    human_team = [t for t in teams if t.user_id == 1][0]
+    ai_team = [t for t in teams if t.is_ai][0]
+    
+    # Lap 1: Sunny
+    lap1_event = next(generator)
+    assert human_team.tyre_type == "Medium"
+    
+    # Lap 2: Weather changes to Rain
+    lap2_event = next(generator)
+    lap2_logs = lap2_event[2]
+    
+    # Human driver should NOT have automatically pitted
+    assert human_team.tyre_type == "Medium", "Human driver should NOT auto-pit on rain"
+    assert any("Rain has started" in log for log in lap2_logs), "Human driver should receive radio alert about rain"
+    
+    # AI driver SHOULD have automatically pitted for Intermediates
+    assert ai_team.tyre_type == "Intermediates", "AI driver SHOULD auto-pit for Intermediates on rain"
+
+def test_weather_radar_clearing_alert():
+    entries = [
+        {
+            "user_id": 1, "team_name": "Human Team", "discord_id": 1001,
+            "engine": 10, "aerodynamics": 10, "tyres": 10, "ers": 10, "reliability": 10,
+            "pace": 90, "qual": 90, "wet_skill": 90, "consistency": 90, "aggression": 90, "overtaking": 90
+        }
+    ]
+    # Lap 1 Rain, Lap 2 Rain, Lap 3 Sunny
+    generator = race.simulate_gp_generator(entries, "Monza", total_laps=3, weather_timeline=["Rain", "Rain", "Sunny"])
+    
+    next(generator)  # setup
+    lap1_event = next(generator)
+    lap1_logs = lap1_event[2]
+    
+    # At Lap 1, Lap 3 is 2 laps ahead and becomes Sunny -> should log clearing warning
+    has_clearing_warning = any("clearing" in l for l in lap1_logs)
+    assert has_clearing_warning is True, "Expected weather radar clearing warning for rain stopping in 2 laps."
+
+
