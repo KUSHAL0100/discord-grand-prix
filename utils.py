@@ -295,16 +295,18 @@ def generate_race_telemetry_graph(lap_history: List[Any]) -> io.BytesIO:
             for idx, name in enumerate(driver_names):
                 y_vals = [h["drivers"].get(name, 0.0) for h in lap_history]
                 c = colors_list[idx % len(colors_list)]
-                ax.plot(laps, y_vals, marker='o', linewidth=2.5, markersize=5, label=name[:14], color=c)
+                ax.plot(laps, y_vals, marker='o', linewidth=2.5, markersize=6, label=name[:16], color=c)
+                
+            ax.set_ylabel("Lap Time (Seconds)", color="#a0abc0", fontsize=11, fontweight='bold')
+            ax.invert_yaxis()  # Faster lap times (lower seconds) appear at top!
         else:
-            # Duel log list format (list of log strings/lists per lap)
+            # Fallback format
             laps = list(range(1, len(lap_history) + 1))
-            ax.plot(laps, [idx * 0.4 for idx in laps], marker='o', linewidth=2.5, color='#e10600', label="Driver 1")
-            ax.plot(laps, [idx * 0.4 + 0.3 for idx in laps], marker='s', linewidth=2.5, color='#00aaff', label="Driver 2")
-            
+            ax.plot(laps, [45.0 + (i * 0.1) for i in laps], marker='o', linewidth=2.5, color='#e10600', label="Pace Data")
+            ax.set_ylabel("Lap Time (Seconds)", color="#a0abc0", fontsize=11, fontweight='bold')
+
         ax.set_xlabel("Lap Number", color="#a0abc0", fontsize=11, fontweight='bold')
-        ax.set_ylabel("Pace / Gap (s)", color="#a0abc0", fontsize=11, fontweight='bold')
-        ax.set_title("Grand Prix Race Telemetry & Pace Chart", color="white", fontsize=13, fontweight='bold', pad=12)
+        ax.set_title("🏁 Grand Prix Race Telemetry & Lap Pace Chart", color="white", fontsize=13, fontweight='bold', pad=12)
         ax.grid(True, linestyle='--', alpha=0.25, color='#404b5c')
         ax.tick_params(colors='#a0abc0', labelsize=10)
         

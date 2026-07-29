@@ -202,8 +202,8 @@ class SimTeam:
             except Exception:
                 pass
                 
-        self.strategy = self.pit_strategy.get("pace", self.pref_strategy)
-        self.tyre_type = self.pit_strategy.get("start_tyre", self.pref_tyres)
+        self.strategy = self.pit_strategy.get("pace") or data.get("pref_strategy") or "Balanced"
+        self.tyre_type = self.pit_strategy.get("start_tyre") or data.get("pref_tyres") or "Medium"
         
         self.pit_laps = []
         self.pit_tyres_plan = {}

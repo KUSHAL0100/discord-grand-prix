@@ -14,13 +14,13 @@ import crates
 ACTIVE_RACES = {}
 
 class RacePaceView(discord.ui.View):
-    def __init__(self, user1_id, user2_id, guild_id):
+    def __init__(self, user1_id, user2_id, guild_id, p1_default="Balanced", p2_default="Balanced"):
         super().__init__(timeout=60.0)
         self.user1_id = user1_id
         self.user2_id = user2_id
         self.guild_id = guild_id
-        self.p1_strategy = "Balanced"
-        self.p2_strategy = "Balanced"
+        self.p1_strategy = p1_default
+        self.p2_strategy = p2_default
         self.p1_done = False
         self.p2_done = False
         self.ready_event = asyncio.Event()
@@ -102,7 +102,13 @@ class RaceChallengeView(discord.ui.View):
             item.disabled = True
         await interaction.response.edit_message(view=self)
 
-        pace_view = RacePaceView(self.challenger_prof['discord_id'], self.opponent_prof['discord_id'], self.guild_id)
+        pace_view = RacePaceView(
+            self.challenger_prof['discord_id'],
+            self.opponent_prof['discord_id'],
+            self.guild_id,
+            p1_default=self.challenger_prof.get('pref_strategy', 'Balanced'),
+            p2_default=self.opponent_prof.get('pref_strategy', 'Balanced')
+        )
         pace_embed = utils.create_embed(
             title=f"⏱️ Strategy Setup — Choose Your Race Pacing ({self.laps} Laps)!",
             description=(
@@ -153,6 +159,7 @@ class RaceChallengeView(discord.ui.View):
         race_msg = await interaction.followup.send(embed=quali_embed)
         
         lap_logs = []
+        lap_telemetry_history = []
         winner = None
         loser = None
         
@@ -166,6 +173,12 @@ class RaceChallengeView(discord.ui.View):
                 lap_logs.append(lap_events)
                 ACTIVE_RACES[interaction.guild_id]["lap"] = l_num
                 ACTIVE_RACES[interaction.guild_id]["snapshot"] = lap_snapshot
+
+                # Record real telemetry data per lap for the race chart
+                drivers_pace = {}
+                for t_obj in lap_snapshot:
+                    drivers_pace[t_obj.team_name] = round(t_obj.last_lap_time, 2)
+                lap_telemetry_history.append({"lap": l_num, "drivers": drivers_pace})
                 
                 lap_text = "\n".join(lap_events) if isinstance(lap_events, list) else str(lap_events)
                 
@@ -204,7 +217,7 @@ class RaceChallengeView(discord.ui.View):
 
         database.record_race_result(winner['user_id'], loser['user_id'], self.guild_id)
 
-        telemetry_chart = utils.generate_race_telemetry_graph(lap_logs)
+        telemetry_chart = utils.generate_race_telemetry_graph(lap_telemetry_history)
         chart_file = discord.File(telemetry_chart, filename="telemetry_chart.png")
 
         victory_radio = utils.get_victory_team_radio(winner['team_name'])

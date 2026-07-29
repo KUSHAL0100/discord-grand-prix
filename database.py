@@ -466,11 +466,22 @@ def update_user_strategy(user_id: int, pace: str, tyres: str, pit_stops: int) ->
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
+        import json
+        row = cursor.execute("SELECT pit_strategy_json FROM users WHERE user_id = ?", (user_id,)).fetchone()
+        strategy_json = {}
+        if row and row['pit_strategy_json']:
+            try:
+                strategy_json = json.loads(row['pit_strategy_json'])
+            except Exception:
+                pass
+        strategy_json['pace'] = pace
+        strategy_json['start_tyre'] = tyres
+
         cursor.execute("""
             UPDATE users 
-            SET pref_strategy = ?, pref_tyres = ?, pref_pit_stops = ?
+            SET pref_strategy = ?, pref_tyres = ?, pref_pit_stops = ?, pit_strategy_json = ?
             WHERE user_id = ?
-        """, (pace, tyres, pit_stops, user_id))
+        """, (pace, tyres, pit_stops, json.dumps(strategy_json), user_id))
         conn.commit()
         return True
     except sqlite3.Error:
