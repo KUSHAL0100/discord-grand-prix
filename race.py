@@ -247,8 +247,9 @@ class SimTeam:
         tyre_contrib = calculate_effective_stat('tyres', self.tyres_stat) * 0.8 * tyre_mult
         ers_contrib = calculate_effective_stat('ers', self.ers) * 0.8
         reliability_contrib = calculate_effective_stat('reliability', self.reliability) * 0.5
+        pit_crew_contrib = calculate_effective_stat('pit_crew', self.pit_crew) * 0.3
         
-        base_power = engine_contrib + aero_contrib + tyre_contrib + ers_contrib + reliability_contrib
+        base_power = engine_contrib + aero_contrib + tyre_contrib + ers_contrib + reliability_contrib + pit_crew_contrib
         
         # Apply damage penalty: e.g. -1% power per 10% damage_total
         damage_penalty = (self.damage_total / 10.0) / 100.0
