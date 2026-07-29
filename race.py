@@ -407,32 +407,38 @@ def simulate_duel_generator(team1_data: Dict[str, Any], team2_data: Dict[str, An
             t.tyre_health -= random.uniform(wear - 1, wear + 1)
             t.tyre_health = max(0.0, t.tyre_health)
             
+        T_base = TRACK_BASE_LAP_TIMES.get(track, 45.0)
+
         # Calculate performance for this lap
-        l_tyre_bonus = 8.0 if leader.tyre_type == "Soft" else (0.0 if leader.tyre_type == "Hard" else 4.0)
-        t_tyre_bonus = 8.0 if trailer.tyre_type == "Soft" else (0.0 if trailer.tyre_type == "Hard" else 4.0)
+        l_tyre_bonus = 2.5 if leader.tyre_type == "Soft" else (0.0 if leader.tyre_type == "Hard" else 1.2)
+        t_tyre_bonus = 2.5 if trailer.tyre_type == "Soft" else (0.0 if trailer.tyre_type == "Hard" else 1.2)
         
-        l_perf = leader.calculate_base_car_power(track) + (leader.driver_pace / 4.0) + l_tyre_bonus + random.uniform(0, 8)
-        t_perf = trailer.calculate_base_car_power(track) + (trailer.driver_pace / 4.0) + t_tyre_bonus + random.uniform(0, 8)
+        l_perf = leader.calculate_base_car_power(track) + (leader.driver_pace / 10.0) + l_tyre_bonus + random.uniform(-1.0, 1.0)
+        t_perf = trailer.calculate_base_car_power(track) + (trailer.driver_pace / 10.0) + t_tyre_bonus + random.uniform(-1.0, 1.0)
         
         # Strategy bonuses
-        if leader.strategy == "Aggressive":
-            l_perf += 5.0
-        elif leader.strategy == "Conservative":
-            l_perf -= 3.0
+        if leader.strategy in ["Aggressive", "Push"]:
+            l_perf += 1.5
+        elif leader.strategy in ["Conservative", "Save"]:
+            l_perf -= 1.0
             
-        if trailer.strategy == "Aggressive":
-            t_perf += 5.0
-        elif trailer.strategy == "Conservative":
-            t_perf -= 3.0
+        if trailer.strategy in ["Aggressive", "Push"]:
+            t_perf += 1.5
+        elif trailer.strategy in ["Conservative", "Save"]:
+            t_perf -= 1.0
             
         # Tyre penalty
         if leader.tyre_health < 40.0:
-            l_perf -= (40.0 - leader.tyre_health) * 0.8
+            l_perf -= (40.0 - leader.tyre_health) * 0.2
         if trailer.tyre_health < 40.0:
-            t_perf -= (40.0 - trailer.tyre_health) * 0.8
+            t_perf -= (40.0 - trailer.tyre_health) * 0.2
             
-        # Shift gap
-        perf_diff = (l_perf - t_perf) * 0.25
+        # Calculate dynamic lap times for telemetry chart
+        leader.last_lap_time = max(30.0, round(T_base - (l_perf * 0.08), 2))
+        trailer.last_lap_time = max(30.0, round(T_base - (t_perf * 0.08), 2))
+
+        # Shift gap realistically
+        perf_diff = (l_perf - t_perf) * 0.08
         gap += perf_diff
         
         if gap <= 0:
