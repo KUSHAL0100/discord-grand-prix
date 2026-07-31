@@ -104,6 +104,16 @@ TRACK_PROFILES = {
     }
 }
 
+TRACK_BASE_LAP_TIMES = {
+    "Monaco": 47.0,
+    "Monza": 43.0,
+    "Spa": 49.0,
+    "Silverstone": 45.0,
+    "Singapore": 48.0,
+    "Suzuka": 46.0,
+    "Bahrain": 44.0
+}
+
 # 20-Car Grid AI Driver Roster
 AI_GRID_DRIVERS = [
     {"user_id": 9001, "team_name": "Red Bull (Verstappen)", "discord_id": 9001, "engine": 16, "aerodynamics": 16, "tyres": 15, "ers": 15, "reliability": 16, "pit_crew": 16, "pace": 96, "qual": 96, "wet_skill": 95, "consistency": 94, "aggression": 90, "overtaking": 92, "is_ai": True},

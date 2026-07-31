@@ -158,86 +158,97 @@ class RaceChallengeView(discord.ui.View):
         )
         race_msg = await interaction.followup.send(embed=quali_embed)
         
-        lap_logs = []
-        lap_telemetry_history = []
-        winner = None
-        loser = None
-        
-        # Loop through each lap event
-        for item in generator:
-            if item[0] == "lap":
-                l_num = item[1]
-                lap_events = item[2]
-                lap_snapshot = item[3]
-                
-                lap_logs.append(lap_events)
-                ACTIVE_RACES[interaction.guild_id]["lap"] = l_num
-                ACTIVE_RACES[interaction.guild_id]["snapshot"] = lap_snapshot
+        try:
+            lap_logs = []
+            lap_telemetry_history = []
+            winner = None
+            loser = None
+            
+            # Loop through each lap event
+            for item in generator:
+                if item[0] == "lap":
+                    l_num = item[1]
+                    lap_events = item[2]
+                    lap_snapshot = item[3]
+                    
+                    lap_logs.append(lap_events)
+                    ACTIVE_RACES[interaction.guild_id]["lap"] = l_num
+                    ACTIVE_RACES[interaction.guild_id]["snapshot"] = lap_snapshot
 
-                # Record real telemetry data per lap for the race chart
-                drivers_pace = {}
-                for t_obj in teams_list:
-                    drivers_pace[t_obj.team_name] = round(t_obj.last_lap_time, 2)
-                lap_telemetry_history.append({"lap": l_num, "drivers": drivers_pace})
-                
-                lap_text = "\n".join(lap_events) if isinstance(lap_events, list) else str(lap_events)
-                
-                lap_embed = utils.create_embed(
-                    title=f"🏎️ Lap {l_num} / {self.laps}",
-                    description=lap_text,
-                    color=0xF5A623
-                )
-                
-                # Setup telemetry view so they can change strategy during the 20 second gap!
-                entries_list = [
-                    {"user_id": self.challenger_prof["user_id"], "discord_id": self.challenger_prof["discord_id"], "team_name": self.challenger_prof["team_name"]},
-                    {"user_id": self.opponent_prof["user_id"], "discord_id": self.opponent_prof["discord_id"], "team_name": self.opponent_prof["team_name"]}
-                ]
-                
-                view = GPLapTelemetryView(l_num, lap_snapshot, entries_list)
-                await interaction.channel.send(embed=lap_embed, view=view)
-                
-                # Sleep for 20 seconds gap
-                await asyncio.sleep(20.0)
-                
-            elif item[0] == "finish":
-                winner = item[1]
-                loser = item[2]
-                
-        # Clean up active race registry
-        if interaction.guild_id in ACTIVE_RACES:
-            del ACTIVE_RACES[interaction.guild_id]
+                    # Record real telemetry data per lap for the race chart
+                    drivers_pace = {}
+                    for t_obj in teams_list:
+                        drivers_pace[t_obj.team_name] = round(t_obj.last_lap_time, 2)
+                    lap_telemetry_history.append({"lap": l_num, "drivers": drivers_pace})
+                    
+                    lap_text = "\n".join(lap_events) if isinstance(lap_events, list) else str(lap_events)
+                    
+                    lap_embed = utils.create_embed(
+                        title=f"🏎️ Lap {l_num} / {self.laps}",
+                        description=lap_text,
+                        color=0xF5A623
+                    )
+                    
+                    # Setup telemetry view so they can change strategy during the gap!
+                    entries_list = [
+                        {"user_id": self.challenger_prof["user_id"], "discord_id": self.challenger_prof["discord_id"], "team_name": self.challenger_prof["team_name"]},
+                        {"user_id": self.opponent_prof["user_id"], "discord_id": self.opponent_prof["discord_id"], "team_name": self.opponent_prof["team_name"]}
+                    ]
+                    
+                    view = GPLapTelemetryView(l_num, lap_snapshot, entries_list)
+                    await interaction.channel.send(embed=lap_embed, view=view)
+                    
+                    # Sleep for 5 seconds gap between lap updates
+                    await asyncio.sleep(5.0)
+                    
+                elif item[0] == "finish":
+                    winner = item[1]
+                    loser = item[2]
+                    
+            # Clean up active race registry
+            if interaction.guild_id in ACTIVE_RACES:
+                del ACTIVE_RACES[interaction.guild_id]
 
-        if self.wager > 0:
-            database.update_user_balance(winner['user_id'], self.wager)
-            database.update_user_balance(loser['user_id'], -self.wager)
-            wager_str = f"\n💰 **Wager Paid:** **+{self.wager:,} credits** won!"
-        else:
-            wager_str = ""
+            if not winner or not loser:
+                await interaction.channel.send("❌ Race simulation finished without a clear winner.")
+                return
 
-        database.record_race_result(winner['user_id'], loser['user_id'], self.guild_id)
+            if self.wager > 0:
+                database.update_user_balance(winner['user_id'], self.wager)
+                database.update_user_balance(loser['user_id'], -self.wager)
+                wager_str = f"\n💰 **Wager Paid:** **+{self.wager:,} credits** won!"
+            else:
+                wager_str = ""
 
-        telemetry_chart = utils.generate_race_telemetry_graph(lap_telemetry_history)
-        chart_file = discord.File(telemetry_chart, filename="telemetry_chart.png")
+            database.record_race_result(winner['user_id'], loser['user_id'], self.guild_id)
 
-        victory_radio = utils.get_victory_team_radio(winner['team_name'])
+            telemetry_chart = utils.generate_race_telemetry_graph(lap_telemetry_history)
+            chart_file = discord.File(telemetry_chart, filename="telemetry_chart.png")
 
-        summary_desc = (
-            f"🏆 **WINNER:** **{winner['team_name']}**!{wager_str}\n"
-            f"{victory_radio}\n\n"
-            f"⏱️ **Distance:** `{self.laps} Laps`\n"
-            f"📊 **Rewards Earned:**\n"
-            f"  • **Winner ({winner['team_name']}):** `+{config.WIN_PRIZE_CREDITS:,}¢` | `+{config.WIN_XP:,} XP`\n"
-            f"  • **Runner-up ({loser['team_name']}):** `+{config.LOSS_PRIZE_CREDITS:,}¢` | `+{config.LOSS_XP:,} XP`"
-        )
+            victory_radio = utils.get_victory_team_radio(winner['team_name'])
 
-        embed = utils.create_embed(
-            title=f"🏁 RACE RESULTS: {winner['team_name']} VICTORY!",
-            description=summary_desc,
-            color=utils.COLOR_SUCCESS
-        )
-        embed.set_image(url="attachment://telemetry_chart.png")
-        await interaction.followup.send(embed=embed, file=chart_file)
+            summary_desc = (
+                f"🏆 **WINNER:** **{winner['team_name']}**!{wager_str}\n"
+                f"{victory_radio}\n\n"
+                f"⏱️ **Distance:** `{self.laps} Laps`\n"
+                f"📊 **Rewards Earned:**\n"
+                f"  • **Winner ({winner['team_name']}):** `+{config.WIN_PRIZE_CREDITS:,}¢` | `+{config.WIN_XP:,} XP`\n"
+                f"  • **Runner-up ({loser['team_name']}):** `+{config.LOSS_PRIZE_CREDITS:,}¢` | `+{config.LOSS_XP:,} XP`"
+            )
+
+            embed = utils.create_embed(
+                title=f"🏁 RACE RESULTS: {winner['team_name']} VICTORY!",
+                description=summary_desc,
+                color=utils.COLOR_SUCCESS
+            )
+            embed.set_image(url="attachment://telemetry_chart.png")
+            await interaction.followup.send(embed=embed, file=chart_file)
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            if interaction.guild_id in ACTIVE_RACES:
+                del ACTIVE_RACES[interaction.guild_id]
+            await interaction.channel.send(f"❌ **Race Error:** `{e}`")
 
     @discord.ui.button(label="❌ Decline", style=discord.ButtonStyle.red)
     async def decline_challenge(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -648,11 +659,11 @@ class GPRetireConfirmView(discord.ui.View):
     async def cancel_retire(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.edit_message(content=None, embed=self.parent_view.embed, view=self.parent_view)
 
-async def send_driver_lap_telemetry(guild_id, driver_discord_id, team_name, lap_num, lap_time, position, gap_to_leader, gap_to_front, tyre_type, tyre_health):
+async def send_driver_lap_telemetry(bot, guild_id, driver_discord_id, team_name, lap_num, lap_time, position, gap_to_leader, gap_to_front, tyre_type, tyre_health):
     # Sleep for the actual lap time of this driver!
     await asyncio.sleep(lap_time)
     try:
-        user = interaction.client.get_user(driver_discord_id) or await interaction.client.fetch_user(driver_discord_id)
+        user = bot.get_user(driver_discord_id) or await bot.fetch_user(driver_discord_id)
         if user:
             tyre_bar = utils.make_progress_bar(tyre_health)
             
