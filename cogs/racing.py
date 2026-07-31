@@ -196,7 +196,11 @@ class RaceChallengeView(discord.ui.View):
                     ]
                     
                     view = GPLapTelemetryView(l_num, lap_snapshot, entries_list)
-                    await interaction.channel.send(embed=lap_embed, view=view)
+                    channel = interaction.channel or (interaction.client.get_channel(interaction.channel_id) if hasattr(interaction, 'channel_id') else None)
+                    if channel:
+                        await channel.send(embed=lap_embed, view=view)
+                    else:
+                        await interaction.followup.send(embed=lap_embed, view=view)
                     
                     # Sleep for 5 seconds gap between lap updates
                     await asyncio.sleep(5.0)

@@ -212,7 +212,10 @@ class SimTeam:
             except Exception:
                 pass
                 
-        self.strategy = self.pit_strategy.get("pace") or data.get("pref_strategy") or "Balanced"
+        if data.get("pref_strategy") and data.get("pref_strategy") != "Balanced":
+            self.strategy = data["pref_strategy"]
+        else:
+            self.strategy = self.pit_strategy.get("pace") or data.get("pref_strategy") or "Balanced"
         self.tyre_type = self.pit_strategy.get("start_tyre") or data.get("pref_tyres") or "Medium"
         
         self.pit_laps = []
@@ -445,8 +448,10 @@ def simulate_duel_generator(team1_data: Dict[str, Any], team2_data: Dict[str, An
             t_perf -= (40.0 - trailer.tyre_health) * 0.1
             
         # Calculate dynamic lap times for telemetry chart (seconds)
-        leader.last_lap_time = max(30.0, round(T_base - (l_perf * 0.05), 2))
-        trailer.last_lap_time = max(30.0, round(T_base - (t_perf * 0.05), 2))
+        l_var = random.uniform(-0.35, 0.35)
+        t_var = random.uniform(-0.35, 0.35)
+        leader.last_lap_time = max(30.0, round(T_base - (l_perf * 0.08) + l_var, 2))
+        trailer.last_lap_time = max(30.0, round(T_base - (t_perf * 0.08) + t_var, 2))
 
         # Shift gap realistically (0.025 scaling for true 0.07s/lap per part level)
         perf_diff = (l_perf - t_perf) * 0.025

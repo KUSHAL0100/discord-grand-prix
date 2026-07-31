@@ -305,8 +305,10 @@ def generate_race_telemetry_graph(lap_history: List[Any]) -> io.BytesIO:
             ax.plot(laps, [45.0 + (i * 0.1) for i in laps], marker='o', linewidth=2.5, color='#e10600', label="Pace Data")
             ax.set_ylabel("Lap Time (Seconds)", color="#a0abc0", fontsize=11, fontweight='bold')
 
+        from matplotlib.ticker import MaxNLocator
+        ax.xaxis.set_major_locator(MaxNLocator(integer=True))
         ax.set_xlabel("Lap Number", color="#a0abc0", fontsize=11, fontweight='bold')
-        ax.set_title("🏁 Grand Prix Race Telemetry & Lap Pace Chart", color="white", fontsize=13, fontweight='bold', pad=12)
+        ax.set_title("Grand Prix Race Telemetry & Lap Pace Chart", color="white", fontsize=13, fontweight='bold', pad=12)
         ax.grid(True, linestyle='--', alpha=0.25, color='#404b5c')
         ax.tick_params(colors='#a0abc0', labelsize=10)
         

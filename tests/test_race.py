@@ -258,7 +258,7 @@ def test_human_driver_no_auto_pit_on_weather_change():
     entries = [
         {
             "user_id": 1, "team_name": "Human Team", "discord_id": 1001,
-            "engine": 10, "aerodynamics": 10, "tyres": 10, "ers": 10, "reliability": 10,
+            "engine": 10, "aerodynamics": 10, "tyres": 10, "ers": 10, "reliability": 100,
             "pace": 90, "qual": 90, "wet_skill": 90, "consistency": 90, "aggression": 90, "overtaking": 90,
             "is_ai": False
         }
