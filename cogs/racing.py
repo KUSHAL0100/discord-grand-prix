@@ -176,7 +176,7 @@ class RaceChallengeView(discord.ui.View):
 
                 # Record real telemetry data per lap for the race chart
                 drivers_pace = {}
-                for t_obj in lap_snapshot:
+                for t_obj in teams_list:
                     drivers_pace[t_obj.team_name] = round(t_obj.last_lap_time, 2)
                 lap_telemetry_history.append({"lap": l_num, "drivers": drivers_pace})
                 

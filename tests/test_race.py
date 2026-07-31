@@ -305,4 +305,27 @@ def test_weather_radar_clearing_alert():
     has_clearing_warning = any("clearing" in l for l in lap1_logs)
     assert has_clearing_warning is True, "Expected weather radar clearing warning for rain stopping in 2 laps."
 
+def test_simulate_duel_generator_lap_telemetry():
+    t1 = {"user_id": 1, "team_name": "Team A", "discord_id": 1001, "engine": 5, "pace": 80}
+    t2 = {"user_id": 2, "team_name": "Team B", "discord_id": 1002, "engine": 5, "pace": 80}
+    
+    generator = race.simulate_duel_generator(t1, t2, total_laps=3, track_name="Monza")
+    setup_event = next(generator)
+    assert setup_event[0] == "setup"
+    teams_list = setup_event[1]
+    
+    lap_telemetry_history = []
+    for item in generator:
+        if item[0] == "lap":
+            l_num = item[1]
+            drivers_pace = {}
+            for t_obj in teams_list:
+                drivers_pace[t_obj.team_name] = round(t_obj.last_lap_time, 2)
+            lap_telemetry_history.append({"lap": l_num, "drivers": drivers_pace})
+            
+    assert len(lap_telemetry_history) == 3
+    assert "Team A" in lap_telemetry_history[0]["drivers"]
+    assert "Team B" in lap_telemetry_history[0]["drivers"]
+
+
 
