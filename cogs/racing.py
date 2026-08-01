@@ -612,6 +612,8 @@ class StrategyConfigView(discord.ui.View):
         self.guild_id = guild_id
         
         prof = database.get_full_team_profile(user_id, guild_id)
+        if prof:
+            self.user_id = prof['user_id']
         
         import json
         self.strategy_data = {}
