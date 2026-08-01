@@ -1631,7 +1631,7 @@ class RacingCog(commands.Cog):
     async def results_cmd(self, interaction: discord.Interaction):
         conn = database.get_db_connection()
         cursor = conn.cursor()
-        cursor.execute("SELECT race_id, track, created_at FROM races WHERE guild_id = ? AND status = 'Finished' ORDER BY race_id DESC LIMIT 1", (interaction.guild_id,))
+        cursor.execute("SELECT race_id, track FROM races WHERE guild_id = ? AND status = 'Finished' ORDER BY race_id DESC LIMIT 1", (interaction.guild_id,))
         last_race = cursor.fetchone()
         conn.close()
 
