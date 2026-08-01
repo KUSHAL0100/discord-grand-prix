@@ -786,7 +786,7 @@ def get_leaderboard(guild_id: int, by_type: str = 'points', limit: int = 10) -> 
     
     if by_type == 'money':
         cursor.execute("""
-            SELECT team_name, money as score, level
+            SELECT team_name, money as score, level, wins
             FROM users
             WHERE guild_id = ?
             ORDER BY money DESC
@@ -794,7 +794,7 @@ def get_leaderboard(guild_id: int, by_type: str = 'points', limit: int = 10) -> 
         """, (guild_id, limit))
     elif by_type == 'wins':
         cursor.execute("""
-            SELECT team_name, wins as score, level
+            SELECT team_name, wins as score, level, wins
             FROM users
             WHERE guild_id = ?
             ORDER BY wins DESC
@@ -802,7 +802,7 @@ def get_leaderboard(guild_id: int, by_type: str = 'points', limit: int = 10) -> 
         """, (guild_id, limit))
     elif by_type == 'level':
         cursor.execute("""
-            SELECT team_name, level as score, level
+            SELECT team_name, level as score, level, wins
             FROM users
             WHERE guild_id = ?
             ORDER BY level DESC, xp DESC
@@ -810,7 +810,7 @@ def get_leaderboard(guild_id: int, by_type: str = 'points', limit: int = 10) -> 
         """, (guild_id, limit))
     else:  # Default to championship points
         cursor.execute("""
-            SELECT u.team_name, COALESCE(SUM(re.points_earned), 0) as score, u.level
+            SELECT u.team_name, COALESCE(SUM(re.points_earned), 0) as score, u.level, u.wins
             FROM users u
             LEFT JOIN race_entries re ON u.user_id = re.user_id
             WHERE u.guild_id = ?
@@ -1048,8 +1048,9 @@ def get_gp_entries_full(race_id: int) -> List[Dict[str, Any]]:
     cursor = conn.cursor()
     cursor.execute("""
         SELECT re.entry_id, re.race_id, re.user_id, re.qual_time, re.start_position, re.finish_position, 
-               re.current_q_tyre, re.quali_q1_time, re.quali_q2_time, re.quali_q3_time,
+               re.current_q_tyre, re.quali_q1_time, re.quali_q2_time, re.quali_q3_time, re.points_earned,
                u.team_name, u.discord_id, u.level, u.pref_strategy, u.pref_tyres, u.pref_pit_stops, u.pit_strategy_json,
+               u.country,
                d.pace, d.qual, d.wet_skill, d.consistency, d.aggression, d.overtaking, d.experience,
                s.pit_timing, s.weather_call, s.undercut, s.sc_skill, s.risk, s.communication,
                g.engine, g.aerodynamics, g.tyres, g.ers, g.reliability, g.pit_crew, 
