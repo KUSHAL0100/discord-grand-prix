@@ -459,17 +459,25 @@ class SeasonCalendarAdminView(discord.ui.View):
         return False
 
     def build_embed(self):
-        desc = f"📅 **WDC Season:** **{self.active_season['name']}**\n\n"
+        desc = f"📅 **WDC Season:** **{self.active_season['name']}** (`{len(self.calendar)} Rounds`)\n\n"
         if not self.calendar:
             desc += "*No rounds scheduled in the season calendar yet. Use `/season add_race` or `/season add_sprint_race` to add races!*"
         else:
+            lines = []
             for idx, item in enumerate(self.calendar):
                 icon = "⚡" if item['is_sprint'] else "🏁"
                 status = item['status']
                 status_emoji = "🟢" if status == 'Running' else ("⚪" if status == 'Scheduled' else "🏁")
                 
                 prefix = f"👉 **Round {idx+1}:** " if self.selected_index == idx else f"**Round {idx+1}:** "
-                desc += f"{prefix}{icon} **{item['track']}** ({item['laps']} Laps) — `{status}` {status_emoji}\n"
+                lines.append(f"{prefix}{icon} **{item['track']}** ({item['laps']} Laps) — `{status}` {status_emoji}")
+                
+            full_text = "\n".join(lines)
+            if len(full_text) > 3800:
+                lines = lines[:35]
+                lines.append(f"\n*...and {len(self.calendar) - 35} more rounds scheduled!*")
+                full_text = "\n".join(lines)
+            desc += full_text
                 
         embed = utils.create_embed(
             title=f"📅 WDC Calendar Manager",
@@ -483,14 +491,31 @@ class SeasonCalendarAdminView(discord.ui.View):
         
         if self.calendar:
             options = []
-            for idx, item in enumerate(self.calendar):
+            max_options = 25
+            total_items = len(self.calendar)
+            
+            # Sliding window centered around selected_index to enforce Discord API 25-option max limit
+            start_idx = 0
+            if self.selected_index is not None and self.selected_index >= max_options:
+                start_idx = min(self.selected_index - 12, total_items - max_options)
+                start_idx = max(0, start_idx)
+            
+            end_idx = min(start_idx + max_options, total_items)
+            
+            for idx in range(start_idx, end_idx):
+                item = self.calendar[idx]
                 race_type = "Sprint" if item['is_sprint'] else "GP"
                 options.append(discord.SelectOption(
                     label=f"Round {idx+1}: {item['track']} ({race_type})",
                     value=str(idx),
                     default=(self.selected_index == idx)
                 ))
-            select = discord.ui.Select(placeholder="Select a Round to Manage...", options=options, custom_id="season_cal_select")
+            
+            placeholder = "Select a Round to Manage..."
+            if total_items > max_options:
+                placeholder = f"Select Round {start_idx+1}-{end_idx} of {total_items}..."
+                
+            select = discord.ui.Select(placeholder=placeholder, options=options, custom_id="season_cal_select")
             select.callback = self.select_callback
             self.add_item(select)
             
@@ -516,6 +541,7 @@ class SeasonCalendarAdminView(discord.ui.View):
         start_btn = discord.ui.Button(label="Start Next Round", style=discord.ButtonStyle.success, emoji="🏁", disabled=(next_race is None))
         start_btn.callback = self.start_next_round_callback
         self.add_item(start_btn)
+
 
     async def select_callback(self, interaction: discord.Interaction):
         self.selected_index = int(interaction.data['values'][0])

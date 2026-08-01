@@ -115,14 +115,24 @@ GP_BASE_PARTICIPATION_REWARD = 500
 GP_POINTS_DISTRIBUTION = [25, 18, 15, 12, 10, 8, 6, 4, 2, 1]  # Top 10 Main GP points
 SPRINT_POINTS_DISTRIBUTION = [8, 7, 6, 5, 4, 3, 2, 1]          # Top 8 Sprint points
 
-def get_upgrade_cost(part_name: str, target_level: int) -> int:
-    """Calculate credit cost to upgrade a part to target_level."""
+# Rarity price multipliers (scales upgrade cost proportional to efficiency bonus)
+RARITY_PRICE_MULTIPLIERS = {
+    "Common": 1.00,       # Base cost (+0%)
+    "Uncommon": 1.06,     # +6% price multiplier (+5% stat efficiency)
+    "Rare": 1.15,         # +15% price multiplier (+12% stat efficiency)
+    "Epic": 1.25,         # +25% price multiplier (+22% stat efficiency)
+    "Legendary": 1.40     # +40% price multiplier (+35% stat efficiency)
+}
+
+def get_upgrade_cost(part_name: str, target_level: int, rarity: str = "Common") -> int:
+    """Calculate credit cost to upgrade a part to target_level considering category and rarity."""
     if part_name not in PART_MULTIPLIERS:
         raise ValueError(f"Invalid part name: {part_name}")
     if target_level not in ENGINE_UPGRADE_COSTS:
         raise ValueError(f"Invalid level for upgrade: {target_level}")
     
     base_cost = ENGINE_UPGRADE_COSTS[target_level]
-    multiplier = PART_MULTIPLIERS[part_name]
-    return int(base_cost * multiplier)
+    cat_multiplier = PART_MULTIPLIERS[part_name]
+    rarity_multiplier = RARITY_PRICE_MULTIPLIERS.get(rarity, 1.0)
+    return int(base_cost * cat_multiplier * rarity_multiplier)
 

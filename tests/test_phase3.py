@@ -123,3 +123,23 @@ def test_rarity_scaling_realism():
     
     # Verify Level 1 Rare engine power > Level 3 Common engine power
     assert power_rare > power_common, f"Expected Level 1 Rare ({power_rare}) > Level 3 Common ({power_common})"
+
+def test_rarity_upgrade_costs():
+    """Verify get_upgrade_cost scales properly based on part rarity."""
+    base_engine_lvl2 = config.ENGINE_UPGRADE_COSTS[2] # 200
+    
+    cost_common = config.get_upgrade_cost("engine", 2, "Common")
+    cost_uncommon = config.get_upgrade_cost("engine", 2, "Uncommon")
+    cost_rare = config.get_upgrade_cost("engine", 2, "Rare")
+    cost_epic = config.get_upgrade_cost("engine", 2, "Epic")
+    cost_legendary = config.get_upgrade_cost("engine", 2, "Legendary")
+    
+    assert cost_common == int(200 * 1.0 * 1.00)     # 200
+    assert cost_uncommon == int(200 * 1.0 * 1.06)   # 212
+    assert cost_rare == int(200 * 1.0 * 1.15)       # 230
+    assert cost_epic == int(200 * 1.0 * 1.25)       # 250
+    assert cost_legendary == int(200 * 1.0 * 1.40)  # 280
+
+    # Ensure strictly increasing cost by rarity
+    assert cost_common < cost_uncommon < cost_rare < cost_epic < cost_legendary
+

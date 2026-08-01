@@ -204,6 +204,20 @@ def init_db():
     );
     """)
 
+    # Create duel_history table for Rivalry H2H statistics
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS duel_history (
+        duel_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        guild_id BIGINT NOT NULL,
+        winner_id INTEGER NOT NULL,
+        loser_id INTEGER NOT NULL,
+        created_at TEXT NOT NULL,
+        FOREIGN KEY (winner_id) REFERENCES users (user_id) ON DELETE CASCADE,
+        FOREIGN KEY (loser_id) REFERENCES users (user_id) ON DELETE CASCADE
+    );
+    """)
+
+
     # Create track_mastery table
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS track_mastery (
@@ -1895,3 +1909,46 @@ def get_bot_admins(guild_id: int) -> list:
         return [dict(row) for row in rows]
     finally:
         conn.close()
+
+def record_duel_history(guild_id: int, winner_id: int, loser_id: int) -> None:
+    """Record a 1v1 duel victory in duel_history."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        today_str = datetime.now().isoformat()
+        cursor.execute(
+            "INSERT INTO duel_history (guild_id, winner_id, loser_id, created_at) VALUES (?, ?, ?, ?)",
+            (guild_id, winner_id, loser_id, today_str)
+        )
+        conn.commit()
+    except sqlite3.Error as e:
+        conn.rollback()
+        print(f"Error recording duel history: {e}")
+    finally:
+        conn.close()
+
+def get_head_to_head_record(user1_id: int, user2_id: int) -> Tuple[int, int]:
+    """Returns (user1_wins, user2_wins) between user1 and user2."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            "SELECT COUNT(*) FROM duel_history WHERE winner_id = ? AND loser_id = ?",
+            (user1_id, user2_id)
+        )
+        row1 = cursor.fetchone()
+        u1_wins = row1[0] if row1 else 0
+        
+        cursor.execute(
+            "SELECT COUNT(*) FROM duel_history WHERE winner_id = ? AND loser_id = ?",
+            (user2_id, user1_id)
+        )
+        row2 = cursor.fetchone()
+        u2_wins = row2[0] if row2 else 0
+        
+        return (u1_wins, u2_wins)
+    except sqlite3.Error:
+        return (0, 0)
+    finally:
+        conn.close()
+

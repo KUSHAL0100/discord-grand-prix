@@ -1,7 +1,9 @@
 import pytest
+import discord
 import config
 import database
 import race
+
 
 def test_f1_calendar_tracks_count():
     assert len(race.TRACK_PROFILES) >= 24, "Should contain all 24 official F1 calendar tracks"
@@ -93,6 +95,33 @@ def test_season_calendar_lifecycle():
     assert calendar_after[0]['track'] == "Monza (Italy)"
     assert calendar_after[1]['track'] == "Silverstone (Great Britain)"
     assert calendar_after[1]['race_order'] == 2
+
+def test_large_calendar_handling():
+    """Verify that calendars with 40+ races render Select options within Discord's 25-option limit."""
+    from cogs.admin import SeasonCalendarAdminView
+    guild_id = 999991
+    database.cancel_active_season(guild_id)
+    database.create_season(guild_id, "40 Round Season")
+    active = database.get_active_season(guild_id)
+    season_id = active['season_id']
+    
+    # Add 40 races to calendar
+    for i in range(40):
+        database.add_season_race(season_id, f"Track {i+1}", 10, is_sprint=(i%5==0))
+        
+    calendar = database.get_season_calendar(season_id)
+    assert len(calendar) == 40
+    
+    # Instantiate view and build components
+    view = SeasonCalendarAdminView(active, calendar)
+    embed = view.build_embed()
+    
+    # Check that Select menu options length <= 25
+    select_items = [item for item in view.children if isinstance(item, discord.ui.Select)]
+    assert len(select_items) == 1
+    assert len(select_items[0].options) <= 25
+    assert embed is not None
+
     
     # 5. Clean up season
     database.cancel_active_season(guild_id)

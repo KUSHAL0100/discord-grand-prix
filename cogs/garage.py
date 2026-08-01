@@ -240,16 +240,21 @@ class GarageCog(commands.Cog):
             await interaction.response.send_message("❌ You do not have a profile. Use `/start`.", ephemeral=True)
             return
             
+        equipped = database.get_equipped_inventory(prof['user_id'])
         desc = "**Current Part Levels and Upgrade Costs:**\n\n"
         for part, mult in config.PART_MULTIPLIERS.items():
             curr_level = prof.get(part, 1)
+            eq_item = equipped.get(part)
+            rarity = eq_item.get('rarity', 'Common') if eq_item else 'Common'
+            r_emoji = crates.RARITY_EMOJIS.get(rarity, '⚪')
+            
             if curr_level >= config.MAX_STAT_LEVEL:
                 cost_str = "MAX LEVEL"
             else:
-                cost = config.get_upgrade_cost(part, curr_level + 1)
+                cost = config.get_upgrade_cost(part, curr_level + 1, rarity)
                 cost_str = f"{cost:,}¢"
                 
-            desc += f"• **{part.capitalize()}:** Level {curr_level} → Level {curr_level + 1 if curr_level < config.MAX_STAT_LEVEL else config.MAX_STAT_LEVEL} (Cost: {cost_str})\n"
+            desc += f"• **{part.capitalize()}:** Level {curr_level} → Level {curr_level + 1 if curr_level < config.MAX_STAT_LEVEL else config.MAX_STAT_LEVEL} ({r_emoji} {rarity} | Cost: {cost_str})\n"
             
         embed = utils.create_embed(
             title="🛒 The Performance Shop",
@@ -281,11 +286,16 @@ class GarageCog(commands.Cog):
             await interaction.response.send_message(f"❌ Your **{part_name.capitalize()}** is already at maximum level ({config.MAX_STAT_LEVEL})!", ephemeral=True)
             return
 
+        equipped = database.get_equipped_inventory(prof['user_id'])
+        eq_item = equipped.get(part_name)
+        rarity = eq_item.get('rarity', 'Common') if eq_item else 'Common'
+        r_emoji = crates.RARITY_EMOJIS.get(rarity, '⚪')
+
         next_level = curr_level + 1
-        cost = config.get_upgrade_cost(part_name, next_level)
+        cost = config.get_upgrade_cost(part_name, next_level, rarity)
         if prof['money'] < cost:
             await interaction.response.send_message(
-                f"❌ Insufficient funds! Upgrading **{part_name.capitalize()}** to Level {next_level} costs **{cost:,} credits**, but you have **{prof['money']:,} credits**.",
+                f"❌ Insufficient funds! Upgrading your {r_emoji} **{rarity} {part_name.capitalize()}** to Level {next_level} costs **{cost:,} credits**, but you have **{prof['money']:,} credits**.",
                 ephemeral=True
             )
             return
@@ -293,6 +303,7 @@ class GarageCog(commands.Cog):
         success, msg = database.upgrade_garage_part(prof['user_id'], part_name, cost)
         color = utils.COLOR_SUCCESS if success else utils.COLOR_ERROR
         await interaction.response.send_message(embed=utils.create_embed(title="🛠️ Part Upgrade", description=msg, color=color))
+
 
     @app_commands.command(name="inventory", description="View stored car parts and equip preferred setups.")
     @app_commands.guild_only()

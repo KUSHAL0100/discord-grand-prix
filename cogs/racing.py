@@ -74,6 +74,68 @@ class RacePaceView(discord.ui.View):
         else:
             await interaction.response.send_message("❌ You are not a participating driver in this race.", ephemeral=True)
 
+class DuelRematchView(discord.ui.View):
+    def __init__(self, challenger_prof, opponent_prof, guild_id, wager=0, laps=3, track_name=None):
+        super().__init__(timeout=120.0)
+        self.challenger_prof = challenger_prof
+        self.opponent_prof = opponent_prof
+        self.guild_id = guild_id
+        self.wager = wager
+        self.laps = laps
+        self.track_name = track_name
+
+    @discord.ui.button(label="🔁 Quick Rematch", style=discord.ButtonStyle.primary)
+    async def rematch_click(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id not in [self.challenger_prof['discord_id'], self.opponent_prof['discord_id']]:
+            await interaction.response.send_message("❌ Only the duel competitors can trigger a rematch!", ephemeral=True)
+            return
+
+        parent_channel = interaction.channel.parent or interaction.channel
+        new_view = RaceChallengeView(self.challenger_prof, self.opponent_prof, self.guild_id, wager=self.wager, laps=self.laps, track_name=self.track_name)
+        wager_text = f"\n💰 **Wager Amount:** `{self.wager:,} credits`" if self.wager > 0 else ""
+        track_text = f"\n📍 **Track venue:** `{self.track_name}`" if self.track_name else ""
+        embed = utils.create_embed(
+            title=f"🏁 1v1 Race Rematch ({self.laps} Laps)!",
+            description=(
+                f"🔁 **REMATCH OFFERED!**\n"
+                f"<@{self.challenger_prof['discord_id']}> (**{self.challenger_prof['team_name']}**) vs <@{self.opponent_prof['discord_id']}> (**{self.opponent_prof['team_name']}**)!{track_text}{wager_text}\n\n"
+                f"Click **Accept Challenge** to line up on the grid!"
+            ),
+            color=utils.COLOR_QUALIFYING
+        )
+        await parent_channel.send(content=f"<@{self.opponent_prof['discord_id']}>", embed=embed, view=new_view)
+        await interaction.response.send_message("✅ Rematch challenge issued in main channel!", ephemeral=True)
+        self.stop()
+
+class DuelSpectatorCheerView(discord.ui.View):
+    def __init__(self, thread_id, p1_id, p1_name, p2_id, p2_name):
+        super().__init__(timeout=86400.0)
+        self.thread_id = thread_id
+        self.p1_id = p1_id
+        self.p1_name = p1_name
+        self.p2_id = p2_id
+        self.p2_name = p2_name
+
+    @discord.ui.button(label="💙 Cheer Team 1", style=discord.ButtonStyle.primary)
+    async def cheer_p1(self, interaction: discord.Interaction, button: discord.ui.Button):
+        race_state = ACTIVE_RACES.get(self.thread_id)
+        if race_state and "cheers" in race_state:
+            race_state["cheers"][self.p1_id] = race_state["cheers"].get(self.p1_id, 0) + 1
+            count = race_state["cheers"][self.p1_id]
+            await interaction.response.send_message(f"💙 You cheered for **{self.p1_name}**! Total Cheers: `{count}`", ephemeral=True)
+        else:
+            await interaction.response.send_message("🎉 Thanks for cheering!", ephemeral=True)
+
+    @discord.ui.button(label="❤️ Cheer Team 2", style=discord.ButtonStyle.danger)
+    async def cheer_p2(self, interaction: discord.Interaction, button: discord.ui.Button):
+        race_state = ACTIVE_RACES.get(self.thread_id)
+        if race_state and "cheers" in race_state:
+            race_state["cheers"][self.p2_id] = race_state["cheers"].get(self.p2_id, 0) + 1
+            count = race_state["cheers"][self.p2_id]
+            await interaction.response.send_message(f"❤️ You cheered for **{self.p2_name}**! Total Cheers: `{count}`", ephemeral=True)
+        else:
+            await interaction.response.send_message("🎉 Thanks for cheering!", ephemeral=True)
+
 class RaceChallengeView(discord.ui.View):
     def __init__(self, challenger_prof, opponent_prof, guild_id, wager=0, laps=3, track_name=None):
         super().__init__(timeout=60.0)
@@ -100,7 +162,23 @@ class RaceChallengeView(discord.ui.View):
 
         for item in self.children:
             item.disabled = True
-        await interaction.response.edit_message(view=self)
+
+        orig_msg = interaction.message
+        thread_name = f"🏎️ Duel: {self.challenger_prof['team_name'][:12]} vs {self.opponent_prof['team_name'][:12]}"
+        thread = await orig_msg.create_thread(name=thread_name, auto_archive_duration=60)
+
+        await interaction.response.edit_message(
+            content=(
+                f"🏁 **Challenge Accepted!** The 1v1 duel between **{self.challenger_prof['team_name']}** and **{self.opponent_prof['team_name']}** is live!\n"
+                f"➡️ **Watch live commentary & select strategy in thread:** {thread.mention}"
+            ),
+            embed=None,
+            view=self
+        )
+
+        # Lookup Head-to-Head record
+        u1_wins, u2_wins = database.get_head_to_head_record(self.challenger_prof['user_id'], self.opponent_prof['user_id'])
+        h2h_text = f"⚔️ **Rivalry Head-to-Head:** `{self.challenger_prof['team_name']} ({u1_wins}) — ({u2_wins}) {self.opponent_prof['team_name']}`\n\n"
 
         pace_view = RacePaceView(
             self.challenger_prof['discord_id'],
@@ -113,6 +191,7 @@ class RaceChallengeView(discord.ui.View):
             title=f"⏱️ Strategy Setup — Choose Your Race Pacing ({self.laps} Laps)!",
             description=(
                 f"**{self.challenger_prof['team_name']}** vs **{self.opponent_prof['team_name']}**\n\n"
+                f"{h2h_text}"
                 f"Click your pace strategy button below before the lights go out!\n"
                 f"• **Push (Aggressive):** Maximum speed, higher tyre wear.\n"
                 f"• **Standard (Balanced):** Balanced pace & wear.\n"
@@ -120,9 +199,9 @@ class RaceChallengeView(discord.ui.View):
             ),
             color=utils.COLOR_QUALIFYING
         )
-        msg = await interaction.followup.send(embed=pace_embed, view=pace_view)
+        await thread.send(embed=pace_embed, view=pace_view)
         
-        # Wait for both drivers to select or max 15 seconds timeout
+        # Wait for strategy selections
         try:
             await asyncio.wait_for(pace_view.ready_event.wait(), timeout=15.0)
         except asyncio.TimeoutError:
@@ -134,37 +213,43 @@ class RaceChallengeView(discord.ui.View):
         t1_data['pref_strategy'] = pace_view.p1_strategy
         t2_data['pref_strategy'] = pace_view.p2_strategy
 
-        # Get the generator for the duel
         generator = race.simulate_duel_generator(t1_data, t2_data, total_laps=self.laps, track_name=self.track_name)
         
-        # Setup Phase
         setup_event = next(generator)
         teams_list = setup_event[1]
         qual_logs = setup_event[2]
         track_name = setup_event[3]
         
-        # Register in ACTIVE_RACES so the telemetry view can modify strategy real-time
-        ACTIVE_RACES[interaction.guild_id] = {
+        # Register in ACTIVE_RACES keyed by thread.id
+        ACTIVE_RACES[thread.id] = {
             "teams": teams_list,
             "lap": 0,
-            "snapshot": {}
+            "snapshot": {},
+            "cheers": {self.challenger_prof['user_id']: 0, self.opponent_prof['user_id']: 0}
         }
         
-        # Post Qualifying Grid
         quali_embed = utils.create_embed(
             title=f"🏁 Race Starting — {self.laps} Laps at {track_name}!",
             description="\n".join(qual_logs),
             color=utils.COLOR_QUALIFYING
         )
-        race_msg = await interaction.followup.send(embed=quali_embed)
+        await thread.send(embed=quali_embed)
         
         try:
             lap_logs = []
             lap_telemetry_history = []
             winner = None
             loser = None
-            
-            # Loop through each lap event
+            fastest_lap_time = 999.0
+            fastest_lap_team = None
+            fastest_lap_user_id = None
+
+            cheer_view = DuelSpectatorCheerView(
+                thread.id,
+                self.challenger_prof['user_id'], self.challenger_prof['team_name'],
+                self.opponent_prof['user_id'], self.opponent_prof['team_name']
+            )
+
             for item in generator:
                 if item[0] == "lap":
                     l_num = item[1]
@@ -172,13 +257,17 @@ class RaceChallengeView(discord.ui.View):
                     lap_snapshot = item[3]
                     
                     lap_logs.append(lap_events)
-                    ACTIVE_RACES[interaction.guild_id]["lap"] = l_num
-                    ACTIVE_RACES[interaction.guild_id]["snapshot"] = lap_snapshot
+                    ACTIVE_RACES[thread.id]["lap"] = l_num
+                    ACTIVE_RACES[thread.id]["snapshot"] = lap_snapshot
 
-                    # Record real telemetry data per lap for the race chart
                     drivers_pace = {}
                     for t_obj in teams_list:
                         drivers_pace[t_obj.team_name] = round(t_obj.last_lap_time, 2)
+                        if t_obj.last_lap_time > 0 and t_obj.last_lap_time < fastest_lap_time:
+                            fastest_lap_time = t_obj.last_lap_time
+                            fastest_lap_team = t_obj.team_name
+                            fastest_lap_user_id = t_obj.user_id
+
                     lap_telemetry_history.append({"lap": l_num, "drivers": drivers_pace})
                     
                     lap_text = "\n".join(lap_events) if isinstance(lap_events, list) else str(lap_events)
@@ -189,32 +278,18 @@ class RaceChallengeView(discord.ui.View):
                         color=0xF5A623
                     )
                     
-                    # Setup telemetry view so they can change strategy during the gap!
-                    entries_list = [
-                        {"user_id": self.challenger_prof["user_id"], "discord_id": self.challenger_prof["discord_id"], "team_name": self.challenger_prof["team_name"]},
-                        {"user_id": self.opponent_prof["user_id"], "discord_id": self.opponent_prof["discord_id"], "team_name": self.opponent_prof["team_name"]}
-                    ]
-                    
-                    view = GPLapTelemetryView(l_num, lap_snapshot, entries_list)
-                    channel = interaction.channel or (interaction.client.get_channel(interaction.channel_id) if hasattr(interaction, 'channel_id') else None)
-                    if channel:
-                        await channel.send(embed=lap_embed, view=view)
-                    else:
-                        await interaction.followup.send(embed=lap_embed, view=view)
-                    
-                    # Sleep for 5 seconds gap between lap updates
-                    await asyncio.sleep(5.0)
+                    await thread.send(embed=lap_embed, view=cheer_view)
+                    await asyncio.sleep(4.5)
                     
                 elif item[0] == "finish":
                     winner = item[1]
                     loser = item[2]
                     
-            # Clean up active race registry
-            if interaction.guild_id in ACTIVE_RACES:
-                del ACTIVE_RACES[interaction.guild_id]
+            if thread.id in ACTIVE_RACES:
+                del ACTIVE_RACES[thread.id]
 
             if not winner or not loser:
-                await interaction.channel.send("❌ Race simulation finished without a clear winner.")
+                await thread.send("❌ Race simulation finished without a clear winner.")
                 return
 
             if self.wager > 0:
@@ -224,7 +299,13 @@ class RaceChallengeView(discord.ui.View):
             else:
                 wager_str = ""
 
+            fl_str = ""
+            if fastest_lap_user_id:
+                database.update_user_balance(fastest_lap_user_id, 25)
+                fl_str = f"\n⚡ **Fastest Lap Bonus:** **{fastest_lap_team}** (`{fastest_lap_time:.2f}s`) (+25¢ bonus!)"
+
             database.record_race_result(winner['user_id'], loser['user_id'], self.guild_id)
+            database.record_duel_history(self.guild_id, winner['user_id'], loser['user_id'])
 
             telemetry_chart = utils.generate_race_telemetry_graph(lap_telemetry_history)
             chart_file = discord.File(telemetry_chart, filename="telemetry_chart.png")
@@ -232,12 +313,13 @@ class RaceChallengeView(discord.ui.View):
             victory_radio = utils.get_victory_team_radio(winner['team_name'])
 
             summary_desc = (
-                f"🏆 **WINNER:** **{winner['team_name']}**!{wager_str}\n"
+                f"🏆 **WINNER:** **{winner['team_name']}**!{wager_str}{fl_str}\n"
                 f"{victory_radio}\n\n"
                 f"⏱️ **Distance:** `{self.laps} Laps`\n"
                 f"📊 **Rewards Earned:**\n"
                 f"  • **Winner ({winner['team_name']}):** `+{config.WIN_PRIZE_CREDITS:,}¢` | `+{config.WIN_XP:,} XP`\n"
-                f"  • **Runner-up ({loser['team_name']}):** `+{config.LOSS_PRIZE_CREDITS:,}¢` | `+{config.LOSS_XP:,} XP`"
+                f"  • **Runner-up ({loser['team_name']}):** `+{config.LOSS_PRIZE_CREDITS:,}¢` | `+{config.LOSS_XP:,} XP`\n\n"
+                f"🗑️ *This live duel thread will automatically delete in 2 minutes to keep the channel clean.*"
             )
 
             embed = utils.create_embed(
@@ -246,13 +328,32 @@ class RaceChallengeView(discord.ui.View):
                 color=utils.COLOR_SUCCESS
             )
             embed.set_image(url="attachment://telemetry_chart.png")
-            await interaction.followup.send(embed=embed, file=chart_file)
+            rematch_view = DuelRematchView(self.challenger_prof, self.opponent_prof, self.guild_id, self.wager, self.laps, self.track_name)
+            await thread.send(embed=embed, file=chart_file, view=rematch_view)
+
+            # Update original main channel message with Winner Summary Banner
+            await orig_msg.edit(
+                content=f"🏆 **DUEL CONCLUDED:** **{winner['team_name']}** defeated **{loser['team_name']}**! (+{config.WIN_PRIZE_CREDITS:,}¢, +{config.WIN_XP} XP){wager_str}",
+                embed=None,
+                view=None
+            )
+
+            # Schedule 120-second thread deletion
+            async def delete_thread_later(th, delay=120):
+                await asyncio.sleep(delay)
+                try:
+                    await th.delete()
+                except Exception:
+                    pass
+
+            asyncio.create_task(delete_thread_later(thread, 120))
+
         except Exception as e:
             import traceback
             traceback.print_exc()
-            if interaction.guild_id in ACTIVE_RACES:
-                del ACTIVE_RACES[interaction.guild_id]
-            await interaction.channel.send(f"❌ **Race Error:** `{e}`")
+            if thread.id in ACTIVE_RACES:
+                del ACTIVE_RACES[thread.id]
+            await thread.send(f"❌ **Race Error:** `{e}`")
 
     @discord.ui.button(label="❌ Decline", style=discord.ButtonStyle.red)
     async def decline_challenge(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -263,6 +364,7 @@ class RaceChallengeView(discord.ui.View):
         for item in self.children:
             item.disabled = True
         await interaction.response.edit_message(content="❌ Race challenge declined.", embed=None, view=None)
+
 
 
 def is_admin():
