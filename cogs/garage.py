@@ -168,39 +168,7 @@ class GarageCog(commands.Cog):
             color=utils.COLOR_INFO
         )
         embed.set_image(url="attachment://profile_card.png")
-        await interaction.response.send_message(embed=embed, file=file)
-
-    @app_commands.command(name="team", description="Show detailed summary of a team.")
-    @app_commands.describe(user="User whose team summary you want to inspect")
-    @app_commands.guild_only()
-    async def team_cmd(self, interaction: discord.Interaction, user: discord.User = None):
-        target_user = user or interaction.user
-        prof = database.get_full_team_profile(target_user.id, interaction.guild_id)
-        if not prof:
-            msg = "You do not have a profile. Use `/start`!" if target_user == interaction.user else f"{target_user.mention} does not have a profile."
-            await interaction.response.send_message(f"❌ {msg}", ephemeral=True)
-            return
-
-        card_buf = utils.generate_profile_card(prof)
-        file = discord.File(card_buf, filename="profile_card.png")
-        
-        overall_power = utils.calculate_overall_power(prof, prof["pace"])
-        country_prefix = f"{prof['country']} " if prof.get('country') else ""
-        
-        embed = utils.create_embed(
-            title=f"🏎️ {country_prefix}{prof['team_name']}",
-            description=(
-                f"👤 **Owner:** {target_user.mention}\n"
-                f"⭐ **Level:** `{prof['level']}` | **XP:** `{prof['xp']:,}`\n"
-                f"💰 **Money:** `{prof['money']:,} credits`\n"
-                f"🏎️ **Overall Car Rating:** `{overall_power:.1f}`\n"
-                f"🏆 **Wins:** `{prof['wins']}` | **Losses:** `{prof['losses']}`"
-            ),
-            color=utils.COLOR_INFO
-        )
-        embed.set_image(url="attachment://profile_card.png")
-        await interaction.response.send_message(embed=embed, file=file)
-
+    
     @app_commands.command(name="garage", description="View your current car component levels and damage.")
     @app_commands.guild_only()
     async def garage_cmd(self, interaction: discord.Interaction):
