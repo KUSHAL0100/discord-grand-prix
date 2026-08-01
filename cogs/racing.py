@@ -137,6 +137,11 @@ class DuelSpectatorCheerView(discord.ui.View):
     async def cheer_p1(self, interaction: discord.Interaction, button: discord.ui.Button):
         race_state = ACTIVE_RACES.get(self.thread_id)
         if race_state and "cheers" in race_state:
+            cheered_users = race_state.setdefault("cheered_users", set())
+            if interaction.user.id in cheered_users:
+                await interaction.response.send_message("❌ You have already cheered in this race!", ephemeral=True)
+                return
+            cheered_users.add(interaction.user.id)
             race_state["cheers"][self.p1_id] = race_state["cheers"].get(self.p1_id, 0) + 1
             count = race_state["cheers"][self.p1_id]
             self.update_button_labels()
@@ -149,6 +154,11 @@ class DuelSpectatorCheerView(discord.ui.View):
     async def cheer_p2(self, interaction: discord.Interaction, button: discord.ui.Button):
         race_state = ACTIVE_RACES.get(self.thread_id)
         if race_state and "cheers" in race_state:
+            cheered_users = race_state.setdefault("cheered_users", set())
+            if interaction.user.id in cheered_users:
+                await interaction.response.send_message("❌ You have already cheered in this race!", ephemeral=True)
+                return
+            cheered_users.add(interaction.user.id)
             race_state["cheers"][self.p2_id] = race_state["cheers"].get(self.p2_id, 0) + 1
             count = race_state["cheers"][self.p2_id]
             self.update_button_labels()
@@ -394,7 +404,8 @@ class RaceChallengeView(discord.ui.View):
             "teams": teams_list,
             "lap": 0,
             "snapshot": {},
-            "cheers": {self.challenger_prof['user_id']: 0, self.opponent_prof['user_id']: 0}
+            "cheers": {self.challenger_prof['user_id']: 0, self.opponent_prof['user_id']: 0},
+            "cheered_users": set()
         }
         
         quali_embed = utils.create_embed(
