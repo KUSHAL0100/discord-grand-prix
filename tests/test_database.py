@@ -198,13 +198,13 @@ def test_reset_wdc_standings():
     success_reset, msg_reset = database.reset_wdc_standings(9999)
     assert success_reset is True
     
-    # 6. Verify that standings, wins and losses are reset to 0
+    # 6. Verify that standings are reset to 0, but wins and losses remain unchanged
     leaderboard_after = database.get_leaderboard(9999, "points")
     assert len(leaderboard_after) == 1
     assert leaderboard_after[0]["score"] == 0
-    assert leaderboard_after[0]["wins"] == 0
+    assert leaderboard_after[0]["wins"] == 5
     
     user_after = database.get_user_by_discord_id(12345, guild_id=9999)
-    assert user_after["wins"] == 0
-    assert user_after["losses"] == 0
+    assert user_after["wins"] == 5
+    assert user_after["losses"] == 5
 

@@ -168,6 +168,7 @@ class GarageCog(commands.Cog):
             color=utils.COLOR_INFO
         )
         embed.set_image(url="attachment://profile_card.png")
+        await interaction.response.send_message(embed=embed, file=file)
     
     @app_commands.command(name="garage", description="View your current car component levels and damage.")
     @app_commands.guild_only()

@@ -1756,13 +1756,10 @@ def reset_user_profile(discord_id: int, guild_id: int) -> Tuple[bool, str]:
         conn.close()
 
 def reset_wdc_standings(guild_id: int) -> Tuple[bool, str]:
-    """Reset all championship points (points_earned in race_entries) and win/loss records for the guild."""
+    """Reset all championship points (points_earned in race_entries) for the guild."""
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        # Reset wins and losses to 0 for all users in this guild
-        cursor.execute("UPDATE users SET wins = 0, losses = 0 WHERE guild_id = ?", (guild_id,))
-        
         # Reset points_earned to 0 in race_entries for all races in this guild
         cursor.execute("""
             UPDATE race_entries 
@@ -1771,12 +1768,13 @@ def reset_wdc_standings(guild_id: int) -> Tuple[bool, str]:
         """, (guild_id,))
         
         conn.commit()
-        return True, "Championship standings, WDC points, and team win/loss records have been successfully reset to 0 for this server."
+        return True, "Championship standings and WDC points have been successfully reset to 0 for this server."
     except sqlite3.Error as e:
         conn.rollback()
         return False, f"Database error: {str(e)}"
     finally:
         conn.close()
+
 
 
 def admin_set_user_stat(discord_id: int, guild_id: int, stat_name: str, value: int) -> Tuple[bool, str]:
