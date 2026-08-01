@@ -320,6 +320,30 @@ def create_user(discord_id: int, guild_id: int, team_name: str, country: Optiona
     if not any(char.isalpha() for char in team_name_clean):
         return False, "Team name must contain at least one letter."
         
+    # 2. Block Official F1 Team Names (handles case, spaces, symbols, and leetspeak like f3rr4r1, ferr@ri, R3d Bu11)
+    forbidden_f1_teams = [
+        "redbull", "red bull", "ferrari", "haas", "mercedes", "mclaren",
+        "astonmartin", "aston martin", "alpine", "williams", "sauber",
+        "alfaromeo", "alfa romeo", "alphatauri", "alpha tauri",
+        "tororosso", "toro rosso", "vcarb", "racing bulls", "renault"
+    ]
+    
+    # Translate leetspeak to standard letters (1 and ! can represent 'l' or 'i')
+    leet_map_base = str.maketrans({'@': 'a', '4': 'a', '3': 'e', '0': 'o', '5': 's', '$': 's', '7': 't'})
+    clean_base = team_name_clean.lower().translate(leet_map_base)
+    
+    # Create normalized variations for '1'/'!' as 'l' and as 'i'
+    norm_variations = [
+        re.sub(r"[^a-z]", "", clean_base.replace('1', 'l').replace('!', 'l')),
+        re.sub(r"[^a-z]", "", clean_base.replace('1', 'i').replace('!', 'i'))
+    ]
+    
+    for forbidden in forbidden_f1_teams:
+        forbidden_norm = re.sub(r"[^a-z]", "", forbidden.lower())
+        for norm in norm_variations:
+            if forbidden_norm in norm:
+                return False, f"❌ You cannot name your team after official F1 constructors like '**{forbidden.title()}**'! Please choose a unique custom team name."
+
     # Prevent spammy special characters (only allow alphanumeric, spaces, hyphens, underscores, apostrophes)
     if not re.match(r"^[a-zA-Z0-9\s\-_']+$", team_name_clean):
         return False, "Team name can only contain letters, numbers, spaces, hyphens (-), underscores (_), and apostrophes (')."
@@ -1749,6 +1773,42 @@ def reset_user_profile(discord_id: int, guild_id: int) -> Tuple[bool, str]:
         
         conn.commit()
         return True, f"Successfully reset all stats, credits, garage parts, and inventory for **{team_name}** back to default starting levels!"
+    except sqlite3.Error as e:
+        conn.rollback()
+        return False, f"Database error: {e}"
+    finally:
+        conn.close()
+
+def delete_user_profile(discord_id: int, guild_id: int) -> Tuple[bool, str]:
+    """Permanently delete a user's entire profile and all associated data from the database.
+    The user will need to use /start again to create a new profile."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT user_id, team_name FROM users WHERE discord_id = ? AND guild_id = ?", (discord_id, guild_id))
+        row = cursor.fetchone()
+        if not row:
+            return False, "User profile not found on this server."
+
+        uid = row['user_id']
+        team_name = row['team_name']
+
+        # Delete from all related tables
+        cursor.execute("DELETE FROM race_entries WHERE user_id = ?", (uid,))
+        cursor.execute("DELETE FROM drivers WHERE user_id = ?", (uid,))
+        cursor.execute("DELETE FROM strategists WHERE user_id = ?", (uid,))
+        cursor.execute("DELETE FROM garage WHERE user_id = ?", (uid,))
+        cursor.execute("DELETE FROM user_inventory WHERE user_id = ?", (uid,))
+        cursor.execute("DELETE FROM user_boosters WHERE user_id = ?", (uid,))
+        cursor.execute("DELETE FROM track_mastery WHERE user_id = ?", (uid,))
+        cursor.execute("DELETE FROM duel_history WHERE user_id_1 = ? OR user_id_2 = ?", (uid, uid))
+        cursor.execute("DELETE FROM bets WHERE user_id = ?", (uid,))
+
+        # Finally delete the user record itself
+        cursor.execute("DELETE FROM users WHERE user_id = ?", (uid,))
+
+        conn.commit()
+        return True, f"Permanently deleted the profile for **{team_name}** (<@{discord_id}>). All stats, garage, inventory, race history, and track mastery have been wiped. They will need to use `/start` to create a new profile."
     except sqlite3.Error as e:
         conn.rollback()
         return False, f"Database error: {e}"

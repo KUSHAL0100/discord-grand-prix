@@ -61,7 +61,7 @@ def test_user_creation():
     assert "contain at least one letter" in msg
     
     # Try invalid team name: illegal symbols
-    success_symbols, msg = database.create_user(discord_id=67890, guild_id=9999, team_name="Ferrari#$@")
+    success_symbols, msg = database.create_user(discord_id=67890, guild_id=9999, team_name="Speed#$@")
     assert success_symbols is False
     assert "can only contain letters" in msg
     
@@ -120,30 +120,41 @@ def test_part_upgrades():
     assert success is False
     assert "Insufficient credits" in msg
 
+def test_forbidden_f1_team_names():
+    # Test that official F1 team names (case, formatting, and leetspeak invariant) are rejected
+    forbidden_names = [
+        "RedBull", "Red Bull", "REDBULL", "redbull", "Ferrari", "FERRARI", "ferrari", "FeRrArI", "haas", "HAAS", "MCLAREN", "mclaren", "Aston Martin", "alfa romeo", "Toro Rosso",
+        "f3rr4r1", "ferr@ri", "r3dbull", "R3d Bu11", "h44s", "m3rc3d3s", "mcl4r3n"
+    ]
+    for name in forbidden_names:
+        success, msg = database.create_user(discord_id=99999, guild_id=1111, team_name=name)
+        assert success is False
+        assert "official F1 constructors" in msg
+
 def test_multi_guild_isolation():
-    # User 12345 registers team "RedBull" in Guild A (1111)
-    success, msg = database.create_user(discord_id=12345, guild_id=1111, team_name="RedBull")
+    # User 12345 registers team "Apex GP" in Guild A (1111)
+    success, msg = database.create_user(discord_id=12345, guild_id=1111, team_name="Apex GP")
     assert success is True
     
-    # User 12345 registers team "Ferrari" in Guild B (2222)
-    success, msg = database.create_user(discord_id=12345, guild_id=2222, team_name="Ferrari")
+    # User 12345 registers team "Scuderia Speed" in Guild B (2222)
+    success, msg = database.create_user(discord_id=12345, guild_id=2222, team_name="Scuderia Speed")
     assert success is True
     
     # Verify profiles are isolated
     prof_a = database.get_full_team_profile(12345, guild_id=1111)
     assert prof_a is not None
-    assert prof_a["team_name"] == "RedBull"
+    assert prof_a["team_name"] == "Apex GP"
     
     prof_b = database.get_full_team_profile(12345, guild_id=2222)
     assert prof_b is not None
-    assert prof_b["team_name"] == "Ferrari"
+    assert prof_b["team_name"] == "Scuderia Speed"
     
-    # Check that another user can register "RedBull" in Guild B (since it is only taken in Guild A)
-    success, msg = database.create_user(discord_id=67890, guild_id=2222, team_name="RedBull")
+    # Check that another user can register "Apex GP" in Guild B (since it is only taken in Guild A)
+    success, msg = database.create_user(discord_id=67890, guild_id=2222, team_name="Apex GP")
     assert success is True
     
-    # Check that trying to register "RedBull" in Guild A fails (already taken in Guild A)
-    success, msg = database.create_user(discord_id=67890, guild_id=1111, team_name="RedBull")
+    # Check that trying to register "Apex GP" in Guild A fails (already taken in Guild A)
+    success, msg = database.create_user(discord_id=67890, guild_id=1111, team_name="Apex GP")
     assert success is False
     assert "already taken" in msg
 

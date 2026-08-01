@@ -1,0 +1,1037 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Discord Grand Prix — Interactive Rookie Academy</title>
+    <link rel="stylesheet" href="index.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <header>
+            <div class="logo-section">
+                <span class="logo-icon">🏁</span>
+                <div class="logo-text">
+                    <h1>Rookie Academy</h1>
+                    <p>Discord Grand Prix Driver Training</p>
+                </div>
+            </div>
+            <div class="tabs-nav">
+                <button class="tab-btn active" onclick="switchTab('guide')">📖 Command Guide</button>
+                <button class="tab-btn" onclick="switchTab('calc')">⚙️ Upgrades & Stats</button>
+                <button class="tab-btn" onclick="switchTab('sim')">🏎️ Live Race Simulator</button>
+            </div>
+        </header>
+
+        <!-- TAB 1: Command Guide -->
+        <section id="tab-guide" class="tab-content active">
+            <div class="card">
+                <h2 style="margin-bottom: 1.5rem; text-transform: uppercase; letter-spacing: 0.5px;">Driver Career Progression</h2>
+                <div class="guide-grid">
+                    <div class="timeline-steps">
+                        <div class="step-card active" onclick="showStep(1)">
+                            <div class="step-number">Step 1</div>
+                            <div class="step-title">Create Your Team</div>
+                        </div>
+                        <div class="step-card" onclick="showStep(2)">
+                            <div class="step-number">Step 2</div>
+                            <div class="step-title">Earn Your Credits</div>
+                        </div>
+                        <div class="step-card" onclick="showStep(3)">
+                            <div class="step-number">Step 3</div>
+                            <div class="step-title">Train & Upgrade</div>
+                        </div>
+                        <div class="step-card" onclick="showStep(4)">
+                            <div class="step-number">Step 4</div>
+                            <div class="step-title">Setup Race Strategy</div>
+                        </div>
+                        <div class="step-card" onclick="showStep(5)">
+                            <div class="step-number">Step 5</div>
+                            <div class="step-title">Active Race Control</div>
+                        </div>
+                    </div>
+
+                    <div class="guide-detail card" style="background: rgba(255,255,255,0.01); border-color: rgba(255,255,255,0.05); margin-bottom: 0;">
+                        <!-- Step 1 -->
+                        <div id="step-1" class="detail-view active">
+                            <div class="detail-header">
+                                <h3 class="detail-title">🏎️ Initialize Your Racing Team</h3>
+                                <p class="detail-desc">Every great F1 career starts at the drawing board. You need to register with the League first.</p>
+                            </div>
+                            <div class="command-box">
+                                <span>/start</span>
+                                <button class="copy-btn" onclick="copyCommand('/start')">Copy</button>
+                            </div>
+                            <p style="margin-bottom: 1rem;">Use the `/start` command in your server's designated racing channel. The bot will initialize your profile, award you **1,000 starting credits**, and allow you to name your custom Formula 1 Constructor.</p>
+                            <table class="params-table">
+                                <thead>
+                                    <tr>
+                                        <th>Action</th>
+                                        <th>Details</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr>
+                                        <td><strong>Requirements</strong></td>
+                                        <td>None. Can only be run once.</td>
+                                    </tr>
+                                    <tr>
+                                        <td><strong>Rewards</strong></td>
+                                        <td>Constructor registration + 1,000 credits wallet.</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                            <div class="guide-tip">
+                                <h4>💡 Rookie Tip</h4>
+                                <p>Choose a cool team name! It will be displayed in the live commentary logs and overall standings embeds throughout the championship season.</p>
+                            </div>
+                        </div>
+
+                        <!-- Step 2 -->
+                        <div id="step-2" class="detail-view">
+                            <div class="detail-header">
+                                <h3 class="detail-title">💰 Build Your Team Economy</h3>
+                                <p class="detail-desc">Formula 1 is an expensive sport. Learn how to secure daily income to fund your car development.</p>
+                            </div>
+                            <div style="display: flex; flex-direction: column; gap: 1rem;">
+                                <div class="command-box">
+                                    <span>/daily</span>
+                                    <button class="copy-btn" onclick="copyCommand('/daily')">Copy</button>
+                                </div>
+                                <div class="command-box">
+                                    <span>/work</span>
+                                    <button class="copy-btn" onclick="copyCommand('/work')">Copy</button>
+                                </div>
+                                <div class="command-box">
+                                    <span>/open [crate_type]</span>
+                                    <button class="copy-btn" onclick="copyCommand('/open')">Copy</button>
+                                </div>
+                            </div>
+                            <p style="margin-top: 1rem; margin-bottom: 1rem;">Keep your budget healthy by using daily login commands. `/daily` pays exactly 500 credits. `/work` lets your driver do odd-jobs around the paddock for random rewards between 100¢ and 500¢. You can also unbox Loot Crates with `/open` to find rare car parts and cash bundles.</p>
+                            <div class="guide-tip">
+                                <h4>💡 Rookie Tip</h4>
+                                <p>Earn passive income by hanging out in voice channels (2¢ per minute) or talking in text chat (5¢ per message, 10s cooldown). Every penny counts!</p>
+                            </div>
+                        </div>
+
+                        <!-- Step 3 -->
+                        <div id="step-3" class="detail-view">
+                            <div class="detail-header">
+                                <h3 class="detail-title">🛠️ Upgrade Parts & Train Skills</h3>
+                                <p class="detail-desc">Develop your machine and train your driver's capabilities to climb the grid standings.</p>
+                            </div>
+                            <div style="display: flex; flex-direction: column; gap: 1rem;">
+                                <div class="command-box">
+                                    <span>/upgrade [part_name]</span>
+                                    <button class="copy-btn" onclick="copyCommand('/upgrade')">Copy</button>
+                                </div>
+                                <div class="command-box">
+                                    <span>/train [skill_name]</span>
+                                    <button class="copy-btn" onclick="copyCommand('/train')">Copy</button>
+                                </div>
+                            </div>
+                            <p style="margin-top: 1rem; margin-bottom: 1rem;">Car parts (like Engine, Aero, and ERS) scale from level 1 to 20. Upgrades cost credits and shave seconds off your lap times. Driver skills (Pace, Consistency, aggression, overtaking) range from 1 to 100, cost 500¢ per point, and dictate your driver's base speed and overtaking efficiency.</p>
+                            <div class="guide-tip" style="background: rgba(255, 23, 68, 0.05); border-left-color: var(--soft-red);">
+                                <h4>⚠️ Damage Warning</h4>
+                                <p>Aggressive pacing and crashes cause wear and damage. Visit `/repairs` and run `/repair` to fix parts, as damaged components severely degrade your speed!</p>
+                            </div>
+                        </div>
+
+                        <!-- Step 4 -->
+                        <div id="step-4" class="detail-view">
+                            <div class="detail-header">
+                                <h3 class="detail-title">⚙️ Configure Race Strategy</h3>
+                                <p class="detail-desc">Before the lights go out, formulate your game plan. Tires and pacing dictate your race pace.</p>
+                            </div>
+                            <div class="command-box">
+                                <span>/strategy</span>
+                                <button class="copy-btn" onclick="copyCommand('/strategy')">Copy</button>
+                            </div>
+                            <p style="margin-bottom: 1rem;">Once registered in a GP with `/joinrace` (costs 500¢), configure your strategy. The `/strategy` command opens a private control board to choose starting tyres and pacing.</p>
+                            <table class="params-table">
+                                <thead>
+                                    <tr>
+                                        <th>Tyres</th>
+                                        <th>Pace Delta</th>
+                                        <th>Wear Rate</th>
+                                        <th>Best Window</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr>
+                                        <td>🟥 <strong>Soft</strong></td>
+                                        <td>Fastest (-0.8s)</td>
+                                        <td>Very High (12%/lap)</td>
+                                        <td>3-5 Laps</td>
+                                    </tr>
+                                    <tr>
+                                        <td>🟨 <strong>Medium</strong></td>
+                                        <td>Moderate (-0.3s)</td>
+                                        <td>Normal (7%/lap)</td>
+                                        <td>6-10 Laps</td>
+                                    </tr>
+                                    <tr>
+                                        <td>⬜ <strong>Hard</strong></td>
+                                        <td>Slowest (Base)</td>
+                                        <td>Very Low (4%/lap)</td>
+                                        <td>11-20 Laps</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                            <div class="guide-tip">
+                                <h4>💡 Strategy Insight</h4>
+                                <p>Starting on Softs gives you qualifying and early race pace advantages, but requires an early pit stop. Starting on Hards allows you to run long and execute a one-stop or overcut strategy!</p>
+                            </div>
+                        </div>
+
+                        <!-- Step 5 -->
+                        <div id="step-5" class="detail-view">
+                            <div class="detail-header">
+                                <h3 class="detail-title">📱 Live In-Race Pit Commands</h3>
+                                <p class="detail-desc">A race is won in the cockpit, not just on paper. Manage active races in your private DMs.</p>
+                            </div>
+                            <div class="command-box">
+                                <span>/pit</span>
+                                <button class="copy-btn" onclick="copyCommand('/pit')">Copy</button>
+                            </div>
+                            <p style="margin-bottom: 1rem;">When the race begins, the bot sends you a private DM containing a live telemetry card. This telemetry updates every lap with your tyre wear. When your tyres get worn (below 80% health), you lose speed. Schedule a pit stop immediately by clicking the button in your DMs or typing `/pit`!</p>
+                            <div class="guide-tip" style="background: rgba(255, 214, 0, 0.05); border-left-color: var(--neon-yellow);">
+                                <h4>⛈️ Wet Weather Warning</h4>
+                                <p>If the weather radar shows Rain, pit immediately for 🟩 <strong>Intermediates</strong>. Running slick tyres in wet conditions incurs a 15-second penalty per lap and multiplies crash probability by 4.5x!</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- TAB 2: Stats Calculator -->
+        <section id="tab-calc" class="tab-content">
+            <div class="card">
+                <h2 style="margin-bottom: 1.5rem; text-transform: uppercase; letter-spacing: 0.5px;">Stat & Upgrades Impact Calculator</h2>
+                <div class="calc-grid">
+                    <!-- Sliders -->
+                    <div class="slider-group">
+                        <h3 style="color: #fff; font-size: 1.2rem; border-bottom: 1px solid var(--border-color); padding-bottom: 0.5rem;">🛠️ Car Components</h3>
+                        
+                        <div class="slider-container">
+                            <div class="slider-header">
+                                <span class="slider-label">🏎️ Engine Level</span>
+                                <span id="val-engine" class="slider-value">Level 1</span>
+                            </div>
+                            <input type="range" id="slide-engine" class="custom-slider" min="1" max="20" value="1" oninput="calculateStats()">
+                        </div>
+
+                        <div class="slider-container">
+                            <div class="slider-header">
+                                <span class="slider-label">📐 Aerodynamics Level</span>
+                                <span id="val-aero" class="slider-value">Level 1</span>
+                            </div>
+                            <input type="range" id="slide-aero" class="custom-slider" min="1" max="20" value="1" oninput="calculateStats()">
+                        </div>
+
+                        <div class="slider-container">
+                            <div class="slider-header">
+                                <span class="slider-label">🛞 Tyres Quality Level</span>
+                                <span id="val-tyres" class="slider-value">Level 1</span>
+                            </div>
+                            <input type="range" id="slide-tyres" class="custom-slider" min="1" max="20" value="1" oninput="calculateStats()">
+                        </div>
+
+                        <div class="slider-container">
+                            <div class="slider-header">
+                                <span class="slider-label">⚡ ERS System Level</span>
+                                <span id="val-ers" class="slider-value">Level 1</span>
+                            </div>
+                            <input type="range" id="slide-ers" class="custom-slider" min="1" max="20" value="1" oninput="calculateStats()">
+                        </div>
+
+                        <div class="slider-container">
+                            <div class="slider-header">
+                                <span class="slider-label">🔧 Reliability Level</span>
+                                <span id="val-reliability" class="slider-value">Level 1</span>
+                            </div>
+                            <input type="range" id="slide-reliability" class="custom-slider" min="1" max="20" value="1" oninput="calculateStats()">
+                        </div>
+
+                        <div class="slider-container">
+                            <div class="slider-header">
+                                <span class="slider-label">🧑‍🔧 Pit Crew Level</span>
+                                <span id="val-pit_crew" class="slider-value">Level 1</span>
+                            </div>
+                            <input type="range" id="slide-pit_crew" class="custom-slider" min="1" max="20" value="1" oninput="calculateStats()">
+                        </div>
+
+                        <h3 style="color: #fff; font-size: 1.2rem; border-bottom: 1px solid var(--border-color); padding-bottom: 0.5rem; margin-top: 1rem;">👤 Driver Attributes</h3>
+
+                        <div class="slider-container">
+                            <div class="slider-header">
+                                <span class="slider-label">⏱️ Pace Skill</span>
+                                <span id="val-pace" class="slider-value">1</span>
+                            </div>
+                            <input type="range" id="slide-pace" class="custom-slider" min="1" max="100" value="1" oninput="calculateStats()">
+                        </div>
+
+                        <div class="slider-container">
+                            <div class="slider-header">
+                                <span class="slider-label">☔ Wet weather Skill</span>
+                                <span id="val-wet_skill" class="slider-value">1</span>
+                            </div>
+                            <input type="range" id="slide-wet_skill" class="custom-slider" min="1" max="100" value="1" oninput="calculateStats()">
+                        </div>
+                    </div>
+
+                    <!-- Results Panel -->
+                    <div class="results-panel">
+                        <div>
+                            <div class="results-title">📊 Simulated Physics Outputs</div>
+                            
+                            <div class="result-row">
+                                <span class="result-label">Base Car Lap Time Reduction:</span>
+                                <span id="res-laptime" class="result-val" style="color: var(--neon-green);">-0.00s</span>
+                            </div>
+                            <div class="result-row">
+                                <span class="result-label">Driver Skill Pace Advantage:</span>
+                                <span id="res-drivertime" class="result-val" style="color: var(--neon-green);">-0.00s</span>
+                            </div>
+                            <div class="result-row">
+                                <span class="result-label">Base Pit Stop Duration:</span>
+                                <span id="res-pitstop" class="result-val" style="color: #fff;">3.50s</span>
+                            </div>
+                            <div class="result-row">
+                                <span class="result-label">Tyre Wear Multiplier:</span>
+                                <span id="res-wearmult" class="result-val" style="color: var(--neon-cyan);">1.00x</span>
+                            </div>
+                            <div class="result-row">
+                                <span class="result-label">Base DNF Chance per GP:</span>
+                                <span id="res-dnf" class="result-val" style="color: var(--soft-red);">6.25%</span>
+                            </div>
+                            <div class="result-row">
+                                <span class="result-label">Wet Weather Lap Penalty:</span>
+                                <span id="res-wetpenalty" class="result-val" style="color: var(--neon-yellow);">+14.9s</span>
+                            </div>
+                        </div>
+
+                        <div class="total-cost-box">
+                            <div class="total-cost-label">Total Part Upgrades Investment</div>
+                            <div id="res-totalcost" class="total-cost-val">0¢</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- TAB 3: Simulator -->
+        <section id="tab-sim" class="tab-content">
+            <div class="card">
+                <div class="sim-grid">
+                    <!-- Control Setup Panel -->
+                    <div class="sim-setup-panel">
+                        <h2 style="text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 1rem;">Simulate a GP</h2>
+                        
+                        <div class="sim-control-group">
+                            <label for="track-select">📍 Select Track</label>
+                            <select id="track-select" class="sim-select">
+                                <option value="Spa">Belgium (Spa-Francorchamps) — Rain risk</option>
+                                <option value="Bahrain">Bahrain (Sakhir) — Dry & Fast</option>
+                                <option value="Monaco">Monaco — Overtaking difficulty</option>
+                            </select>
+                        </div>
+
+                        <div class="sim-control-group">
+                            <label for="starting-tyres">🛞 Starting Tyres</label>
+                            <select id="starting-tyres" class="sim-select">
+                                <option value="Medium">🟨 Medium Tyres (Balanced wear)</option>
+                                <option value="Soft">🟥 Soft Tyres (Fast, short life)</option>
+                                <option value="Hard">⬜ Hard Tyres (Slow, very durable)</option>
+                            </select>
+                        </div>
+
+                        <div class="sim-control-group">
+                            <label for="starting-pace">🏎️ Starting Pace Mode</label>
+                            <select id="starting-pace" class="sim-select">
+                                <option value="Balanced">🟡 Balanced (Normal pace & wear)</option>
+                                <option value="Aggressive">🔴 Aggressive (Faster, ++wear, +crash)</option>
+                                <option value="Conservative">🟢 Conservative (Slower, --wear, -crash)</option>
+                            </select>
+                        </div>
+
+                        <button id="btn-start-sim" class="start-sim-btn" onclick="startSim()">
+                            🚦 Start Race Simulation
+                        </button>
+                    </div>
+
+                    <!-- Interactive screen -->
+                    <div class="sim-screen" id="sim-screen">
+                        <!-- Overlay before starting -->
+                        <div class="screen-overlay" id="sim-overlay">
+                            <div class="overlay-icon">🚦</div>
+                            <div class="overlay-title">Ready to Start</div>
+                            <div class="overlay-desc">Configure your starting setups on the left and click the button to sit in the cockpit of the Discord Grand Prix Simulator!</div>
+                        </div>
+
+                        <!-- Active Simulator Top Bar -->
+                        <div class="sim-screen-header">
+                            <div class="sim-race-title" id="sim-track-name">SPA-FRANCORCHAMPS</div>
+                            <div class="sim-info-bar">
+                                <div class="info-item">🌧️ Weather: <span class="info-item-val" id="sim-weather">Sunny</span></div>
+                                <div class="info-item">🏁 Lap: <span class="info-item-val" id="sim-lap">0 / 10</span></div>
+                                <div class="info-item" id="sim-sc-indicator" style="display: none; color: var(--neon-yellow);">⚠️ SAFETY CAR</div>
+                            </div>
+                        </div>
+
+                        <!-- Body Grid -->
+                        <div class="sim-body">
+                            <!-- Left: Commentary Scrolling Feed -->
+                            <div style="display: flex; flex-direction: column; height: 100%;">
+                                <div class="commentary-feed" id="sim-feed">
+                                    <!-- Log messages append here -->
+                                </div>
+                                
+                                <!-- Standings table underneath commentary -->
+                                <div style="padding: 1rem; border-top: 1px solid var(--border-color); background: rgba(0,0,0,0.3); flex: 1;">
+                                    <table class="standings-table">
+                                        <thead>
+                                            <tr>
+                                                <th>POS</th>
+                                                <th>CONSTRUCTOR</th>
+                                                <th>TYRES</th>
+                                                <th>LAST LAP</th>
+                                                <th>GAP</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="sim-standings">
+                                            <!-- Standing rows append here -->
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+
+                            <!-- Right: Discord DM Telemetry Card (Fake Discord) -->
+                            <div class="telemetry-panel">
+                                <div class="discord-header">
+                                    💬 Discord DM Telemetry
+                                </div>
+                                
+                                <div class="telemetry-card" id="tele-card">
+                                    <div class="telemetry-title">🏎️ Telemetry — LAP <span id="tele-lap">1</span></div>
+                                    <div class="telemetry-stats">
+                                        <div class="telemetry-stat-row">
+                                            <span>Current Pacing:</span>
+                                            <span class="telemetry-stat-val" id="tele-pacing" style="color: var(--neon-yellow);">Balanced</span>
+                                        </div>
+                                        <div class="telemetry-stat-row">
+                                            <span>Current Tyre:</span>
+                                            <span class="telemetry-stat-val" id="tele-tyre">Medium</span>
+                                        </div>
+                                        <div class="telemetry-stat-row">
+                                            <span>Tyre Wear:</span>
+                                            <span class="telemetry-stat-val" id="tele-wear-val">100%</span>
+                                        </div>
+                                        <div class="wear-bar-container">
+                                            <div class="wear-bar" id="tele-wear-bar" style="width: 100%;"></div>
+                                        </div>
+                                        <div class="telemetry-stat-row" style="margin-top: 0.5rem;">
+                                            <span>Pit stop status:</span>
+                                            <span class="telemetry-stat-val" id="tele-pit-status" style="color: var(--text-secondary);">No Stop Scheduled</span>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="telemetry-buttons">
+                                    <button class="tele-btn pit-btn" id="tele-btn-pit" onclick="openPitModal()">🛞 Pit Next Lap</button>
+                                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; margin-top: 0.5rem;">
+                                        <button class="tele-btn" id="tele-btn-aggressive" onclick="changePace('Aggressive')">🔴 Aggressive</button>
+                                        <button class="tele-btn active" id="tele-btn-balanced" onclick="changePace('Balanced')">🟡 Balanced</button>
+                                    </div>
+                                    <button class="tele-btn" id="tele-btn-conservative" onclick="changePace('Conservative')" style="margin-top: 0.2rem;">🟢 Conservative</button>
+                                </div>
+
+                                <button id="btn-next-lap" class="start-sim-btn" style="margin-top: auto; padding: 0.6rem;" onclick="runNextLap()" disabled>
+                                    ⏩ Next Lap
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Tyre Pitstop Choice Modal -->
+                        <div class="modal-overlay" id="pit-modal">
+                            <div class="tyre-modal">
+                                <h3>🛞 Pit Stop: Select Tyre Compound</h3>
+                                <div class="tyre-option-list">
+                                    <button class="tele-btn" onclick="schedulePit('Soft')" style="border-left: 4px solid var(--soft-red);">🟥 Softs (Fast, high wear)</button>
+                                    <button class="tele-btn" onclick="schedulePit('Medium')" style="border-left: 4px solid var(--neon-yellow);">🟨 Mediums (Balanced)</button>
+                                    <button class="tele-btn" onclick="schedulePit('Hard')" style="border-left: 4px solid var(--hard-white);">⬜ Hards (Highly durable)</button>
+                                    <button class="tele-btn" onclick="schedulePit('Intermediates')" style="border-left: 4px solid var(--neon-green);">🟩 Intermediates (Rain tyre)</button>
+                                    <button class="tele-btn" onclick="closePitModal()" style="margin-top: 0.5rem; background: #36393f;">❌ Cancel</button>
+                                </div>
+                            </div>
+                        </div>
+
+                    </div>
+                </div>
+            </div>
+        </section>
+    </div>
+
+    <!-- Interactive JS Scripts -->
+    <script>
+        // Copy Command Utility
+        function copyCommand(text) {
+            navigator.clipboard.writeText(text).then(() => {
+                alert(`Copied "${text}" to clipboard!`);
+            });
+        }
+
+        // Tab Switching
+        function switchTab(tabId) {
+            document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
+
+            const activeBtn = Array.from(document.querySelectorAll('.tab-btn')).find(btn => btn.innerText.toLowerCase().includes(tabId));
+            if (activeBtn) activeBtn.classList.add('active');
+
+            const content = document.getElementById(`tab-${tabId}`);
+            if (content) content.classList.add('active');
+        }
+
+        // Guide timeline steps
+        function showStep(stepNum) {
+            document.querySelectorAll('.step-card').forEach((card, idx) => {
+                if (idx + 1 === stepNum) card.classList.add('active');
+                else card.classList.remove('active');
+            });
+            document.querySelectorAll('.detail-view').forEach((detail, idx) => {
+                if (idx + 1 === stepNum) detail.classList.add('active');
+                else detail.classList.remove('active');
+            });
+        }
+
+        // Calculator upgrade costs config
+        const upgradeCosts = [
+            0, 200, 400, 800, 1400, 2200, 3200, 4400, 5800, 7400, 
+            9200, 11200, 13400, 15800, 18400, 21200, 24200, 27400, 30800, 34400
+        ];
+
+        // Stats calculation
+        function calculateStats() {
+            const engine = parseInt(document.getElementById('slide-engine').value);
+            const aero = parseInt(document.getElementById('slide-aero').value);
+            const tyres = parseInt(document.getElementById('slide-tyres').value);
+            const ers = parseInt(document.getElementById('slide-ers').value);
+            const reliability = parseInt(document.getElementById('slide-reliability').value);
+            const pit_crew = parseInt(document.getElementById('slide-pit_crew').value);
+            const pace = parseInt(document.getElementById('slide-pace').value);
+            const wet_skill = parseInt(document.getElementById('slide-wet_skill').value);
+
+            // Display slide values
+            document.getElementById('val-engine').innerText = `Level ${engine}`;
+            document.getElementById('val-aero').innerText = `Level ${aero}`;
+            document.getElementById('val-tyres').innerText = `Level ${tyres}`;
+            document.getElementById('val-ers').innerText = `Level ${ers}`;
+            document.getElementById('val-reliability').innerText = `Level ${reliability}`;
+            document.getElementById('val-pit_crew').innerText = `Level ${pit_crew}`;
+            document.getElementById('val-pace').innerText = pace;
+            document.getElementById('val-wet_skill').innerText = wet_skill;
+
+            // Lap Time calculations (engine*0.12 + aero*0.08 + ers*0.08)
+            const carLapTimeRed = (engine * 0.12) + (aero * 0.08) + (ers * 0.08);
+            document.getElementById('res-laptime').innerText = `-${carLapTimeRed.toFixed(2)}s / lap`;
+
+            // Driver skill pace advantage (pace/100 * 2.0)
+            const driverPaceAdv = (pace / 100.0) * 2.0;
+            document.getElementById('res-drivertime').innerText = `-${driverPaceAdv.toFixed(2)}s / lap`;
+
+            // Pit stop duration: 3.5 - (pit_crew * 0.15)
+            const pitDuration = 3.5 - (pit_crew * 0.15);
+            document.getElementById('res-pitstop').innerText = `${pitDuration.toFixed(2)}s`;
+
+            // Tyre wear multiplier: 1.0 - (tyres * 0.035)
+            const tyreWearMult = 1.0 - (tyres * 0.035);
+            document.getElementById('res-wearmult').innerText = `${tyreWearMult.toFixed(2)}x`;
+
+            // DNF Chance: max(0.2, 6.5 - reliability * 0.25)
+            const dnfChance = Math.max(0.2, 6.5 - (reliability * 0.25));
+            document.getElementById('res-dnf').innerText = `${dnfChance.toFixed(2)}%`;
+
+            // Wet Weather penalty: 15.0 - (wet_skill / 10.0)
+            const wetPenalty = 15.0 - (wet_skill / 10.0);
+            document.getElementById('res-wetpenalty').innerText = `+${wetPenalty.toFixed(1)}s / lap`;
+
+            // Calculate total costs
+            let totalCost = 0;
+            const components = [engine, aero, tyres, ers, reliability, pit_crew];
+            components.forEach(lvl => {
+                for (let i = 2; i <= lvl; i++) {
+                    totalCost += upgradeCosts[i - 1] || 0;
+                }
+            });
+            document.getElementById('res-totalcost').innerText = `${totalCost.toLocaleString()}¢`;
+        }
+
+        // ================= SIMULATOR ENGINE =================
+        let simState = {
+            active: false,
+            lap: 0,
+            totalLaps: 10,
+            weather: "Sunny",
+            track: "Spa",
+            safetyCarLaps: 0,
+            vscLaps: 0,
+            scheduledPit: null,
+            players: []
+        };
+
+        const tracksConfig = {
+            Spa: { name: "Spa-Francorchamps", baseLap: 104.0, rainChance: 0.3 },
+            Bahrain: { name: "Sakhir Grand Prix", baseLap: 91.0, rainChance: 0.0 },
+            Monaco: { name: "Monte Carlo", baseLap: 75.0, rainChance: 0.1 }
+        };
+
+        function startSim() {
+            const track = document.getElementById('track-select').value;
+            const tyre = document.getElementById('starting-tyres').value;
+            const pace = document.getElementById('starting-pace').value;
+
+            simState = {
+                active: true,
+                lap: 0,
+                totalLaps: 10,
+                weather: "Sunny",
+                track: track,
+                safetyCarLaps: 0,
+                vscLaps: 0,
+                scheduledPit: null,
+                players: [
+                    { name: "🏆 You (Red Bull)", tyre: tyre, pace: pace, tyreWear: 100.0, time: 0.0, engine: 10, aero: 10, paceSkill: 75, wetSkill: 80, isUser: true, lastLap: 0, status: "Active" },
+                    { name: "Verstappen", tyre: "Medium", pace: "Balanced", tyreWear: 100.0, time: 0.0, engine: 16, aero: 16, paceSkill: 96, wetSkill: 95, isUser: false, lastLap: 0, status: "Active" },
+                    { name: "Hamilton", tyre: "Hard", pace: "Balanced", tyreWear: 100.0, time: 0.0, engine: 15, aero: 15, paceSkill: 94, wetSkill: 96, isUser: false, lastLap: 0, status: "Active" },
+                    { name: "Leclerc", tyre: "Soft", pace: "Aggressive", tyreWear: 100.0, time: 0.0, engine: 16, aero: 15, paceSkill: 93, wetSkill: 88, isUser: false, lastLap: 0, status: "Active" }
+                ]
+            };
+
+            // UI updates
+            document.getElementById('sim-overlay').classList.add('hidden');
+            document.getElementById('sim-track-name').innerText = tracksConfig[track].name;
+            document.getElementById('sim-weather').innerText = simState.weather;
+            document.getElementById('sim-lap').innerText = `0 / ${simState.totalLaps}`;
+            document.getElementById('btn-next-lap').removeAttribute('disabled');
+            document.getElementById('btn-start-sim').innerText = "🏁 Race in Progress";
+            document.getElementById('btn-start-sim').disabled = true;
+
+            const feed = document.getElementById('sim-feed');
+            feed.innerHTML = '<div class="log-entry lap-header">🟢 RACE CONTROL: Five red lights go out and away we go!</div>';
+            
+            // Initial qualifying sorting
+            simState.players.forEach(p => {
+                let qualTime = tracksConfig[track].baseLap;
+                qualTime -= (p.engine * 0.12) + (p.aero * 0.08);
+                qualTime -= (p.paceSkill / 100.0) * 2.0;
+                qualTime += Math.random() * 0.6; // random variance
+                p.time = qualTime;
+            });
+            sortAndRenderStandings();
+            updateTelemetryUI();
+        }
+
+        function sortAndRenderStandings() {
+            // Sort by total time
+            const activeDrivers = simState.players.filter(p => p.status === "Active").sort((a,b) => a.time - b.time);
+            const retiredDrivers = simState.players.filter(p => p.status !== "Active");
+            const sorted = [...activeDrivers, ...retiredDrivers];
+
+            const tbody = document.getElementById('sim-standings');
+            tbody.innerHTML = '';
+
+            const leaderTime = activeDrivers.length > 0 ? activeDrivers[0].time : 0;
+
+            sorted.forEach((p, idx) => {
+                const tr = document.createElement('tr');
+                if (p.isUser) tr.classList.add('driver-row-me');
+
+                const posTd = document.createElement('td');
+                posTd.className = 'pos';
+                posTd.innerText = p.status === "Active" ? idx + 1 : "DNF";
+                tr.appendChild(posTd);
+
+                const nameTd = document.createElement('td');
+                nameTd.innerText = p.name;
+                tr.appendChild(nameTd);
+
+                const tyreTd = document.createElement('td');
+                const tClass = p.tyre.toLowerCase();
+                tyreTd.innerHTML = `<span class="tyre-badge ${tClass}">${p.tyre}</span> <span style="font-size:0.7rem; color:var(--text-secondary)">(${Math.round(p.tyreWear)}%)</span>`;
+                tr.appendChild(tyreTd);
+
+                const lapTd = document.createElement('td');
+                lapTd.innerText = p.status === "Active" && p.lastLap > 0 ? formatTime(p.lastLap) : "—";
+                tr.appendChild(lapTd);
+
+                const gapTd = document.createElement('td');
+                if (p.status !== "Active") {
+                    gapTd.innerText = p.status;
+                    gapTd.style.color = 'var(--soft-red)';
+                } else if (idx === 0) {
+                    gapTd.innerText = "Leader";
+                } else {
+                    const diff = p.time - leaderTime;
+                    gapTd.innerText = `+${diff.toFixed(3)}s`;
+                }
+                tr.appendChild(gapTd);
+
+                tbody.appendChild(tr);
+            });
+        }
+
+        function formatTime(s) {
+            const mins = Math.floor(s / 60);
+            const secs = (s % 60).toFixed(3);
+            return mins > 0 ? `${mins}:${secs.padStart(6, '0')}` : `${secs}s`;
+        }
+
+        function updateTelemetryUI() {
+            const me = simState.players.find(p => p.isUser);
+            document.getElementById('tele-lap').innerText = simState.lap;
+            document.getElementById('tele-pacing').innerText = me.pace;
+            document.getElementById('tele-pacing').style.color = 
+                me.pace === "Aggressive" ? "var(--soft-red)" : 
+                me.pace === "Conservative" ? "var(--neon-green)" : "var(--neon-yellow)";
+            
+            document.getElementById('tele-tyre').innerText = me.tyre;
+            document.getElementById('tele-wear-val').innerText = `${Math.round(me.tyreWear)}%`;
+            
+            const bar = document.getElementById('tele-wear-bar');
+            bar.style.width = `${me.tyreWear}%`;
+            if (me.tyreWear > 75) {
+                bar.style.backgroundColor = 'var(--neon-green)';
+            } else if (me.tyreWear > 40) {
+                bar.style.backgroundColor = 'var(--neon-yellow)';
+            } else {
+                bar.style.backgroundColor = 'var(--soft-red)';
+            }
+
+            const pitStatus = document.getElementById('tele-pit-status');
+            const pitBtn = document.getElementById('tele-btn-pit');
+            if (simState.scheduledPit) {
+                pitStatus.innerText = `Pit Scheduled: for ${simState.scheduledPit}`;
+                pitStatus.style.color = "var(--neon-yellow)";
+                pitBtn.innerText = "🛞 Pit Scheduled";
+                pitBtn.classList.add('scheduled');
+            } else {
+                pitStatus.innerText = "No Stop Scheduled";
+                pitStatus.style.color = "var(--text-secondary)";
+                pitBtn.innerText = "🛞 Pit Next Lap";
+                pitBtn.classList.remove('scheduled');
+            }
+
+            // Sync pacing active button classes
+            document.getElementById('tele-btn-aggressive').className = `tele-btn ${me.pace === 'Aggressive' ? 'active' : ''}`;
+            document.getElementById('tele-btn-balanced').className = `tele-btn ${me.pace === 'Balanced' ? 'active' : ''}`;
+            document.getElementById('tele-btn-conservative').className = `tele-btn ${me.pace === 'Conservative' ? 'active' : ''}`;
+        }
+
+        function changePace(pace) {
+            if (!simState.active) return;
+            const me = simState.players.find(p => p.isUser);
+            me.pace = pace;
+            addCommentaryLog(`📻 Radio: You changed pacing to **${pace}**.`);
+            updateTelemetryUI();
+        }
+
+        function openPitModal() {
+            if (!simState.active) return;
+            document.getElementById('pit-modal').classList.add('show');
+        }
+
+        function closePitModal() {
+            document.getElementById('pit-modal').classList.remove('show');
+        }
+
+        function schedulePit(tyreType) {
+            simState.scheduledPit = tyreType;
+            addCommentaryLog(`📻 Radio: Box, box! Pit stop confirmed for next lap. Swapping to **${tyreType}**.`);
+            closePitModal();
+            updateTelemetryUI();
+        }
+
+        function addCommentaryLog(text) {
+            const feed = document.getElementById('sim-feed');
+            const entry = document.createElement('div');
+            entry.className = 'log-entry';
+            if (text.includes('SAFETY CAR') || text.includes('VSC')) entry.className += ' safety-car';
+            if (text.includes('RAIN') || text.includes('WEATHER')) entry.className += ' weather';
+            entry.innerHTML = text;
+            feed.appendChild(entry);
+            feed.scrollTop = feed.scrollHeight;
+        }
+
+        function runNextLap() {
+            if (!simState.active) return;
+
+            simState.lap++;
+            document.getElementById('sim-lap').innerText = `${simState.lap} / ${simState.totalLaps}`;
+            
+            addCommentaryLog(`<div class="log-entry lap-header">🏁 LAP ${simState.lap} / ${simState.totalLaps}</div>`);
+
+            // 1. Weather Radar events
+            processWeather();
+
+            // 2. Safety Car processing
+            processSafetyCar();
+
+            // 3. Process lap times and tyre wear
+            simState.players.forEach(p => {
+                if (p.status !== "Active") return;
+
+                // A. Check if driver is hitting the pits
+                let pittedThisLap = false;
+                let pitTimeLoss = 0;
+                
+                if (p.isUser && simState.scheduledPit) {
+                    pittedThisLap = true;
+                    p.tyre = simState.scheduledPit;
+                    p.tyreWear = 100.0;
+                    simState.scheduledPit = null;
+                    // Pit stop loss (SC: 6s, Green flag: 11s)
+                    pitTimeLoss = (simState.safetyCarLaps > 0 || simState.vscLaps > 0) ? 6.0 : 11.0;
+                    addCommentaryLog(`🔧 Pit Stop: **${p.name}** enters pits. Swaps to **${p.tyre}**! Loss: +${pitTimeLoss}s.`);
+                } else if (!p.isUser && p.tyreWear < 40.0) {
+                    // AI pits automatically below 40% wear
+                    pittedThisLap = true;
+                    // AI adapts tyre to weather
+                    p.tyre = simState.weather === "Rain" ? "Intermediates" : "Medium";
+                    p.tyreWear = 100.0;
+                    pitTimeLoss = (simState.safetyCarLaps > 0 || simState.vscLaps > 0) ? 6.0 : 11.0;
+                    addCommentaryLog(`🔧 AI Pit Stop: **${p.name}** pits for fresh **${p.tyre}**.`);
+                }
+
+                // B. Lap time calculation
+                let lapTime = tracksConfig[simState.track].baseLap;
+                
+                // Parts and skills advantage
+                lapTime -= (p.engine * 0.12) + (p.aero * 0.08);
+                lapTime -= (p.paceSkill / 100.0) * 2.0;
+
+                // Tyre pacing adjustment
+                if (p.tyre === "Soft") lapTime -= 0.8;
+                else if (p.tyre === "Hard") lapTime += 0.5;
+                
+                if (p.pace === "Aggressive") lapTime -= 0.5;
+                else if (p.pace === "Conservative") lapTime += 0.7;
+
+                // Tyre Wear penalty
+                if (p.tyreWear < 80.0) {
+                    const penaltyCoeff = p.tyre === "Soft" ? 0.12 : p.tyre === "Medium" ? 0.08 : 0.05;
+                    lapTime += (80.0 - p.tyreWear) * penaltyCoeff;
+                }
+
+                // Weather penalty (Wrong tyres in wet)
+                if (simState.weather === "Rain" && p.tyre !== "Intermediates") {
+                    lapTime += 15.0 - (p.wetSkill / 10.0);
+                } else if (simState.weather === "Sunny" && p.tyre === "Intermediates") {
+                    lapTime += 6.0;
+                }
+
+                // Safety Car Pace Lock
+                if (simState.safetyCarLaps > 0) {
+                    lapTime = 72.0 + (Math.random() * 0.5);
+                } else if (simState.vscLaps > 0) {
+                    lapTime = 58.0 + (Math.random() * 0.5);
+                } else {
+                    // Regular random noise
+                    lapTime += Math.random() * 0.4 - 0.2;
+                }
+
+                // C. Tyre Wear degradation
+                let wearCoeff = p.tyre === "Soft" ? 12.0 : p.tyre === "Medium" ? 7.0 : p.tyre === "Hard" ? 4.0 : 8.0; // Inters wear fast
+                if (p.pace === "Aggressive") wearCoeff *= 1.3;
+                else if (p.pace === "Conservative") wearCoeff *= 0.7;
+                
+                if (simState.safetyCarLaps > 0) wearCoeff *= 0.1;
+                else if (simState.vscLaps > 0) wearCoeff *= 0.3;
+
+                // Reduce tyre wear
+                p.tyreWear = Math.max(0.0, p.tyreWear - wearCoeff);
+
+                // Add time
+                p.time += lapTime + pitTimeLoss;
+                p.lastLap = lapTime;
+
+                // D. Crash checks (only under green flag)
+                if (simState.safetyCarLaps === 0 && simState.vscLaps === 0) {
+                    let crashChance = 0.01;
+                    if (p.pace === "Aggressive") crashChance *= 1.8;
+                    if (simState.weather === "Rain" && p.tyre !== "Intermediates") crashChance *= 4.5;
+                    
+                    if (Math.random() < crashChance) {
+                        p.status = "DNF (Crashed)";
+                        addCommentaryLog(`💥 CRASH: **${p.name}** has crashed out of the race!`);
+                        
+                        // Safety Car trigger chance
+                        if (Math.random() < 0.6) {
+                            simState.safetyCarLaps = 3;
+                            addCommentaryLog("⚠️ SAFETY CAR DEPLOYED! Compress the gaps. Cheap Pit Stops are available!");
+                        } else {
+                            simState.vscLaps = 2;
+                            addCommentaryLog("⚠️ VIRTUAL SAFETY CAR DEPLOYED. Maintain delta. Pit stops cost only 6s!");
+                        }
+                    }
+                }
+            });
+
+            // Gaps Compression under Safety Car
+            if (simState.safetyCarLaps > 0) {
+                const active = simState.players.filter(p => p.status === "Active").sort((a,b) => a.time - b.time);
+                for (let i = 1; i < active.length; i++) {
+                    // Compress to max 0.5s behind
+                    if (active[i].time - active[i-1].time > 0.5) {
+                        active[i].time = active[i-1].time + 0.5;
+                    }
+                }
+            }
+
+            // Overtake announcements (DRS Zones)
+            if (simState.safetyCarLaps === 0 && simState.vscLaps === 0) {
+                simulateOvertakes();
+            }
+
+            sortAndRenderStandings();
+            updateTelemetryUI();
+
+            // Check if end of race
+            if (simState.lap >= simState.totalLaps) {
+                endRace();
+            }
+        }
+
+        function processWeather() {
+            // Spa has high rain risk. Rain starts at lap 4, clears at lap 8
+            if (simState.track === "Spa") {
+                if (simState.lap === 2) {
+                    addCommentaryLog("⛈️ **WEATHER RADAR:** Heavy rain clouds detected! Expected to arrive in 2 laps (Lap 4).");
+                } else if (simState.lap === 3) {
+                    addCommentaryLog("⛈️ **WEATHER RADAR:** Rain clouds directly overhead. Rain expected next lap! Call box for Intermediates.");
+                } else if (simState.lap === 4) {
+                    simState.weather = "Rain";
+                    document.getElementById('sim-weather').innerText = simState.weather;
+                    addCommentaryLog("🌧️ **TRACK STATUS:** Rain has started! The circuit is now extremely slippery. Slicks will lose severe pace!");
+                } else if (simState.lap === 6) {
+                    addCommentaryLog("☀️ **WEATHER RADAR:** Clouds clearing up. Sunny conditions expected in 2 laps (Lap 8).");
+                } else if (simState.lap === 7) {
+                    addCommentaryLog("☀️ **WEATHER RADAR:** Track starting to dry. Sunny conditions expected next lap.");
+                } else if (simState.lap === 8) {
+                    simState.weather = "Sunny";
+                    document.getElementById('sim-weather').innerText = simState.weather;
+                    addCommentaryLog("☀️ **TRACK STATUS:** Sun is shining. The track is dry! Intermediate tyres will overheat and lose pace now!");
+                }
+            }
+        }
+
+        function processSafetyCar() {
+            const scIndicator = document.getElementById('sim-sc-indicator');
+            if (simState.safetyCarLaps > 0) {
+                simState.safetyCarLaps--;
+                if (simState.safetyCarLaps === 0) {
+                    scIndicator.style.display = 'none';
+                    addCommentaryLog("🟢 SAFETY CAR IN THIS LAP: Green flag racing resumes!");
+                } else {
+                    scIndicator.style.display = 'block';
+                    scIndicator.innerText = `⚠️ SAFETY CAR (Laps: ${simState.safetyCarLaps})`;
+                    addCommentaryLog("⚠️ Safety Car pacing the field. Overtaking is prohibited.");
+                }
+            } else if (simState.vscLaps > 0) {
+                simState.vscLaps--;
+                if (simState.vscLaps === 0) {
+                    scIndicator.style.display = 'none';
+                    addCommentaryLog("🟢 VSC ENDING: Green flag racing resumes!");
+                } else {
+                    scIndicator.style.display = 'block';
+                    scIndicator.innerText = `⚠️ VIRTUAL SAFETY CAR`;
+                    addCommentaryLog("⚠️ VSC: Maintain delta and speeds. No overtaking.");
+                }
+            }
+        }
+
+        function simulateOvertakes() {
+            const active = simState.players.filter(p => p.status === "Active").sort((a,b) => a.time - b.time);
+            for (let i = 1; i < active.length; i++) {
+                const gap = active[i].time - active[i-1].time;
+                if (gap < 0.6) {
+                    // Overtake chance
+                    let overtakeChance = 0.25;
+                    
+                    // Tyre health advantage
+                    if (active[i].tyreWear > active[i-1].tyreWear + 20) overtakeChance += 0.2;
+                    // Engine power advantage
+                    if (active[i].engine > active[i-1].engine) overtakeChance += 0.15;
+                    // Aggression pacing advantage
+                    if (active[i].pace === "Aggressive") overtakeChance += 0.1;
+                    
+                    if (Math.random() < overtakeChance) {
+                        // Swap positions
+                        const tempTime = active[i].time;
+                        active[i].time = active[i-1].time;
+                        active[i-1].time = tempTime + 0.1; // slide slightly ahead
+
+                        addCommentaryLog(`🏎️ Overtake: **${active[i].name}** overtakes **${active[i-1].name}** for P${i}!`);
+                    }
+                }
+            }
+        }
+
+        function endRace() {
+            simState.active = false;
+            document.getElementById('btn-next-lap').setAttribute('disabled', 'true');
+            
+            const me = simState.players.find(p => p.isUser);
+            const activeSorted = simState.players.filter(p => p.status === "Active").sort((a,b) => a.time - b.time);
+            const myPos = activeSorted.findIndex(p => p.name === me.name) + 1;
+
+            let descText = "";
+            let icon = "🏁";
+
+            if (me.status !== "Active") {
+                icon = "💥";
+                descText = "You DNF'd and crashed out! Make sure to run wet tyres in rain or avoid running high Aggression pacing on worn tyres next time.";
+            } else if (myPos === 1) {
+                icon = "🏆";
+                descText = "VICTORY! You managed your tyres and strategies perfectly. You receive 5,000¢ and +1,500 XP!";
+            } else if (myPos <= 3) {
+                icon = "🥈";
+                descText = `PODIUM! You finished in P${myPos}. Great strategic drive! You receive 3,000¢ and +1,500 XP.`;
+            } else {
+                icon = "🏁";
+                descText = `You finished the race in P${myPos}. Keep upgrading your car parts and training skills to climb the field! You receive 500¢ and +500 XP.`;
+            }
+
+            const overlay = document.getElementById('sim-overlay');
+            overlay.innerHTML = `
+                <div class="overlay-icon">${icon}</div>
+                <div class="overlay-title">Race Finished!</div>
+                <div class="overlay-desc" style="margin-bottom: 1.5rem;">${descText}</div>
+                <button class="start-sim-btn" onclick="resetSim()" style="margin-top: 0;">🏁 Reset Simulator</button>
+            `;
+            overlay.classList.remove('hidden');
+
+            document.getElementById('btn-start-sim').innerText = "🚦 Simulation Complete";
+        }
+
+        function resetSim() {
+            document.getElementById('sim-overlay').classList.remove('hidden');
+            document.getElementById('sim-overlay').innerHTML = `
+                <div class="overlay-icon">🚦</div>
+                <div class="overlay-title">Ready to Start</div>
+                <div class="overlay-desc">Configure your starting setups on the left and click the button to sit in the cockpit of the Discord Grand Prix Simulator!</div>
+            `;
+            document.getElementById('btn-start-sim').innerText = "🚦 Start Race Simulation";
+            document.getElementById('btn-start-sim').removeAttribute('disabled');
+            document.getElementById('sim-feed').innerHTML = '';
+            document.getElementById('sim-standings').innerHTML = '';
+            document.getElementById('sim-sc-indicator').style.display = 'none';
+        }
+
+        // Initialize Calculator live
+        calculateStats();
+    </script>
+</body>
+</html>

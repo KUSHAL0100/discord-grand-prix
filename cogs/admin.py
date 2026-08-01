@@ -112,6 +112,20 @@ class AdminCog(commands.Cog):
         color = utils.COLOR_SUCCESS if success else utils.COLOR_ERROR
         await interaction.response.send_message(embed=utils.create_embed(title="⚙️ Admin Profile Reset", description=msg, color=color))
 
+    @admin_group.command(name="deleteuser", description="Permanently delete a user's entire profile. They will need to /start again.")
+    @app_commands.describe(target="The user whose profile will be permanently deleted")
+    @is_admin()
+    @app_commands.guild_only()
+    async def admin_deleteuser(self, interaction: discord.Interaction, target: discord.User):
+        prof = database.get_user_by_discord_id(target.id, interaction.guild_id)
+        if not prof:
+            await interaction.response.send_message("❌ Target user does not have a profile on this server.", ephemeral=True)
+            return
+
+        success, msg = database.delete_user_profile(target.id, interaction.guild_id)
+        color = utils.COLOR_SUCCESS if success else utils.COLOR_ERROR
+        await interaction.response.send_message(embed=utils.create_embed(title="🗑️ Admin Profile Deletion", description=msg, color=color))
+
     @admin_group.command(name="resetstandings", description="Reset all World Driver Championship (WDC) standings/points for the server.")
     @is_admin()
     @app_commands.guild_only()
