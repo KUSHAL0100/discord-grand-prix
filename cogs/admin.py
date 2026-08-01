@@ -112,6 +112,14 @@ class AdminCog(commands.Cog):
         color = utils.COLOR_SUCCESS if success else utils.COLOR_ERROR
         await interaction.response.send_message(embed=utils.create_embed(title="⚙️ Admin Profile Reset", description=msg, color=color))
 
+    @admin_group.command(name="resetstandings", description="Reset all World Driver Championship (WDC) standings/points for the server.")
+    @is_admin()
+    @app_commands.guild_only()
+    async def admin_resetstandings(self, interaction: discord.Interaction):
+        success, msg = database.reset_wdc_standings(interaction.guild_id)
+        color = utils.COLOR_SUCCESS if success else utils.COLOR_ERROR
+        await interaction.response.send_message(embed=utils.create_embed(title="⚙️ Admin WDC Standings Reset", description=msg, color=color))
+
     @admin_group.command(name="addadmin", description="Grant a user Game Admin access for bot commands.")
     @app_commands.describe(target="The user to grant Game Admin access to")
     @is_owner_or_mod()

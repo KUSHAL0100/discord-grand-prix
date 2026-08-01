@@ -159,3 +159,52 @@ def test_personnel_training():
     prof_updated = database.get_full_team_profile(12345, 9999)
     assert prof_updated['money'] == 1100
     assert prof_updated['pace'] == prof['pace'] + 1
+
+def test_reset_wdc_standings():
+    # 1. Create a user in Guild 9999
+    success, msg = database.create_user(discord_id=12345, guild_id=9999, team_name="Test Racing", country="US")
+    assert success is True
+    
+    user = database.get_user_by_discord_id(12345, guild_id=9999)
+    uid = user["user_id"]
+    
+    # 2. Artificially set wins and losses to 5
+    conn = database.get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("UPDATE users SET wins = 5, losses = 5 WHERE user_id = ?", (uid,))
+    
+    # 3. Create a dummy race and entry with 25 points
+    cursor.execute("""
+        INSERT INTO races (guild_id, name, date, track, weather, status, laps)
+        VALUES (9999, 'Test GP', '2026-08-01', 'Monza', 'Sunny', 'Finished', 15)
+    """)
+    race_id = cursor.lastrowid
+    
+    cursor.execute("""
+        INSERT INTO race_entries (race_id, user_id, start_position, finish_position, points_earned)
+        VALUES (?, ?, 1, 1, 25)
+    """, (race_id, uid))
+    
+    conn.commit()
+    conn.close()
+    
+    # 4. Verify starting state on leaderboard
+    leaderboard = database.get_leaderboard(9999, "points")
+    assert len(leaderboard) == 1
+    assert leaderboard[0]["score"] == 25
+    assert leaderboard[0]["wins"] == 5
+    
+    # 5. Reset standings
+    success_reset, msg_reset = database.reset_wdc_standings(9999)
+    assert success_reset is True
+    
+    # 6. Verify that standings, wins and losses are reset to 0
+    leaderboard_after = database.get_leaderboard(9999, "points")
+    assert len(leaderboard_after) == 1
+    assert leaderboard_after[0]["score"] == 0
+    assert leaderboard_after[0]["wins"] == 0
+    
+    user_after = database.get_user_by_discord_id(12345, guild_id=9999)
+    assert user_after["wins"] == 0
+    assert user_after["losses"] == 0
+
