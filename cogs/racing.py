@@ -108,33 +108,202 @@ class DuelRematchView(discord.ui.View):
         self.stop()
 
 class DuelSpectatorCheerView(discord.ui.View):
-    def __init__(self, thread_id, p1_id, p1_name, p2_id, p2_name):
+    def __init__(self, thread_id, p1_id, p1_name, p1_discord_id, p2_id, p2_name, p2_discord_id):
         super().__init__(timeout=86400.0)
         self.thread_id = thread_id
         self.p1_id = p1_id
         self.p1_name = p1_name
+        self.p1_discord_id = p1_discord_id
         self.p2_id = p2_id
         self.p2_name = p2_name
+        self.p2_discord_id = p2_discord_id
+        self.entries_list = [
+            {"user_id": p1_id, "discord_id": p1_discord_id, "team_name": p1_name},
+            {"user_id": p2_id, "discord_id": p2_discord_id, "team_name": p2_name}
+        ]
+        self.update_button_labels()
 
-    @discord.ui.button(label="💙 Cheer Team 1", style=discord.ButtonStyle.primary)
+    def update_button_labels(self):
+        race_state = ACTIVE_RACES.get(self.thread_id)
+        c1 = 0
+        c2 = 0
+        if race_state and "cheers" in race_state:
+            c1 = race_state["cheers"].get(self.p1_id, 0)
+            c2 = race_state["cheers"].get(self.p2_id, 0)
+        self.cheer_p1.label = f"💙 Cheer Team 1 ({c1})"
+        self.cheer_p2.label = f"❤️ Cheer Team 2 ({c2})"
+
+    @discord.ui.button(label="💙 Cheer Team 1", style=discord.ButtonStyle.primary, custom_id="duel_cheer_p1", row=0)
     async def cheer_p1(self, interaction: discord.Interaction, button: discord.ui.Button):
         race_state = ACTIVE_RACES.get(self.thread_id)
         if race_state and "cheers" in race_state:
             race_state["cheers"][self.p1_id] = race_state["cheers"].get(self.p1_id, 0) + 1
             count = race_state["cheers"][self.p1_id]
-            await interaction.response.send_message(f"💙 You cheered for **{self.p1_name}**! Total Cheers: `{count}`", ephemeral=True)
+            self.update_button_labels()
+            await interaction.response.edit_message(view=self)
+            await interaction.followup.send(f"💙 You cheered for **{self.p1_name}**! Total Cheers: `{count}`", ephemeral=True)
         else:
             await interaction.response.send_message("🎉 Thanks for cheering!", ephemeral=True)
 
-    @discord.ui.button(label="❤️ Cheer Team 2", style=discord.ButtonStyle.danger)
+    @discord.ui.button(label="❤️ Cheer Team 2", style=discord.ButtonStyle.danger, custom_id="duel_cheer_p2", row=0)
     async def cheer_p2(self, interaction: discord.Interaction, button: discord.ui.Button):
         race_state = ACTIVE_RACES.get(self.thread_id)
         if race_state and "cheers" in race_state:
             race_state["cheers"][self.p2_id] = race_state["cheers"].get(self.p2_id, 0) + 1
             count = race_state["cheers"][self.p2_id]
-            await interaction.response.send_message(f"❤️ You cheered for **{self.p2_name}**! Total Cheers: `{count}`", ephemeral=True)
+            self.update_button_labels()
+            await interaction.response.edit_message(view=self)
+            await interaction.followup.send(f"❤️ You cheered for **{self.p2_name}**! Total Cheers: `{count}`", ephemeral=True)
         else:
             await interaction.response.send_message("🎉 Thanks for cheering!", ephemeral=True)
+
+    @discord.ui.button(label="🏎️ Live Standings", style=discord.ButtonStyle.secondary, custom_id="duel_public_standings", row=1)
+    async def standings_click(self, interaction: discord.Interaction, button: discord.ui.Button):
+        race_state = ACTIVE_RACES.get(self.thread_id)
+        if not race_state or not race_state.get("snapshot"):
+            await interaction.response.send_message("❌ No standings available for this lap.", ephemeral=True)
+            return
+            
+        lap_num = race_state.get("lap", 0)
+        lap_snapshot = race_state.get("snapshot", {})
+        
+        standings_list = []
+        for user_id, state in lap_snapshot.items():
+            team_name = "Unknown Team"
+            for entry in self.entries_list:
+                if str(entry['user_id']) == str(user_id):
+                    team_name = entry['team_name']
+                    break
+            pos_val = state.get("position")
+            standings_list.append({
+                "position": pos_val,
+                "team_name": team_name,
+                "gap_to_leader": state.get("gap_to_leader", "Leader"),
+                "gap_to_front": state.get("gap_to_front", "—"),
+                "tyre_type": state.get("tyre_type", "M"),
+                "tyre_health": state.get("tyre_health", 100.0),
+                "dnf": state.get("dnf", False)
+            })
+            
+        standings_list.sort(key=lambda x: (1 if (x["dnf"] or x["position"] is None) else 0, x["position"] if x["position"] is not None else 999))
+        
+        chunks = [standings_list[i:i + 25] for i in range(0, len(standings_list), 25)]
+        embeds = []
+        
+        for idx, chunk in enumerate(chunks):
+            table_lines = []
+            table_lines.append("```")
+            table_lines.append(f"Pos  Team Name            Gap        Tyre")
+            table_lines.append(f"-------------------------------------------")
+            
+            for driver in chunk:
+                if driver['dnf'] or driver['position'] is None:
+                    pos_str = "DNF ".ljust(4)
+                else:
+                    pos_str = f"P{driver['position']}".ljust(4)
+                team_str = driver['team_name'][:18].ljust(19)
+                
+                gap_str = driver['gap_to_leader']
+                if driver['dnf']:
+                    gap_str = "DNF"
+                gap_str = str(gap_str).ljust(10)
+                
+                tyre_name = driver['tyre_type']
+                tyre_pct = int(driver['tyre_health'])
+                tyre_str = f"{tyre_name} ({tyre_pct}%)"
+                if driver['dnf']:
+                    tyre_str = "—"
+                    
+                table_lines.append(f"{pos_str} {team_str} {gap_str} {tyre_str}")
+            table_lines.append("```")
+            
+            page_title = f"📊 Live Standings - Lap {lap_num}" if idx == 0 else f"📊 Live Standings - Page {idx + 1}"
+            embeds.append(utils.create_embed(
+                title=page_title,
+                description="\n".join(table_lines),
+                color=utils.COLOR_QUALIFYING
+            ))
+            
+        await interaction.response.send_message(embeds=embeds[:10], ephemeral=True)
+
+    @discord.ui.button(label="📊 My Telemetry & Strategy", style=discord.ButtonStyle.success, custom_id="duel_lap_telemetry", row=1)
+    async def telemetry_click(self, interaction: discord.Interaction, button: discord.ui.Button):
+        race_state = ACTIVE_RACES.get(self.thread_id)
+        if not race_state or not race_state.get("snapshot"):
+            await interaction.response.send_message("❌ No telemetry available for this lap.", ephemeral=True)
+            return
+            
+        lap_num = race_state.get("lap", 0)
+        lap_snapshot = race_state.get("snapshot", {})
+        
+        user_id = None
+        team_name = None
+        for entry in self.entries_list:
+            if entry['discord_id'] == interaction.user.id:
+                user_id = entry['user_id']
+                team_name = entry['team_name']
+                break
+                
+        if not user_id:
+            await interaction.response.send_message("❌ You are not participating in this duel.", ephemeral=True)
+            return
+            
+        state = lap_snapshot.get(user_id) or lap_snapshot.get(str(user_id))
+        if not state:
+            await interaction.response.send_message("❌ Telemetry not found for your team.", ephemeral=True)
+            return
+            
+        if state['dnf']:
+            desc = (
+                f"🏎️ **Driver:** {interaction.user.mention} | **Team:** **{team_name}**\n"
+                f"🛑 **Status:** **DNF (Did Not Finish)**\n"
+                f"⭕ **Tyres:** `{state['tyre_type']}`"
+            )
+            color = utils.COLOR_ERROR
+            embed = utils.create_embed(
+                title=f"📊 Private Telemetry - Lap {lap_num}",
+                description=desc,
+                color=color
+            )
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+        else:
+            current_strategy = "Balanced"
+            scheduled_strategy = "None scheduled"
+            pit_scheduled = "None scheduled"
+            if race_state and "teams" in race_state:
+                for t in race_state["teams"]:
+                    if t.discord_id == interaction.user.id:
+                        current_strategy = t.strategy
+                        if getattr(t, 'next_block_strategy', None):
+                            stint_start = (lap_num // 10 + 1) * 10 + 1
+                            scheduled_strategy = f"**{t.next_block_strategy}** (starts Lap {stint_start})"
+                        if getattr(t, 'pit_next_lap', False):
+                            pit_scheduled = f"**Box next lap** (fit `{getattr(t, 'pit_next_lap_tyre', t.tyre_type)}`)"
+                        break
+            
+            tyre_bar = utils.make_progress_bar(state['tyre_health'])
+            desc = (
+                f"🏎️ **Driver:** {interaction.user.mention} | **Team:** **{team_name}**\n\n"
+                f"📊 **Lap {lap_num} Live Telemetry:**\n"
+                f"  • **Position:** `P{state['position']}`\n"
+                f"  • **Gap to Leader:** `{state['gap_to_leader']}`\n"
+                f"  • **Gap to Car Ahead:** `{state['gap_to_front']}`\n\n"
+                f"⚙️ **Strategy & Health:**\n"
+                f"  • **Current Pace:** `{current_strategy}`\n"
+                f"  • **Scheduled Pace stint:** `{scheduled_strategy}`\n"
+                f"  • **Scheduled Pit Stop:** `{pit_scheduled}`\n"
+                f"  • **Tyres:** `{state['tyre_type']}` | Health: {tyre_bar} ({int(state['tyre_health'])}%)\n\n"
+                f"*Adjust your pacing strategy or schedule a pit stop below:*"
+            )
+            color = utils.COLOR_SUCCESS
+            
+            embed = utils.create_embed(
+                title=f"📊 Private Telemetry - Lap {lap_num}",
+                description=desc,
+                color=color
+            )
+            view = GPLapTelemetryAdjustmentView(interaction.channel_id, interaction.user.id, embed=embed)
+            await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
 
 class RaceChallengeView(discord.ui.View):
     def __init__(self, challenger_prof, opponent_prof, guild_id, wager=0, laps=3, track_name=None):
@@ -246,8 +415,8 @@ class RaceChallengeView(discord.ui.View):
 
             cheer_view = DuelSpectatorCheerView(
                 thread.id,
-                self.challenger_prof['user_id'], self.challenger_prof['team_name'],
-                self.opponent_prof['user_id'], self.opponent_prof['team_name']
+                self.challenger_prof['user_id'], self.challenger_prof['team_name'], self.challenger_prof['discord_id'],
+                self.opponent_prof['user_id'], self.opponent_prof['team_name'], self.opponent_prof['discord_id']
             )
 
             for item in generator:
@@ -278,8 +447,9 @@ class RaceChallengeView(discord.ui.View):
                         color=0xF5A623
                     )
                     
+                    cheer_view.update_button_labels()
                     await thread.send(embed=lap_embed, view=cheer_view)
-                    await asyncio.sleep(4.5)
+                    await asyncio.sleep(20.0)
                     
                 elif item[0] == "finish":
                     winner = item[1]
