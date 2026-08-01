@@ -88,7 +88,7 @@ class GarageCog(commands.Cog):
             await interaction.response.send_message("❌ You already have a profile created! Use `/profile` to view your team.", ephemeral=True)
             return
 
-        success = database.create_user(interaction.user.id, interaction.guild_id, team_name, country)
+        success, msg = database.create_user(interaction.user.id, interaction.guild_id, team_name, country)
         if success:
             embed = utils.create_embed(
                 title="🏎️ Welcome to Discord Grand Prix!",
@@ -103,7 +103,7 @@ class GarageCog(commands.Cog):
             )
             await interaction.response.send_message(embed=embed)
         else:
-            await interaction.response.send_message("❌ An error occurred creating your profile.", ephemeral=True)
+            await interaction.response.send_message(msg if msg else "❌ An error occurred creating your profile.", ephemeral=True)
 
     @app_commands.command(name="profile", description="View your team profile card or another driver's profile.")
     @app_commands.describe(user="Optional: View another driver's profile card")

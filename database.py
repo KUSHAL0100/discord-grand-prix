@@ -332,10 +332,10 @@ def create_user(discord_id: int, guild_id: int, team_name: str, country: Optiona
     leet_map_base = str.maketrans({'@': 'a', '4': 'a', '3': 'e', '0': 'o', '5': 's', '$': 's', '7': 't'})
     clean_base = team_name_clean.lower().translate(leet_map_base)
     
-    # Create normalized variations for '1'/'!' as 'l' and as 'i'
+    # Create normalized variations for '1'/'!'/'|' as 'l' and as 'i'
     norm_variations = [
-        re.sub(r"[^a-z]", "", clean_base.replace('1', 'l').replace('!', 'l')),
-        re.sub(r"[^a-z]", "", clean_base.replace('1', 'i').replace('!', 'i'))
+        re.sub(r"[^a-z]", "", clean_base.replace('1', 'l').replace('!', 'l').replace('|', 'l')),
+        re.sub(r"[^a-z]", "", clean_base.replace('1', 'i').replace('!', 'i').replace('|', 'i'))
     ]
     
     for forbidden in forbidden_f1_teams:
