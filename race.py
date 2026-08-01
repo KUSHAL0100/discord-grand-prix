@@ -104,6 +104,77 @@ TRACK_PROFILES = {
     }
 }
 
+# Climate & Weather Volatility Profiles per Circuit
+TRACK_WEATHER_PROFILES = {
+    # 🌵 Desert / Dry Heavy (95% Sunny, 5% Mixed, 0% Rain)
+    "Bahrain": {"sunny": 95, "mixed": 5, "rain": 0},
+    "Jeddah": {"sunny": 95, "mixed": 5, "rain": 0},
+    "Qatar": {"sunny": 95, "mixed": 5, "rain": 0},
+    "Abu Dhabi": {"sunny": 95, "mixed": 5, "rain": 0},
+    "Las Vegas": {"sunny": 90, "mixed": 10, "rain": 0},
+    "Miami": {"sunny": 80, "mixed": 15, "rain": 5},
+
+    # ⛈️ Rain Heavy / High Volatility (Up to 50% Rain Chaos)
+    "Spa": {"sunny": 20, "mixed": 30, "rain": 50},
+    "Interlagos": {"sunny": 25, "mixed": 30, "rain": 45},
+    "Silverstone": {"sunny": 30, "mixed": 30, "rain": 40},
+    "Zandvoort": {"sunny": 30, "mixed": 35, "rain": 35},
+    "Suzuka": {"sunny": 35, "mixed": 30, "rain": 35},
+
+    # ⚖️ Equal Weather Volatility (33% Sunny, 34% Mixed, 33% Rain)
+    "Montreal": {"sunny": 33, "mixed": 34, "rain": 33},
+    "Imola": {"sunny": 40, "mixed": 30, "rain": 30},
+    "Melbourne": {"sunny": 40, "mixed": 30, "rain": 30},
+    "Shanghai": {"sunny": 40, "mixed": 30, "rain": 30},
+
+    # ☀️ Mostly Sunny (75% Sunny, 15% Mixed, 10% Rain)
+    "Monaco": {"sunny": 75, "mixed": 15, "rain": 10},
+    "Monza": {"sunny": 80, "mixed": 15, "rain": 5},
+    "Barcelona": {"sunny": 80, "mixed": 15, "rain": 5},
+    "Red Bull Ring": {"sunny": 65, "mixed": 20, "rain": 15},
+    "Austin": {"sunny": 80, "mixed": 15, "rain": 5},
+    "Mexico City": {"sunny": 75, "mixed": 15, "rain": 10},
+    "Singapore": {"sunny": 70, "mixed": 20, "rain": 10},
+    "Baku": {"sunny": 85, "mixed": 10, "rain": 5},
+    "Hungaroring": {"sunny": 80, "mixed": 15, "rain": 5}
+}
+
+def generate_track_weather_timeline(track_name: str, total_laps: int) -> List[str]:
+    """Generate a lap-by-lap weather timeline based on climate profiles for each F1 track."""
+    profile = {"sunny": 70, "mixed": 20, "rain": 10}
+    for t_key, p_data in TRACK_WEATHER_PROFILES.items():
+        if t_key.lower() in track_name.lower() or track_name.lower() in t_key.lower():
+            profile = p_data
+            break
+
+    # Determine initial weather
+    rnd = random.uniform(0, 100)
+    if rnd < profile["rain"]:
+        curr = "Rain"
+    elif rnd < profile["rain"] + profile["mixed"]:
+        curr = "Mixed"
+    else:
+        curr = "Sunny"
+
+    timeline = []
+    stint_laps_left = random.randint(3, 6)
+    
+    for lap in range(total_laps):
+        if stint_laps_left <= 0:
+            rnd = random.uniform(0, 100)
+            if rnd < profile["rain"]:
+                curr = "Rain"
+            elif rnd < profile["rain"] + profile["mixed"]:
+                curr = "Mixed"
+            else:
+                curr = "Sunny"
+            stint_laps_left = random.randint(3, 6)
+            
+        timeline.append(curr)
+        stint_laps_left -= 1
+
+    return timeline
+
 TRACK_BASE_LAP_TIMES = {
     "Monaco": 47.0,
     "Monza": 43.0,
@@ -565,11 +636,11 @@ def simulate_gp_generator(entries_data: List[Dict[str, Any]], track_name: str, t
     sc_multiplier = track_profile.get("sc_chance_mult", 1.0)
     T_base = TRACK_BASE_LAP_TIMES.get(track_name, 45.0)
     
-    # Initial weather setting
-    if weather_timeline and len(weather_timeline) > 0:
-        current_weather = weather_timeline[0]
-    else:
-        current_weather = "Sunny"
+    # Generate or initialize track weather timeline
+    if not weather_timeline or len(weather_timeline) == 0:
+        weather_timeline = generate_track_weather_timeline(track_name, total_laps)
+        
+    current_weather = weather_timeline[0]
     setup_logs.append(f"🌤️ **Weather at start:** {current_weather}")
     
     # Initialize strategies and pit laps
@@ -715,6 +786,17 @@ def simulate_gp_generator(entries_data: List[Dict[str, Any]], track_name: str, t
                     
                 lap_time += strategy_lap_delta
                 
+                # Engine Thermal tracking & Radio Alerts
+                if t.strategy == "Aggressive":
+                    t.engine_temp += random.uniform(4.0, 6.0)
+                elif t.strategy == "Conservative":
+                    t.engine_temp = max(85.0, t.engine_temp - random.uniform(4.0, 6.0))
+                else: # Balanced
+                    t.engine_temp = max(85.0, t.engine_temp - random.uniform(1.5, 2.5))
+                    
+                if t.engine_temp >= 100.0:
+                    lap_logs.append(f"📻 *[Radio - {t.team_name}]: Engine temp critical ({t.engine_temp:.1f}°C)! Pushing too hard, back off or risk a blowup!*")
+                
                 # Driver aggression boost
                 aggression_pace_boost = (t.driver_aggression - 50.0) / 10.0
                 lap_time -= aggression_pace_boost
@@ -814,6 +896,8 @@ def simulate_gp_generator(entries_data: List[Dict[str, Any]], track_name: str, t
                 
                 if t.strategy == "Aggressive":
                     dnf_chance += 2.0
+                    if getattr(t, 'engine_temp', 85.0) >= 100.0:
+                        dnf_chance += 3.0  # Extra blowup risk from overheating engine!
                 elif t.strategy == "Conservative":
                     dnf_chance = max(0.05, dnf_chance - 2.0)
                     
@@ -832,6 +916,7 @@ def simulate_gp_generator(entries_data: List[Dict[str, Any]], track_name: str, t
                 
                 if random.uniform(0, 100) < per_lap_dnf_chance:
                     t.dnf = True
+                    t.dnf_this_lap = True
                     if is_slipping:
                         reason = "spun out on dry slick tyres in the wet and hit the barrier"
                     else:
@@ -866,7 +951,7 @@ def simulate_gp_generator(entries_data: List[Dict[str, Any]], track_name: str, t
         active_teams = [t for t in teams if not t.dnf]
         
         # Check if DNF occurred this lap
-        dnf_this_lap_teams = [t for t in teams if t.dnf and t.laps_completed == lap]
+        dnf_this_lap_teams = [t for t in teams if getattr(t, 'dnf_this_lap', False)]
         
         # Handle SC / VSC timers
         if safety_car_laps_left > 0:
@@ -896,8 +981,8 @@ def simulate_gp_generator(entries_data: List[Dict[str, Any]], track_name: str, t
                         vsc_laps_left = 3
                         lap_logs.append(f"🟡 **Lap {lap}: Virtual Safety Car (VSC) deployed to clear debris.**")
                 else:
-                    # Mechanical failure has 25% chance of VSC
-                    if random.random() < 0.25:
+                    # Mechanical failure has 40% chance of VSC and 60% chance of Yellow Flags
+                    if random.random() < 0.4:
                         vsc_laps_left = 3
                         lap_logs.append(f"🟡 **Lap {lap}: Virtual Safety Car (VSC) deployed to recover stranded car.**")
                     else:
@@ -911,6 +996,10 @@ def simulate_gp_generator(entries_data: List[Dict[str, Any]], track_name: str, t
                     else:
                         vsc_laps_left = 3
                         lap_logs.append(f"🟡 **Lap {lap}: Virtual Safety Car (VSC) deployed.**")
+                        
+        # Reset dnf_this_lap flags after processing
+        for t in dnf_this_lap_teams:
+            t.dnf_this_lap = False
 
         # F. DRS zone and Overtaking passes (Disabled under SC/VSC)
         if safety_car_laps_left == 0 and vsc_laps_left == 0:
