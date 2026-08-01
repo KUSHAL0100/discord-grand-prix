@@ -604,14 +604,14 @@ def simulate_gp_generator(entries_data: List[Dict[str, Any]], track_name: str, t
     for lap in range(1, total_laps + 1):
         lap_logs = []
         
-        # Stint strategy update check (runs at start of laps 1, 11, 21, etc.)
-        if (lap - 1) % 10 == 0:
-            for t in teams:
-                if t.dnf:
-                    continue
-                if lap > 1 and t.next_block_strategy:
-                    t.strategy = t.next_block_strategy
-                    lap_logs.append(f"📻 *[Radio - {t.team_name}]: Stint update! Switching pacing mode to {t.strategy}.*")
+        # Strategy update check (runs at start of every lap)
+        for t in teams:
+            if t.dnf:
+                continue
+            if getattr(t, 'next_block_strategy', None):
+                t.strategy = t.next_block_strategy
+                t.next_block_strategy = None
+                lap_logs.append(f"📻 *[Radio - {t.team_name}]: Pacing strategy updated to **{t.strategy}**!*")
         
         # Weather Radar Alerts (runs at start of lap)
         if weather_timeline:
@@ -707,11 +707,11 @@ def simulate_gp_generator(entries_data: List[Dict[str, Any]], track_name: str, t
                 strategy_wear_mult = 0.3
             else:
                 if t.strategy == "Aggressive":
-                    strategy_wear_mult = 1.4
-                    strategy_lap_delta = -0.8
+                    strategy_wear_mult = 1.3
+                    strategy_lap_delta = -0.6
                 elif t.strategy == "Conservative":
                     strategy_wear_mult = 0.7
-                    strategy_lap_delta = 1.0
+                    strategy_lap_delta = 0.5
                     
                 lap_time += strategy_lap_delta
                 
@@ -813,7 +813,7 @@ def simulate_gp_generator(entries_data: List[Dict[str, Any]], track_name: str, t
                 dnf_chance *= aggression_mult
                 
                 if t.strategy == "Aggressive":
-                    dnf_chance += 3.0
+                    dnf_chance += 2.0
                 elif t.strategy == "Conservative":
                     dnf_chance = max(0.05, dnf_chance - 2.0)
                     

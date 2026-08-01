@@ -1029,13 +1029,9 @@ class GPLapTelemetryAdjustmentView(discord.ui.View):
             team_obj.next_block_strategy = None
             await interaction.response.send_message(f"✅ Starting pacing strategy set to **{pace}**!", ephemeral=True)
         else:
-            if current_running_lap % 10 == 0:
-                await interaction.response.send_message(f"❌ Pacing strategy changes are locked on your Lap {current_running_lap} (transition lap) to avoid confusion. You can change your pacing starting next lap.", ephemeral=True)
-                return
-                
-            stint_start = (current_running_lap // 10 + 1) * 10 + 1
+            next_lap = current_running_lap + 1
             team_obj.next_block_strategy = pace
-            await interaction.response.send_message(f"✅ Pacing strategy scheduled to **{pace}** for your stint starting on **Lap {stint_start}** (Laps {stint_start} to {stint_start + 9})!", ephemeral=True)
+            await interaction.response.send_message(f"✅ Pacing strategy scheduled to **{pace}** starting on **Lap {next_lap}**!", ephemeral=True)
 
     @discord.ui.button(label="🔴 Push (Aggressive)", style=discord.ButtonStyle.danger, custom_id="gp_pace_push")
     async def push_click(self, interaction: discord.Interaction, button: discord.ui.Button):
