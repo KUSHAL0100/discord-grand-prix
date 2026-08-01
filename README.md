@@ -143,6 +143,7 @@ The repository includes a web tutorial dashboard located in the `tutorial/` fold
 
 ---
 
-## 📜 License
+## 📜 License & Copyright
 
-This project is open-source under the **MIT License**.
+Copyright © 2026 **Kushal**. All rights reserved.  
+This project is open-source under the **[MIT License](LICENSE)** — free for everyone to host, use, and play!
