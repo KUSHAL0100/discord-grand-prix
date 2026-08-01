@@ -219,3 +219,17 @@ def test_reset_wdc_standings():
     assert user_after["wins"] == 5
     assert user_after["losses"] == 5
 
+def test_delete_user():
+    database.create_user(discord_id=12345, guild_id=9999, team_name="Test Racing")
+    user = database.get_user_by_discord_id(12345, guild_id=9999)
+    uid = user["user_id"]
+    
+    # Record a duel entry
+    database.record_duel_history(9999, uid, uid)
+    
+    success, msg = database.delete_user_profile(discord_id=12345, guild_id=9999)
+    assert success is True
+    assert "Permanently deleted" in msg
+    assert database.get_user_by_discord_id(12345, guild_id=9999) is None
+
+

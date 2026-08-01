@@ -1801,8 +1801,10 @@ def delete_user_profile(discord_id: int, guild_id: int) -> Tuple[bool, str]:
         cursor.execute("DELETE FROM user_inventory WHERE user_id = ?", (uid,))
         cursor.execute("DELETE FROM user_boosters WHERE user_id = ?", (uid,))
         cursor.execute("DELETE FROM track_mastery WHERE user_id = ?", (uid,))
-        cursor.execute("DELETE FROM duel_history WHERE user_id_1 = ? OR user_id_2 = ?", (uid, uid))
-        cursor.execute("DELETE FROM bets WHERE user_id = ?", (uid,))
+        cursor.execute("DELETE FROM duel_history WHERE winner_id = ? OR loser_id = ?", (uid, uid))
+        cursor.execute("DELETE FROM bets WHERE bettor_id = ? OR target_id = ?", (uid, uid))
+        cursor.execute("UPDATE races SET winner_id = NULL WHERE winner_id = ?", (uid,))
+        cursor.execute("UPDATE seasons SET winner_id = NULL WHERE winner_id = ?", (uid,))
 
         # Finally delete the user record itself
         cursor.execute("DELETE FROM users WHERE user_id = ?", (uid,))
