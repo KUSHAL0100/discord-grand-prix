@@ -103,7 +103,8 @@ DUEL_LOSS_CREDITS = 50
 DUEL_COOLDOWN_SECONDS = 60  # Anti-spam limit for duels
 
 # Grand Prix Rewards & Settings
-GP_ENTRY_FEE = 1000
+GP_ENTRY_FEE = 500
+
 GP_PODIUM_REWARDS = {
     1: 5000,
     2: 3000,
