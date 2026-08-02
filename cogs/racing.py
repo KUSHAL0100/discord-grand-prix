@@ -319,13 +319,13 @@ class DuelSpectatorCheerView(discord.ui.View):
             await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
 
 class RaceChallengeView(discord.ui.View):
-    def __init__(self, challenger_prof, opponent_prof, guild_id, wager=0, laps=3, track_name=None):
+    def __init__(self, challenger_prof, opponent_prof, guild_id, wager=200, laps=5, track_name=None):
         super().__init__(timeout=60.0)
         self.challenger_prof = challenger_prof
         self.opponent_prof = opponent_prof
         self.guild_id = guild_id
         self.wager = max(0, wager)
-        self.laps = max(1, min(20, laps))
+        self.laps = max(5, min(20, laps))
         self.track_name = track_name
 
     @discord.ui.button(label="🏁 Accept Challenge", style=discord.ButtonStyle.green)
@@ -1547,13 +1547,13 @@ class RacingCog(commands.Cog):
     @app_commands.command(name="race", description="Challenge another user to a 1v1 racing duel!")
     @app_commands.describe(
         opponent="The user to challenge to a 1v1 duel",
-        wager="Optional credit wager amount (e.g. 500)",
-        laps="Race distance in laps (1 to 20 laps, default 3 laps)",
+        wager="Credit wager amount (minimum 200 credits, default 200)",
+        laps="Race distance in laps (5 to 20 laps, default 5 laps)",
         track="Select official F1 track (e.g. Monza, Monaco, Silverstone, Spa)"
     )
     @app_commands.autocomplete(track=track_autocomplete)
     @app_commands.guild_only()
-    async def race_cmd(self, interaction: discord.Interaction, opponent: discord.User, wager: int = 0, laps: int = 3, track: str = None):
+    async def race_cmd(self, interaction: discord.Interaction, opponent: discord.User, wager: int = 200, laps: int = 5, track: str = None):
         if opponent.bot or opponent == interaction.user:
             await interaction.response.send_message("❌ Invalid opponent.", ephemeral=True)
             return
@@ -1576,12 +1576,12 @@ class RacingCog(commands.Cog):
             else:
                 del REJECT_COOLDOWNS[(c_id, o_id)]
 
-        if wager < 0:
-            await interaction.response.send_message("❌ Wager amount cannot be negative.", ephemeral=True)
+        if wager < 200:
+            await interaction.response.send_message("❌ Minimum race wager is 200 credits.", ephemeral=True)
             return
 
-        if laps < 1 or laps > 20:
-            await interaction.response.send_message("❌ Race distance must be between 1 and 20 laps.", ephemeral=True)
+        if laps < 5 or laps > 20:
+            await interaction.response.send_message("❌ Race distance must be between 5 and 20 laps.", ephemeral=True)
             return
 
         if track and track not in race.TRACK_PROFILES:
