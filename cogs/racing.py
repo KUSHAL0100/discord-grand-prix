@@ -477,12 +477,16 @@ class RaceChallengeView(discord.ui.View):
                 return
 
             if self.wager > 0:
-                database.update_user_balance(winner['user_id'], self.wager)
-                database.update_user_balance(loser['user_id'], -self.wager)
                 winner_credits_display = self.wager * 2
+                loser_credits_display = int(self.wager * 0.25)
+                win_money_delta = self.wager
+                loss_money_delta = -int(self.wager * 0.75)
                 wager_str = f"\n💰 **Wager Paid:** **+{self.wager * 2:,} credits** pot won!"
             else:
                 winner_credits_display = config.WIN_PRIZE_CREDITS
+                loser_credits_display = config.LOSS_PRIZE_CREDITS
+                win_money_delta = None
+                loss_money_delta = None
                 wager_str = ""
 
             fl_str = ""
@@ -490,7 +494,10 @@ class RaceChallengeView(discord.ui.View):
                 database.update_user_balance(fastest_lap_user_id, 25)
                 fl_str = f"\n⚡ **Fastest Lap Bonus:** **{fastest_lap_team}** (`{fastest_lap_time:.2f}s`) (+25¢ bonus!)"
 
-            database.record_race_result(winner['user_id'], loser['user_id'], self.guild_id)
+            database.record_race_result(
+                winner['user_id'], loser['user_id'], self.guild_id,
+                win_prize=win_money_delta, loss_prize=loss_money_delta
+            )
             database.record_duel_history(self.guild_id, winner['user_id'], loser['user_id'])
 
             telemetry_chart = utils.generate_race_telemetry_graph(lap_telemetry_history)
@@ -504,7 +511,7 @@ class RaceChallengeView(discord.ui.View):
                 f"⏱️ **Distance:** `{self.laps} Laps`\n"
                 f"📊 **Rewards Earned:**\n"
                 f"  • **Winner ({winner['team_name']}):** `+{winner_credits_display:,}¢` | `+{config.WIN_XP:,} XP`\n"
-                f"  • **Runner-up ({loser['team_name']}):** `+{config.LOSS_PRIZE_CREDITS:,}¢` | `+{config.LOSS_XP:,} XP`\n\n"
+                f"  • **Runner-up ({loser['team_name']}):** `+{loser_credits_display:,}¢` | `+{config.LOSS_XP:,} XP`\n\n"
                 f"🗑️ *This live duel thread will automatically delete in 2 minutes to keep the channel clean.*"
             )
 

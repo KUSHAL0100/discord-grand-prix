@@ -312,6 +312,20 @@ class AdminCog(commands.Cog):
         )
         await interaction.response.send_message(embed=embed)
 
+    @admin_group.command(name="removemoney", description="Deduct credits from a player (Admin only).")
+    @app_commands.describe(user="The player to deduct credits from", amount="Amount of credits to deduct")
+    @is_admin()
+    @app_commands.guild_only()
+    async def admin_removemoney(self, interaction: discord.Interaction, user: discord.User, amount: int):
+        await self.admin_remove(interaction, user, amount)
+
+    @app_commands.command(name="removemoney", description="Deduct credits from a player (Admin only).")
+    @app_commands.describe(user="The player to deduct credits from", amount="Amount of credits to deduct")
+    @is_admin()
+    @app_commands.guild_only()
+    async def top_removemoney(self, interaction: discord.Interaction, user: discord.User, amount: int):
+        await self.admin_remove(interaction, user, amount)
+
     @admin_group.command(name="broadcast", description="Broadcast an announcement message to a channel (Admin only).")
     @app_commands.describe(
         message="The announcement message content (supports \\n for line breaks)",
