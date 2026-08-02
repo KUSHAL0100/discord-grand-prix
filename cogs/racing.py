@@ -1,8 +1,9 @@
 import discord
 from discord.ext import commands
 from discord import app_commands
-from typing import List
+from typing import List, Dict, Tuple
 import asyncio
+from datetime import datetime, timedelta
 
 import config
 import database
@@ -12,6 +13,8 @@ import crates
 
 # Active Races Registry for Live Telemetry Updates
 ACTIVE_RACES = {}
+# Rejection Cooldown Tracking: (challenger_id, opponent_id) -> expiry_datetime
+REJECT_COOLDOWNS: Dict[Tuple[int, int], datetime] = {}
 
 class RacePaceView(discord.ui.View):
     def __init__(self, user1_id, user2_id, guild_id, p1_default="Balanced", p2_default="Balanced"):
@@ -476,8 +479,10 @@ class RaceChallengeView(discord.ui.View):
             if self.wager > 0:
                 database.update_user_balance(winner['user_id'], self.wager)
                 database.update_user_balance(loser['user_id'], -self.wager)
-                wager_str = f"\n💰 **Wager Paid:** **+{self.wager:,} credits** won!"
+                winner_credits_display = self.wager * 2
+                wager_str = f"\n💰 **Wager Paid:** **+{self.wager * 2:,} credits** pot won!"
             else:
+                winner_credits_display = config.WIN_PRIZE_CREDITS
                 wager_str = ""
 
             fl_str = ""
@@ -498,7 +503,7 @@ class RaceChallengeView(discord.ui.View):
                 f"{victory_radio}\n\n"
                 f"⏱️ **Distance:** `{self.laps} Laps`\n"
                 f"📊 **Rewards Earned:**\n"
-                f"  • **Winner ({winner['team_name']}):** `+{config.WIN_PRIZE_CREDITS:,}¢` | `+{config.WIN_XP:,} XP`\n"
+                f"  • **Winner ({winner['team_name']}):** `+{winner_credits_display:,}¢` | `+{config.WIN_XP:,} XP`\n"
                 f"  • **Runner-up ({loser['team_name']}):** `+{config.LOSS_PRIZE_CREDITS:,}¢` | `+{config.LOSS_XP:,} XP`\n\n"
                 f"🗑️ *This live duel thread will automatically delete in 2 minutes to keep the channel clean.*"
             )
@@ -514,7 +519,7 @@ class RaceChallengeView(discord.ui.View):
 
             # Update original main channel message with Winner Summary Banner
             await orig_msg.edit(
-                content=f"🏆 **DUEL CONCLUDED:** **{winner['team_name']}** defeated **{loser['team_name']}**! (+{config.WIN_PRIZE_CREDITS:,}¢, +{config.WIN_XP} XP){wager_str}",
+                content=f"🏆 **DUEL CONCLUDED:** **{winner['team_name']}** defeated **{loser['team_name']}**! (+{winner_credits_display:,}¢, +{config.WIN_XP} XP){wager_str}",
                 embed=None,
                 view=None
             )
@@ -545,6 +550,24 @@ class RaceChallengeView(discord.ui.View):
         for item in self.children:
             item.disabled = True
         await interaction.response.edit_message(content="❌ Race challenge declined.", embed=None, view=None)
+
+    @discord.ui.button(label="🛑 Reject for 5 Min", style=discord.ButtonStyle.secondary)
+    async def reject_5m_challenge(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.opponent_prof['discord_id']:
+            await interaction.response.send_message("❌ Only the challenged opponent can decline this race!", ephemeral=True)
+            return
+
+        c_id = self.challenger_prof['discord_id']
+        o_id = self.opponent_prof['discord_id']
+        REJECT_COOLDOWNS[(c_id, o_id)] = datetime.now() + timedelta(minutes=5)
+
+        for item in self.children:
+            item.disabled = True
+        await interaction.response.edit_message(
+            content=f"🛑 **Challenge Declined.** {self.opponent_prof['team_name']} declined the challenge and muted race requests from {self.challenger_prof['team_name']} for 5 minutes.",
+            embed=None,
+            view=self
+        )
 
 
 
@@ -1527,6 +1550,24 @@ class RacingCog(commands.Cog):
         if opponent.bot or opponent == interaction.user:
             await interaction.response.send_message("❌ Invalid opponent.", ephemeral=True)
             return
+
+        now = datetime.now()
+        c_id = interaction.user.id
+        o_id = opponent.id
+        if (c_id, o_id) in REJECT_COOLDOWNS:
+            exp = REJECT_COOLDOWNS[(c_id, o_id)]
+            if now < exp:
+                rem_secs = int((exp - now).total_seconds())
+                mins = rem_secs // 60
+                secs = rem_secs % 60
+                t_str = f"{mins}m {secs}s" if mins > 0 else f"{secs}s"
+                await interaction.response.send_message(
+                    f"❌ {opponent.mention} has muted race requests from you for another **{t_str}**.",
+                    ephemeral=True
+                )
+                return
+            else:
+                del REJECT_COOLDOWNS[(c_id, o_id)]
 
         if wager < 0:
             await interaction.response.send_message("❌ Wager amount cannot be negative.", ephemeral=True)

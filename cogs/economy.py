@@ -253,10 +253,29 @@ class EconomyCog(commands.Cog):
     @app_commands.describe(opponent="The user to wager against", amount="Credit wager amount")
     @app_commands.guild_only()
     async def bet(self, interaction: discord.Interaction, opponent: discord.User, amount: int):
-        from cogs.racing import RaceChallengeView
+        from cogs.racing import RaceChallengeView, REJECT_COOLDOWNS
+        from datetime import datetime
         if opponent.bot or opponent == interaction.user:
             await interaction.response.send_message("❌ Invalid opponent.", ephemeral=True)
             return
+
+        now = datetime.now()
+        c_id = interaction.user.id
+        o_id = opponent.id
+        if (c_id, o_id) in REJECT_COOLDOWNS:
+            exp = REJECT_COOLDOWNS[(c_id, o_id)]
+            if now < exp:
+                rem_secs = int((exp - now).total_seconds())
+                mins = rem_secs // 60
+                secs = rem_secs % 60
+                t_str = f"{mins}m {secs}s" if mins > 0 else f"{secs}s"
+                await interaction.response.send_message(
+                    f"❌ {opponent.mention} has muted race requests from you for another **{t_str}**.",
+                    ephemeral=True
+                )
+                return
+            else:
+                del REJECT_COOLDOWNS[(c_id, o_id)]
 
         if amount <= 0:
             await interaction.response.send_message("❌ Wager amount must be positive.", ephemeral=True)

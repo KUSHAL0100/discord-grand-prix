@@ -168,7 +168,31 @@ class GarageCog(commands.Cog):
             color=utils.COLOR_INFO
         )
         embed.set_image(url="attachment://profile_card.png")
-        await interaction.response.send_message(embed=embed, file=file)
+        await interaction.response.send_message(embed=embed, file=file, ephemeral=True)
+
+    @app_commands.command(name="balance", description="View your credit balance or another driver's balance.")
+    @app_commands.describe(user="Optional: View another driver's credit balance")
+    @app_commands.guild_only()
+    async def balance_cmd(self, interaction: discord.Interaction, user: discord.User = None):
+        target = user or interaction.user
+        prof = database.get_full_team_profile(target.id, interaction.guild_id)
+        if not prof:
+            if target == interaction.user:
+                await interaction.response.send_message("❌ You do not have a profile yet. Use `/start` to create one!", ephemeral=True)
+            else:
+                await interaction.response.send_message(f"❌ {target.mention} does not have a profile yet.", ephemeral=True)
+            return
+
+        embed = utils.create_embed(
+            title="💰 Driver Wallet Balance",
+            description=(
+                f"👤 **Driver:** {target.mention}\n"
+                f"🏎️ **Team:** **{prof['team_name']}**\n"
+                f"💰 **Current Balance:** `{prof['money']:,} credits`"
+            ),
+            color=utils.COLOR_SUCCESS
+        )
+        await interaction.response.send_message(embed=embed, ephemeral=True)
     
     @app_commands.command(name="garage", description="View your current car component levels and damage.")
     @app_commands.guild_only()
