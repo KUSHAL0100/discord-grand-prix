@@ -174,10 +174,22 @@ async def on_voice_state_update(member: discord.Member, before: discord.VoiceSta
         if debug_mode:
             print(f"{member.name} is now active in voice channel {after.channel.name}.")
 
-@tasks.loop(minutes=1.0)
+@tasks.loop(seconds=30.0)
 async def periodic_voice_credits_check():
     """Periodically award voice activity credits (15 credits per minute) to members active in VC."""
     now = datetime.now()
+
+    # Auto-scan all voice channels to catch members who were already in VC when the bot started
+    for guild in bot.guilds:
+        for channel in guild.voice_channels:
+            for member in channel.members:
+                if member.bot:
+                    continue
+                if is_active_voice(member.voice) and member.id not in voice_tracking:
+                    voice_tracking[member.id] = now
+                    if debug_mode:
+                        print(f"[VC AUTO-TRACK] Detected active member {member.name} in {channel.name}.")
+
     active_ids = list(voice_tracking.keys())
     for member_id in active_ids:
         start_time = voice_tracking.get(member_id)
@@ -186,9 +198,11 @@ async def periodic_voice_credits_check():
         duration = now - start_time
         minutes = int(duration.total_seconds() // 60)
         if minutes >= 1:
+            found_active = False
             for guild in bot.guilds:
                 member = guild.get_member(member_id)
                 if member and member.voice and is_active_voice(member.voice):
+                    found_active = True
                     user = database.get_user_by_discord_id(member.id, guild.id)
                     if user:
                         earned = database.award_daily_activity_credits(
@@ -199,7 +213,10 @@ async def periodic_voice_credits_check():
                         voice_tracking[member_id] = start_time + timedelta(minutes=minutes)
                         if debug_mode and earned > 0:
                             print(f"Periodic VC credit: awarded {earned} credits to {member.name} for {minutes} min(s).")
-                        break
+                    break
+            
+            if not found_active:
+                voice_tracking.pop(member_id, None)
 
 @bot.tree.error
 async def on_app_command_error(interaction: discord.Interaction, error: app_commands.AppCommandError):
