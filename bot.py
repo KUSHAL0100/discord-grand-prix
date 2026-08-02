@@ -115,16 +115,26 @@ async def on_ready():
 
 # ----------------- Economy Activity Trackers -----------------
 
+# Per-user chat credit cooldown: {user_id: datetime}
+chat_cooldowns = {}
+
 @bot.event
 async def on_message(message: discord.Message):
     if message.author.bot or not message.guild:
         return
         
-    user = database.get_user_by_discord_id(message.author.id, message.guild.id)
-    if user:
-        earned = database.award_daily_activity_credits(user['user_id'], config.CHAT_CREDITS_PER_MSG, 'chat')
-        if debug_mode and earned > 0:
-            print(f"Awarded {earned} chat credits to {message.author.name}.")
+    now = datetime.now()
+    last_awarded = chat_cooldowns.get(message.author.id)
+    
+    # Only award 25 credits once every 60 seconds (1 minute) per user
+    if last_awarded is None or (now - last_awarded).total_seconds() >= 60:
+        user = database.get_user_by_discord_id(message.author.id, message.guild.id)
+        if user:
+            earned = database.award_daily_activity_credits(user['user_id'], config.CHAT_CREDITS_PER_MSG, 'chat')
+            if earned > 0:
+                chat_cooldowns[message.author.id] = now
+                if debug_mode:
+                    print(f"Awarded {earned} chat credits to {message.author.name}.")
             
     await bot.process_commands(message)
 
@@ -151,22 +161,22 @@ async def on_voice_state_update(member: discord.Member, before: discord.VoiceSta
         if member.id in voice_tracking:
             start_time = voice_tracking.pop(member.id)
             duration = datetime.now() - start_time
-            minutes = duration.total_seconds() / 60.0
-            if minutes >= 1.0:
+            minutes = int(duration.total_seconds() // 60)
+            if minutes >= 1:
                 user = database.get_user_by_discord_id(member.id, member.guild.id)
                 if user:
-                    earned = database.award_daily_activity_credits(user['user_id'], int(minutes) * config.VOICE_CREDITS_PER_MIN, 'voice')
+                    earned = database.award_daily_activity_credits(user['user_id'], minutes * config.VOICE_CREDITS_PER_MIN, 'voice')
                     if debug_mode and earned > 0:
-                        print(f"Voice session ended for {member.name}: awarded {earned} credits for {int(minutes)} mins.")
+                        print(f"Voice session ended for {member.name}: awarded {earned} credits for {minutes} mins.")
 
     elif not was_active and is_active:
         voice_tracking[member.id] = datetime.now()
         if debug_mode:
             print(f"{member.name} is now active in voice channel {after.channel.name}.")
 
-@tasks.loop(minutes=5.0)
+@tasks.loop(minutes=1.0)
 async def periodic_voice_credits_check():
-    """Periodically award voice activity credits to members active in VC without requiring them to leave."""
+    """Periodically award voice activity credits (15 credits per minute) to members active in VC."""
     now = datetime.now()
     active_ids = list(voice_tracking.keys())
     for member_id in active_ids:
@@ -174,8 +184,8 @@ async def periodic_voice_credits_check():
         if not start_time:
             continue
         duration = now - start_time
-        minutes = duration.total_seconds() / 60.0
-        if minutes >= 2.0:
+        minutes = int(duration.total_seconds() // 60)
+        if minutes >= 1:
             for guild in bot.guilds:
                 member = guild.get_member(member_id)
                 if member and member.voice and is_active_voice(member.voice):
@@ -183,12 +193,12 @@ async def periodic_voice_credits_check():
                     if user:
                         earned = database.award_daily_activity_credits(
                             user['user_id'],
-                            int(minutes) * config.VOICE_CREDITS_PER_MIN,
+                            minutes * config.VOICE_CREDITS_PER_MIN,
                             'voice'
                         )
-                        voice_tracking[member_id] = now
+                        voice_tracking[member_id] = start_time + timedelta(minutes=minutes)
                         if debug_mode and earned > 0:
-                            print(f"Periodic VC credit: awarded {earned}¢ to {member.name}.")
+                            print(f"Periodic VC credit: awarded {earned}¢ to {member.name} for {minutes} min(s).")
 
 @bot.tree.error
 async def on_app_command_error(interaction: discord.Interaction, error: app_commands.AppCommandError):
