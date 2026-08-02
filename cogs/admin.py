@@ -290,11 +290,7 @@ class AdminCog(commands.Cog):
         )
         await interaction.response.send_message(embed=embed)
 
-    @admin_group.command(name="remove", description="Deduct credits from a player (Admin only).")
-    @app_commands.describe(user="The player to deduct credits from", amount="Amount of credits to deduct")
-    @is_admin()
-    @app_commands.guild_only()
-    async def admin_remove(self, interaction: discord.Interaction, user: discord.User, amount: int):
+    async def _do_remove_money(self, interaction: discord.Interaction, user: discord.User, amount: int):
         if amount <= 0:
             await interaction.response.send_message("❌ Amount must be greater than zero.", ephemeral=True)
             return
@@ -312,19 +308,26 @@ class AdminCog(commands.Cog):
         )
         await interaction.response.send_message(embed=embed)
 
+    @admin_group.command(name="remove", description="Deduct credits from a player (Admin only).")
+    @app_commands.describe(user="The player to deduct credits from", amount="Amount of credits to deduct")
+    @is_admin()
+    @app_commands.guild_only()
+    async def admin_remove(self, interaction: discord.Interaction, user: discord.User, amount: int):
+        await self._do_remove_money(interaction, user, amount)
+
     @admin_group.command(name="removemoney", description="Deduct credits from a player (Admin only).")
     @app_commands.describe(user="The player to deduct credits from", amount="Amount of credits to deduct")
     @is_admin()
     @app_commands.guild_only()
     async def admin_removemoney(self, interaction: discord.Interaction, user: discord.User, amount: int):
-        await self.admin_remove(interaction, user, amount)
+        await self._do_remove_money(interaction, user, amount)
 
     @app_commands.command(name="removemoney", description="Deduct credits from a player (Admin only).")
     @app_commands.describe(user="The player to deduct credits from", amount="Amount of credits to deduct")
     @is_admin()
     @app_commands.guild_only()
     async def top_removemoney(self, interaction: discord.Interaction, user: discord.User, amount: int):
-        await self.admin_remove(interaction, user, amount)
+        await self._do_remove_money(interaction, user, amount)
 
     @admin_group.command(name="broadcast", description="Broadcast an announcement message to a channel (Admin only).")
     @app_commands.describe(
