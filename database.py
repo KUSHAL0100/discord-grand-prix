@@ -232,12 +232,6 @@ def init_db():
     );
     """)
 
-    # --- Create performance B-Tree indexes for lightning-fast lookups ---
-    cursor.execute("CREATE INDEX IF NOT EXISTS idx_users_discord_guild ON users(discord_id, guild_id);")
-    cursor.execute("CREATE INDEX IF NOT EXISTS idx_inventory_user_cat ON user_inventory(user_id, category, is_equipped);")
-    cursor.execute("CREATE INDEX IF NOT EXISTS idx_boosters_user ON user_boosters(user_id);")
-    cursor.execute("CREATE INDEX IF NOT EXISTS idx_races_guild_status ON races(guild_id, status);")
-
     # --- Run schema migrations for existing databases ---
     def get_existing_columns(table_name):
         cursor.execute(f"PRAGMA table_info({table_name})")
@@ -245,6 +239,8 @@ def init_db():
 
     # Users table migrations
     users_cols = get_existing_columns("users")
+    if "guild_id" not in users_cols:
+        cursor.execute("ALTER TABLE users ADD COLUMN guild_id BIGINT DEFAULT 0")
     if "pit_strategy_json" not in users_cols:
         cursor.execute("ALTER TABLE users ADD COLUMN pit_strategy_json TEXT DEFAULT '{\"pace\":\"Balanced\", \"start_tyre\":\"Medium\", \"stops\":[]}'")
 
@@ -261,6 +257,8 @@ def init_db():
 
     # Races table migrations
     races_cols = get_existing_columns("races")
+    if "guild_id" not in races_cols:
+        cursor.execute("ALTER TABLE races ADD COLUMN guild_id BIGINT DEFAULT 0")
     if "laps" not in races_cols:
         cursor.execute("ALTER TABLE races ADD COLUMN laps INTEGER DEFAULT 15")
     if "season_id" not in races_cols:
@@ -278,6 +276,13 @@ def init_db():
         cursor.execute("ALTER TABLE garage ADD COLUMN damage_tyres INTEGER NOT NULL DEFAULT 0")
     if "damage_total" not in garage_cols:
         cursor.execute("ALTER TABLE garage ADD COLUMN damage_total INTEGER NOT NULL DEFAULT 0")
+
+    # --- Create performance B-Tree indexes for lightning-fast lookups ---
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_users_discord_guild ON users(discord_id, guild_id);")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_inventory_user_cat ON user_inventory(user_id, category, is_equipped);")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_boosters_user ON user_boosters(user_id);")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_races_guild_status ON races(guild_id, status);")
+
     # Bot admins table (game admins assigned by server owner/mods)
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS bot_admins (

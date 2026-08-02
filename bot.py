@@ -3,7 +3,7 @@ from discord.ext import commands, tasks
 from discord import app_commands
 import os
 import asyncio
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import config
 import database
@@ -198,7 +198,8 @@ async def periodic_voice_credits_check():
                         )
                         voice_tracking[member_id] = start_time + timedelta(minutes=minutes)
                         if debug_mode and earned > 0:
-                            print(f"Periodic VC credit: awarded {earned}¢ to {member.name} for {minutes} min(s).")
+                            print(f"Periodic VC credit: awarded {earned} credits to {member.name} for {minutes} min(s).")
+                        break
 
 @bot.tree.error
 async def on_app_command_error(interaction: discord.Interaction, error: app_commands.AppCommandError):
