@@ -167,7 +167,7 @@ class AdminCog(commands.Cog):
             for i, a in enumerate(admins, 1):
                 lines.append(f"**{i}.** <@{a['discord_id']}> — added by <@{a['added_by']}>")
             desc = "\n".join(lines)
-        await interaction.response.send_message(embed=utils.create_embed(title="🛡️ Game Admins", description=desc, color=utils.COLOR_PRIMARY))
+        await interaction.response.send_message(embed=utils.create_embed(title="🛡️ Game Admins", description=desc, color=utils.COLOR_INFO))
 
     @season_admin_group.command(name="create", description="Create a new World Driver Championship Season.")
     @app_commands.describe(name="Season name (e.g. Season 1, 2026 Championship)")

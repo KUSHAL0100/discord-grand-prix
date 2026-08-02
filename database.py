@@ -366,10 +366,10 @@ def create_user(discord_id: int, guild_id: int, team_name: str, country: Optiona
         if cursor.fetchone():
             return False, f"The team name '**{team_name_clean}**' is already taken in this server! Please choose a unique team name."
 
-        # Insert user
+        # Insert user with explicit starting balance, level, and XP from config
         cursor.execute(
-            "INSERT INTO users (discord_id, guild_id, team_name, country) VALUES (?, ?, ?, ?)",
-            (discord_id, guild_id, team_name_clean, country)
+            "INSERT INTO users (discord_id, guild_id, team_name, country, money, xp, level) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (discord_id, guild_id, team_name_clean, country, config.STARTING_MONEY, config.STARTING_XP, config.STARTING_LEVEL)
         )
         user_id = cursor.lastrowid
 
