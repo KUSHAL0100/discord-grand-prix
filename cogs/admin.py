@@ -300,10 +300,14 @@ class AdminCog(commands.Cog):
             await interaction.response.send_message(f"❌ User {user.mention} does not have a profile.", ephemeral=True)
             return
 
-        actual_deducted = database.update_user_balance(target_prof['user_id'], -amount)
+        success = database.update_user_balance(target_prof['user_id'], -amount)
+        if not success:
+            await interaction.response.send_message(f"❌ Cannot deduct **{amount:,} credits**. User only has **{target_prof['money']:,} credits** in their wallet.", ephemeral=True)
+            return
+
         embed = utils.create_embed(
             title="💰 Admin Deduction",
-            description=f"Successfully deducted **{actual_deducted:,} credits** from {user.mention}.",
+            description=f"Successfully deducted **{amount:,} credits** from {user.mention}.",
             color=utils.COLOR_SUCCESS
         )
         await interaction.response.send_message(embed=embed)
