@@ -89,3 +89,30 @@ def test_leaderboard_optional_limit(tmp_path, monkeypatch):
     top5_users = database.get_leaderboard(guild_id, "points", limit=5)
     assert len(top5_users) == 5
 
+def test_create_inventory_embed_and_view_no_parts(tmp_path, monkeypatch):
+    import database
+    import config
+    from cogs.garage import create_inventory_embed_and_view
+    db_file = str(tmp_path / "test_no_parts.db")
+    monkeypatch.setattr(config, "DATABASE_PATH", db_file)
+    database.init_db()
+
+    success, msg = database.create_user(88881, 77771, "No Parts Team")
+    assert success
+    user = database.get_user_by_discord_id(88881, 77771)
+
+    embed, view = create_inventory_embed_and_view(user['user_id'], 88881, "engine")
+    assert embed is not None
+    assert view is not None
+    assert len(view.children) > 0
+
+    # Test auto equip when 0 parts exist
+    success_ae, msg_ae, count_ae = database.auto_equip_best_parts(user['user_id'])
+    assert not success_ae
+    assert count_ae == 0
+
+    embed2, view2 = create_inventory_embed_and_view(user['user_id'], 88881, "engine", notice=msg_ae)
+    assert embed2 is not None
+    assert view2 is not None
+
+

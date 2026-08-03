@@ -9,60 +9,79 @@ import utils
 import crates
 
 def create_inventory_embed_and_view(user_id: int, discord_id: int, category: str = "engine", notice: str = None):
-    # Fetch equipped inventory across all categories for user
-    equipped = database.get_equipped_inventory(user_id)
-    
-    cat_icons = {
-        "engine": "🏎️",
-        "aerodynamics": "🪽",
-        "tyres": "🛞",
-        "ers": "⚡",
-        "reliability": "🛡️",
-        "pit_crew": "🔧"
-    }
-    
-    # Active Car Loadout Summary Box
-    loadout_lines = []
-    for c_key in ["engine", "aerodynamics", "tyres", "ers", "reliability", "pit_crew"]:
-        c_title = c_key.replace("_", " ").title()
-        icon = cat_icons.get(c_key, "⚙️")
-        item = equipped.get(c_key)
-        if item:
-            r_emoji = crates.RARITY_EMOJIS.get(item['rarity'], '⚪')
-            loadout_lines.append(f"{icon} **{c_title}:** {r_emoji} **{item['rarity']} {item['part_name']}** (Lvl {item['level']})")
+    try:
+        # Fetch equipped inventory and garage component levels across all categories
+        equipped = database.get_equipped_inventory(user_id)
+        garage_levels = database.get_user_garage_levels(user_id)
+        
+        cat_icons = {
+            "engine": "🏎️",
+            "aerodynamics": "🪽",
+            "tyres": "🛞",
+            "ers": "⚡",
+            "reliability": "🛡️",
+            "pit_crew": "🔧"
+        }
+        
+        # Active Car Loadout Summary Box
+        loadout_lines = []
+        for c_key in ["engine", "aerodynamics", "tyres", "ers", "reliability", "pit_crew"]:
+            c_title = c_key.replace("_", " ").title()
+            icon = cat_icons.get(c_key, "⚙️")
+            g_lvl = garage_levels.get(c_key, 1)
+            item = equipped.get(c_key)
+            if item:
+                rarity = item.get('rarity', 'Common')
+                r_emoji = crates.RARITY_EMOJIS.get(rarity, '⚪')
+                part_name = item.get('part_name', 'Custom Part')
+                item_lvl = item.get('level', 1)
+                bonus = item.get('stat_bonus', 0)
+                loadout_lines.append(f"{icon} **{c_title}:** Level `{g_lvl}` | {r_emoji} **{rarity} {part_name}** (Part Lvl `{item_lvl}` | +`{bonus}` Stat)")
+            else:
+                loadout_lines.append(f"{icon} **{c_title}:** Level `{g_lvl}` | ⚪ *Stock Baseline (No Custom Part)*")
+                
+        loadout_text = "🔧 **ACTIVE CAR LOADOUT & COMPONENT LEVELS**\n" + "\n".join(loadout_lines)
+        
+        # Storage items in active category
+        items = database.get_user_inventory(user_id, category)
+        cat_title = category.replace("_", " ").upper()
+        cat_icon = cat_icons.get(category, "🧰")
+        
+        storage_lines = []
+        if not items:
+            storage_lines.append("⚙️ *No custom parts in storage for this category yet. Upgrade your car via `/upgrade` or unbox crates via `/open`!*")
         else:
-            loadout_lines.append(f"{icon} **{c_title}:** ⚪ *Stock Baseline*")
-            
-    loadout_text = "🔧 **ACTIVE CAR LOADOUT OVERVIEW**\n" + "\n".join(loadout_lines)
-    
-    # Storage items in active category
-    items = database.get_user_inventory(user_id, category)
-    cat_title = category.replace("_", " ").upper()
-    cat_icon = cat_icons.get(category, "🧰")
-    
-    storage_lines = []
-    if not items:
-        storage_lines.append("⚙️ *No custom parts in storage for this category yet. Upgrade your car via `/upgrade` or unbox crates via `/open`!*")
-    else:
-        for item in items:
-            status = "🟢 **[EQUIPPED]**" if item['is_equipped'] else "⚪ *(Storage)*"
-            e_emoji = crates.RARITY_EMOJIS.get(item['rarity'], '⚪')
-            bonus_pct = f"+{(crates.RARITY_BONUS_MULTIPLIERS.get(item['rarity'], 1.0) - 1.0)*100:.0f}%"
-            storage_lines.append(f"{status} {e_emoji} **{item['rarity']} {item['part_name']}** (Level {item['level']}) — Efficiency: `{bonus_pct}`")
-            
-    notice_str = f"{notice}\n\n" if notice else ""
-    
-    desc = (
-        f"{notice_str}"
-        f"{loadout_text}\n\n"
-        f"─────────────────────────────\n"
-        f"{cat_icon} **CATEGORY STORAGE — {cat_title}**\n\n"
-        + "\n".join(storage_lines)
-    )
-    
-    embed = utils.create_embed(title="🧰 Part Inventory & Equipment Hub", description=desc, color=utils.COLOR_INFO)
-    view = InventoryView(user_id, discord_id, active_category=category)
-    return embed, view
+            for item in items:
+                status = "🟢 **[EQUIPPED]**" if item.get('is_equipped') else "⚪ *(Storage)*"
+                rarity = item.get('rarity', 'Common')
+                e_emoji = crates.RARITY_EMOJIS.get(rarity, '⚪')
+                mult = crates.RARITY_BONUS_MULTIPLIERS.get(rarity, 1.0)
+                bonus_pct = f"+{(mult - 1.0)*100:.0f}%"
+                part_name = item.get('part_name', 'Custom Part')
+                item_lvl = item.get('level', 1)
+                bonus = item.get('stat_bonus', 0)
+                storage_lines.append(f"{status} {e_emoji} **{rarity} {part_name}** (Level `{item_lvl}`) — Bonus: `+{bonus}` Stat (`{bonus_pct}`) ")
+                
+        notice_str = f"{notice}\n\n" if notice else ""
+        
+        desc = (
+            f"{notice_str}"
+            f"{loadout_text}\n\n"
+            f"─────────────────────────────\n"
+            f"{cat_icon} **CATEGORY STORAGE — {cat_title}**\n\n"
+            + "\n".join(storage_lines)
+        )
+        
+        embed = utils.create_embed(title="🧰 Part Inventory & Equipment Hub", description=desc, color=utils.COLOR_INFO)
+        view = InventoryView(user_id, discord_id, active_category=category)
+        return embed, view
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        embed = utils.create_embed(title="🧰 Part Inventory Hub", description=f"⚠️ Error displaying inventory: `{e}`", color=utils.COLOR_ERROR)
+        view = InventoryView(user_id, discord_id, active_category=category)
+        return embed, view
 
 class CategoryTabButton(discord.ui.Button):
     def __init__(self, label: str, category: str, active_category: str, row: int):
@@ -72,11 +91,21 @@ class CategoryTabButton(discord.ui.Button):
         self.category = category
 
     async def callback(self, interaction: discord.Interaction):
-        if interaction.user.id != self.view.discord_id:
-            await interaction.response.send_message("❌ You can only navigate your own inventory menu.", ephemeral=True)
-            return
-        embed, view = create_inventory_embed_and_view(self.view.user_id, self.view.discord_id, self.category)
-        await interaction.response.edit_message(embed=embed, view=view)
+        try:
+            await interaction.response.defer()
+            if self.view.discord_id and interaction.user.id != self.view.discord_id:
+                await interaction.followup.send("❌ You can only navigate your own inventory menu.", ephemeral=True)
+                return
+            embed, view = create_inventory_embed_and_view(self.view.user_id, self.view.discord_id, self.category)
+            await interaction.edit_original_response(embed=embed, view=view)
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            try:
+                if not interaction.response.is_done():
+                    await interaction.response.send_message(f"❌ Interaction error: `{e}`", ephemeral=True)
+            except Exception:
+                pass
 
 class InventorySelectMenu(discord.ui.Select):
     def __init__(self, user_id: int, discord_id: int, category: str):
@@ -84,43 +113,65 @@ class InventorySelectMenu(discord.ui.Select):
         self.discord_id = discord_id
         self.category = category
         items = database.get_user_inventory(user_id, category)
+        
+        # Determine equipped status first to guarantee EXACTLY 1 default option
+        equipped_item_id = None
+        if items:
+            for item in items:
+                if item.get('is_equipped'):
+                    equipped_item_id = item['item_id']
+                    break
+                    
         options = [
             discord.SelectOption(
                 label="⚪ Stock / Unequip Custom Part",
                 value="unequip",
-                description="Revert to baseline stock component"
+                description="Revert to baseline stock component",
+                default=(equipped_item_id is None)
             )
         ]
         
         if items:
             for item in items[:24]:
-                status = "🟢 [Equipped]" if item['is_equipped'] else "⚪ [Storage]"
-                emoji_str = crates.RARITY_EMOJIS.get(item['rarity'], '⚪')
-                label = f"{emoji_str} {item['part_name'][:25]} (Lvl {item['level']})"
-                desc = f"{status} {item['rarity']} | +{item['stat_bonus']} Stat"
+                is_eq = (item['item_id'] == equipped_item_id)
+                status = "🟢 [Equipped]" if is_eq else "⚪ [Storage]"
+                rarity = item.get('rarity', 'Common')
+                emoji_str = crates.RARITY_EMOJIS.get(rarity, '⚪')
+                label = f"{emoji_str} {item.get('part_name', 'Part')[:25]} (Lvl {item.get('level', 1)})"
+                desc = f"{status} {rarity} | +{item.get('stat_bonus', 0)} Stat"
                 options.append(discord.SelectOption(
                     label=label,
                     value=str(item['item_id']),
                     description=desc,
-                    default=bool(item['is_equipped'])
+                    default=is_eq
                 ))
                 
         super().__init__(placeholder=f"Equip a {category.upper()} part...", min_values=1, max_values=1, options=options, row=2)
 
     async def callback(self, interaction: discord.Interaction):
-        if interaction.user.id != self.discord_id:
-            await interaction.response.send_message("❌ You can only equip parts in your own inventory view.", ephemeral=True)
-            return
-            
-        val = self.values[0]
-        if val == "unequip":
-            success, msg = database.unequip_inventory_part_category(self.user_id, self.category)
-        else:
-            item_id = int(val)
-            success, msg = database.equip_inventory_part(self.user_id, item_id)
-            
-        embed, view = create_inventory_embed_and_view(self.user_id, self.discord_id, self.category, notice=msg)
-        await interaction.response.edit_message(embed=embed, view=view)
+        try:
+            await interaction.response.defer()
+            if self.discord_id and interaction.user.id != self.discord_id:
+                await interaction.followup.send("❌ You can only equip parts in your own inventory view.", ephemeral=True)
+                return
+                
+            val = self.values[0]
+            if val == "unequip":
+                success, msg = database.unequip_inventory_part_category(self.user_id, self.category)
+            else:
+                item_id = int(val)
+                success, msg = database.equip_inventory_part(self.user_id, item_id)
+                
+            embed, view = create_inventory_embed_and_view(self.user_id, self.discord_id, self.category, notice=msg)
+            await interaction.edit_original_response(embed=embed, view=view)
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            try:
+                if not interaction.response.is_done():
+                    await interaction.response.send_message(f"❌ Interaction error: `{e}`", ephemeral=True)
+            except Exception:
+                pass
 
 class InventoryView(discord.ui.View):
     def __init__(self, user_id: int, discord_id: int, active_category: str = "engine"):
@@ -144,13 +195,25 @@ class InventoryView(discord.ui.View):
 
     @discord.ui.button(label="⚡ Auto-Equip Best Parts", style=discord.ButtonStyle.success, row=3)
     async def auto_equip_click(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if interaction.user.id != self.discord_id:
-            await interaction.response.send_message("❌ You can only use actions on your own inventory.", ephemeral=True)
-            return
-            
-        success, msg, count = database.auto_equip_best_parts(self.user_id)
-        embed, view = create_inventory_embed_and_view(self.user_id, self.discord_id, self.active_category, notice=msg)
-        await interaction.response.edit_message(embed=embed, view=view)
+        try:
+            await interaction.response.defer()
+            if self.discord_id and interaction.user.id != self.discord_id:
+                await interaction.followup.send("❌ You can only use actions on your own inventory.", ephemeral=True)
+                return
+                
+            success, msg, count = database.auto_equip_best_parts(self.user_id)
+            embed, view = create_inventory_embed_and_view(self.user_id, self.discord_id, self.active_category, notice=msg)
+            await interaction.edit_original_response(embed=embed, view=view)
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            try:
+                if not interaction.response.is_done():
+                    await interaction.response.send_message(f"❌ Interaction error: `{e}`", ephemeral=True)
+            except Exception:
+                pass
+
+
 
 
 

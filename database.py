@@ -1435,7 +1435,23 @@ def equip_inventory_part(user_id: int, item_id: int) -> Tuple[bool, str]:
     finally:
         conn.close()
 
+def get_user_garage_levels(user_id: int) -> Dict[str, int]:
+    """Retrieve current garage component levels for user_id."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT engine, aerodynamics, tyres, ers, reliability, pit_crew FROM garage WHERE user_id = ?", (user_id,))
+        row = cursor.fetchone()
+        if row:
+            return dict(row)
+    except sqlite3.Error:
+        pass
+    finally:
+        conn.close()
+    return {"engine": 1, "aerodynamics": 1, "tyres": 1, "ers": 1, "reliability": 1, "pit_crew": 1}
+
 def unequip_inventory_part_category(user_id: int, category: str) -> Tuple[bool, str]:
+
     """Unequip any custom equipped part for a specific category, reverting to baseline."""
     conn = get_db_connection()
     cursor = conn.cursor()
