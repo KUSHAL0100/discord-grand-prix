@@ -467,13 +467,14 @@ def train_personnel_skill(user_id: int, category: str, skill_name: str, cost: in
             return False, f"This skill is already at the maximum level (100)!"
             
         new_val = min(100, current_val + 1)
+        remaining_money = user_row['money'] - cost
         
         # Deduct money and update skill
         cursor.execute("UPDATE users SET money = money - ? WHERE user_id = ?", (cost, user_id))
         cursor.execute(f"UPDATE {table_name} SET {skill_name} = ? WHERE user_id = ?", (new_val, user_id))
         
         conn.commit()
-        return True, f"Successfully trained **{skill_name.replace('_', ' ').capitalize()}** from `{current_val}` to `{new_val}`! Spent {cost}¢."
+        return True, f"Successfully trained **{skill_name.replace('_', ' ').capitalize()}** from `{current_val}` to `{new_val}` for **{cost:,} credits**!\n💰 **Remaining Balance:** `{remaining_money:,} credits`"
     except sqlite3.Error as e:
         conn.rollback()
         return False, f"Database error: {str(e)}"
@@ -708,7 +709,7 @@ def award_daily_activity_credits(user_id: int, amount: int, credit_type: str) ->
 
 # ----------------- Upgrade and Garage Helpers -----------------
 
-def upgrade_part(user_id: int, part_name: str) -> Tuple[bool, str]:
+def upgrade_part(user_id: int, part_name: str, cost: int = 0) -> Tuple[bool, str]:
     """
     Upgrade a car part by one level.
     Deducts the cost and checks limits.
@@ -739,17 +740,20 @@ def upgrade_part(user_id: int, part_name: str) -> Tuple[bool, str]:
             return False, f"Your {part_name.capitalize()} is already at max level ({config.MAX_STAT_LEVEL})."
             
         target_level = current_level + 1
-        cost = config.get_upgrade_cost(part_name, target_level)
+        if cost is None or cost <= 0:
+            cost = config.get_upgrade_cost(part_name, target_level)
         
         if current_money < cost:
-            return False, f"Insufficient credits! Upgrading {part_name.capitalize()} to Level {target_level} costs {cost}¢ (You have {current_money}¢)."
+            return False, f"Insufficient credits! Upgrading {part_name.capitalize()} to Level {target_level} costs {cost:,}¢ (You have {current_money:,}¢)."
             
+        remaining_money = current_money - cost
+
         # Deduct money and update garage level
         cursor.execute("UPDATE users SET money = money - ? WHERE user_id = ?", (cost, user_id))
         cursor.execute(f"UPDATE garage SET {part_name} = ? WHERE user_id = ?", (target_level, user_id))
         
         conn.commit()
-        return True, f"Successfully upgraded {part_name.capitalize()} to Level {target_level} for {cost}¢!"
+        return True, f"Successfully upgraded **{part_name.capitalize()}** to Level **{target_level}** for **{cost:,} credits**!\n💰 **Remaining Balance:** `{remaining_money:,} credits`"
     except sqlite3.Error as e:
         conn.rollback()
         return False, f"Database error: {str(e)}"
