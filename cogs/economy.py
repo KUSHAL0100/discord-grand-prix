@@ -288,6 +288,14 @@ class LeaderboardView(discord.ui.View):
         self.update_buttons()
         await interaction.response.edit_message(embed=self.get_embed(), view=self)
 
+
+class EconomyCog(commands.Cog):
+    """Cog containing all Economy, Training and Leaderboard commands."""
+    
+    def __init__(self, bot: commands.Bot):
+        self.bot = bot
+
+
     @app_commands.command(name="leaderboard", description="View top racing teams in the server with pagination.")
     @app_commands.describe(
         sort_by="Sort leaderboard by money, level, wins, or points",
