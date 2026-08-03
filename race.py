@@ -564,9 +564,11 @@ def simulate_duel_generator(team1_data: Dict[str, Any], team2_data: Dict[str, An
             if t.dnf:
                 continue
                 
-            # Engine Thermal Tracking per lap in 1v1 duels
+            # Engine Thermal Tracking per lap in 1v1 duels (scaled by track heat_mod)
+            track_profile = TRACK_PROFILES.get(track, {})
+            heat_mult = track_profile.get("heat_mod", 1.0)
             if t.strategy == "Aggressive":
-                t.engine_temp += random.uniform(4.0, 6.0)
+                t.engine_temp += random.uniform(4.0, 6.0) * heat_mult
             elif t.strategy == "Conservative":
                 t.engine_temp = max(80.0, t.engine_temp - random.uniform(3.0, 5.0))
                 
@@ -950,9 +952,10 @@ def simulate_gp_generator(entries_data: List[Dict[str, Any]], track_name: str, t
                     
                 lap_time += strategy_lap_delta
                 
-                # Engine Thermal tracking & Radio Alerts
+                # Engine Thermal tracking & Radio Alerts (scaled by track heat_mod)
+                heat_multiplier = track_profile.get("heat_mod", 1.0)
                 if t.strategy == "Aggressive":
-                    t.engine_temp += random.uniform(4.0, 6.0)
+                    t.engine_temp += random.uniform(4.0, 6.0) * heat_multiplier
                 elif t.strategy == "Conservative":
                     t.engine_temp = max(85.0, t.engine_temp - random.uniform(4.0, 6.0))
                 else: # Balanced
