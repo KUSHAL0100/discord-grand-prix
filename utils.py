@@ -108,7 +108,11 @@ VICTORY_RADIOS = [
     "📻 *[Team Radio]*: 'P1 baby, get in there! Superb pace out there today!'",
     "📻 *[Team Radio]*: 'WOOOOO! That is how we do it! Perfect execution!'",
     "📻 *[Team Radio]*: 'P1! Unbelievable effort from everyone at the factory!'",
-    "📻 *[Team Radio]*: 'Checkered flag! Absolute masterclass from start to finish!'"
+    "📻 *[Team Radio]*: 'Checkered flag! Absolute masterclass from start to finish!'",
+    "📻 *[Team Radio]*: 'YESSS SIR! What a drive, simply unstoppable today!'",
+    "📻 *[Team Radio]*: 'P1! Du bist Weltmeister! Magnificent victory!'",
+    "📻 *[Team Radio]*: 'That was a masterpiece! Outstanding drive from lights out to checkered flag!'",
+    "📻 *[Team Radio]*: 'WOOOOO-HOOO! We did it! Perfect strategy, flawless execution!'"
 ]
 
 def get_victory_team_radio(team_name: str = "") -> str:

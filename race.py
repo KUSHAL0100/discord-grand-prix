@@ -209,6 +209,119 @@ AI_GRID_DRIVERS = [
     {"user_id": 9020, "team_name": "Haas (Bearman)", "discord_id": 9020, "engine": 8, "aerodynamics": 8, "tyres": 8, "ers": 8, "reliability": 8, "pit_crew": 8, "pace": 70, "qual": 71, "wet_skill": 71, "consistency": 71, "aggression": 75, "overtaking": 70, "is_ai": True}
 ]
 
+# Expanded Team Radio & Commentary Pools
+OVERTAKE_COMMENTARIES = [
+    "🔄 **Lap {lap}:** **{leader}** pulls out of the slipstream and dives down the inside of **{trailer}** to take the lead!",
+    "🔄 **Lap {lap}:** **{leader}** executes a brilliant switchback out of the hairpin, powering past **{trailer}**!",
+    "🔄 **Lap {lap}:** **{leader}** opens the DRS wing and sweeps around the outside of **{trailer}**!",
+    "🔄 **Lap {lap}:** **{leader}** out-brakes **{trailer}** late into the chicane to steal the lead!",
+    "🔄 **Lap {lap}:** Wheel-to-wheel through the sector! **{leader}** gets the job done on **{trailer}**!",
+    "🔄 **Lap {lap}:** **{leader}** launches a sensational overtake on **{trailer}** taking P1!",
+    "🔄 **Lap {lap}:** **{leader}** forces their way past **{trailer}** with a bold pass down the main straight!",
+    "🔄 **Lap {lap}:** **{leader}** catches **{trailer}** sleeping and snatches the lead position!"
+]
+
+OVERTAKE_RADIOS = [
+    "📻 *[Radio - {leader}]: Yes! Clean move into turn 1!*",
+    "📻 *[Radio - Engineer]: Beautiful pass, mate! That is P1! Keep your head down.*",
+    "📻 *[Radio - Engineer]: Direct hit on DRS! You've got the lead, now build a gap.*",
+    "📻 *[Radio - {leader}]: Sent it down the inside! That felt good.*",
+    "📻 *[Radio - Engineer]: Great move! Pacing looks solid, push now.*"
+]
+
+CLOSE_PURSUIT_COMMENTARIES = [
+    "⚔️ **Lap {lap}:** **{leader}** defends hard into the braking zone! **{trailer}** is right on their gearbox (+**{gap:.2f}s**).",
+    "⚔️ **Lap {lap}:** **{leader}** closes the door! **{trailer}** is breathing down their neck (+**{gap:.2f}s**).",
+    "⚔️ **Lap {lap}:** **{trailer}** fills the rear mirrors of **{leader}** (+**{gap:.2f}s**)! High pressure!",
+    "⚔️ **Lap {lap}:** **{leader}** places their car perfectly to hold off **{trailer}** (+**{gap:.2f}s**).",
+    "⚔️ **Lap {lap}:** Nose-to-tail racing! **{trailer}** is hunting for an opening on **{leader}** (+**{gap:.2f}s**).",
+    "⚔️ **Lap {lap}:** **{trailer}** is well within the 1-second DRS window of **{leader}** (+**{gap:.2f}s**)!",
+    "⚔️ **Lap {lap}:** **{leader}** resists intense pressure as **{trailer}** probes for a gap (+**{gap:.2f}s**).",
+    "⚔️ **Lap {lap}:** Heat is on! **{leader}** and **{trailer}** are separated by just +**{gap:.2f}s**!"
+]
+
+CLOSE_PURSUIT_RADIOS = [
+    "📻 *[Radio - Engineer]: He's within DRS range (+{gap:.2f}s)! Defend the inside line.*",
+    "📻 *[Radio - Engineer]: Keep it clean out of turn 4! He's right behind you.*",
+    "📻 *[Radio - {trailer}]: He's weaving on the straight! I need more ERS power!*",
+    "📻 *[Radio - Engineer]: Use battery mode 3 to defend! Close the door.*",
+    "📻 *[Radio - {leader}]: I'm struggling with traction, but holding him off!*",
+    "📻 *[Radio - Engineer]: Good defense! Keep your exits smooth.*"
+]
+
+PULLING_AWAY_COMMENTARIES = [
+    "🏎️ **Lap {lap}:** **{leader}** is pulling away, leading **{trailer}** by **{gap:.2f}s**.",
+    "🏎️ **Lap {lap}:** **{leader}** breaks the DRS tow, opening a gap of **{gap:.2f}s** over **{trailer}**.",
+    "🏎️ **Lap {lap}:** Supreme pace from **{leader}**! Leading by **{gap:.2f}s** ahead of **{trailer}**.",
+    "🏎️ **Lap {lap}:** **{leader}** stretches their legs in clear air (+**{gap:.2f}s** to **{trailer}**).",
+    "🏎️ **Lap {lap}:** Purple sectors for **{leader}**, extending the advantage to **{gap:.2f}s**."
+]
+
+PULLING_AWAY_RADIOS = [
+    "📻 *[Radio - Engineer]: Gap is now +{gap:.2f}s. Excellent lap pace, keep this rhythm!*",
+    "📻 *[Radio - Engineer]: You've broken the DRS tow! Manage your tyres now.*",
+    "📻 *[Radio - {leader}]: Car feels balanced, pulling away nicely.*",
+    "📻 *[Radio - Engineer]: Purple sector 2! Great job, gap extending.*"
+]
+
+DEAD_TYRES_RADIOS = [
+    "📻 *[Radio - {team}]: Bono, my tyres are dead!*",
+    "📻 *[Radio - {team}]: Rear tyres are completely shot, no traction out of the corners!*",
+    "📻 *[Radio - {team}]: The front left is graining heavily, I'm sliding everywhere!*",
+    "📻 *[Radio - {team}]: Grip is falling off a cliff! Box me in soon!*",
+    "📻 *[Radio - {team}]: Tyres are overheating! I'm losing half a second a lap!*",
+    "📻 *[Radio - {team}]: I can't keep the rear end behind me on turn entry!*"
+]
+
+PIT_CALL_RADIOS = [
+    "📻 *[Radio - {team}]: Box, box, box! Fitting {tyre} tyres.*",
+    "📻 *[Radio - {team}]: Pit lane target engaged! Box now for fresh {tyre}s.*",
+    "📻 *[Radio - {team}]: In in in in! Get the pit crew ready for {tyre}s!*",
+    "📻 *[Radio - {team}]: Hammer time in pit lane! Box this lap for {tyre}s.*"
+]
+
+SC_PIT_CALL_RADIOS = [
+    "📻 *[Radio - {team}]: Safety Car is deployed! Cheap pit stop opportunity, box now!*",
+    "📻 *[Radio - {team}]: Safety Car! Box this lap, pit lane is open!*",
+    "📻 *[Radio - {team}]: Reaction pit stop under Safety Car! Box, box!*"
+]
+
+STRATEGY_RADIOS = [
+    "📻 *[Radio - {team}]: Pacing strategy updated to **{strategy}**!*",
+    "📻 *[Radio - {team}]: Radio copy: switching engine mode to **{strategy}**.*",
+    "📻 *[Radio - {team}]: Confirmed **{strategy}** mode. Target pace delta received.*",
+    "📻 *[Radio - {team}]: Driver preference set: **{strategy}** pacing active!*"
+]
+
+CRASH_RADIOS = [
+    "📻 *[Radio - {team}]: I've crashed! Suspension is broken, I'm out.*",
+    "📻 *[Radio - {team}]: Hit the wall hard! Car is ruined, but I'm okay.*",
+    "📻 *[Radio - {team}]: I spun out! Unbelievable, the rear end just snapped.*",
+    "📻 *[Radio - {team}]: Heavy impact into the barrier! Retiring the car.*"
+]
+
+MECHANICAL_RADIOS = [
+    "📻 *[Radio - {team}]: Engine is losing power! I have lost drive, retiring.*",
+    "📻 *[Radio - {team}]: Gearbox failure! Gearbox is stuck, pulling over.*",
+    "📻 *[Radio - {team}]: No power! Smoke in the cockpit, stopping the car.*",
+    "📻 *[Radio - {team}]: Power unit blown! Retiring the car.*"
+]
+
+GP_OVERTAKE_COMMENTARIES = [
+    "⚔️ **Lap {lap}:** **{back}** makes a sharp overtake on **{front}** for **P{pos}**!",
+    "⚔️ **Lap {lap}:** **{back}** opens DRS and passes **{front}** into the braking zone for **P{pos}**!",
+    "⚔️ **Lap {lap}:** Out-braked down the inside! **{back}** takes **P{pos}** from **{front}**!",
+    "⚔️ **Lap {lap}:** Sensational move! **{back}** cuts past **{front}** to take **P{pos}**!",
+    "⚔️ **Lap {lap}:** **{back}** uses superior traction to power ahead of **{front}** for **P{pos}**!"
+]
+
+GP_OVERTAKE_RADIOS = [
+    "📻 *[Radio - {back}]: Yes! Got him for P{pos}!*",
+    "📻 *[Radio - Engineer]: Great pass! That is P{pos}, now lock in your pace.*",
+    "📻 *[Radio - Engineer]: Position gained! P{pos} secured, keep pushing.*",
+    "📻 *[Radio - {back}]: Clean move! Next target ahead.*"
+]
+
 class SimTeam:
     """Class to wrap team, driver, strategist, and car stats for the race simulation."""
     def __init__(self, data: Dict[str, Any]):
@@ -313,6 +426,7 @@ class SimTeam:
         aero_mult = profile.get("aero_mod", 1.0)
         eng_mult = profile.get("engine_mod", 1.0)
         tyre_mult = profile.get("tyre_mod", 1.0)
+        ers_mult = profile.get("ers_mod", 1.0)
         
         equipped = database.get_equipped_inventory(self.user_id) if not self.is_ai else {}
         from crates import RARITY_BASE_OFFSETS, RARITY_BONUS_MULTIPLIERS
@@ -332,12 +446,10 @@ class SimTeam:
                 tier_mult = config.get_tier_stat_multiplier(effective_level)
                 return effective_level * tier_mult
 
-
-
         engine_contrib = calculate_effective_stat('engine', self.engine) * 1.0 * eng_mult
         aero_contrib = calculate_effective_stat('aerodynamics', self.aerodynamics) * 0.8 * aero_mult
         tyre_contrib = calculate_effective_stat('tyres', self.tyres_stat) * 0.8 * tyre_mult
-        ers_contrib = calculate_effective_stat('ers', self.ers) * 0.8
+        ers_contrib = calculate_effective_stat('ers', self.ers) * 0.8 * ers_mult
         reliability_contrib = calculate_effective_stat('reliability', self.reliability) * 0.5
         pit_crew_contrib = calculate_effective_stat('pit_crew', self.pit_crew) * 0.3
         
@@ -348,6 +460,27 @@ class SimTeam:
         base_power *= (1.0 - min(0.5, damage_penalty))
         
         return base_power
+
+def get_track_multipliers(track_name: str) -> Dict[str, Any]:
+    """Retrieve normalized car stat multipliers and traits for a specific F1 track."""
+    profile = TRACK_PROFILES.get(track_name, {})
+    return {
+        "track_name": track_name,
+        "description": profile.get("description", "Standard Grand Prix Circuit"),
+        "engine_mod": profile.get("engine_mod", 1.0),
+        "aero_mod": profile.get("aero_mod", 1.0),
+        "tyre_mod": profile.get("tyre_mod", 1.0),
+        "ers_mod": profile.get("ers_mod", 1.0),
+        "heat_mod": profile.get("heat_mod", 1.0),
+        "qual_mod": profile.get("qual_mod", 1.0),
+        "consistency_mod": profile.get("consistency_mod", 1.0),
+        "sc_chance_mult": profile.get("sc_chance_mult", 1.0),
+        "rain_prob_mult": profile.get("rain_prob_mult", 1.0),
+        "overtake_bonus": profile.get("overtake_bonus", 1.0),
+        "overtake_diff": profile.get("overtake_diff", 1.0),
+        "is_sprint": profile.get("is_sprint", False),
+        "base_lap_time": TRACK_BASE_LAP_TIMES.get(track_name, 45.0)
+    }
 
 def simulate_duel_generator(team1_data: Dict[str, Any], team2_data: Dict[str, Any], total_laps: int = 1, track_name: str = None):
     """
@@ -409,7 +542,8 @@ def simulate_duel_generator(team1_data: Dict[str, Any], team2_data: Dict[str, An
             if getattr(t, 'next_block_strategy', None):
                 t.strategy = t.next_block_strategy
                 t.next_block_strategy = None
-                current_lap_events.append(f"📻 **{t.team_name}:** Pacing strategy changed to **{t.strategy}**.")
+                strat_msg = random.choice(STRATEGY_RADIOS).format(team=t.team_name, strategy=t.strategy)
+                current_lap_events.append(strat_msg)
             
             if getattr(t, 'pit_next_lap', False):
                 new_tyre = getattr(t, 'pit_next_lap_tyre', t.tyre_type) or t.tyre_type
@@ -429,9 +563,19 @@ def simulate_duel_generator(team1_data: Dict[str, Any], team2_data: Dict[str, An
         for t in [leader, trailer]:
             if t.dnf:
                 continue
+                
+            # Engine Thermal Tracking per lap in 1v1 duels
+            if t.strategy == "Aggressive":
+                t.engine_temp += random.uniform(4.0, 6.0)
+            elif t.strategy == "Conservative":
+                t.engine_temp = max(80.0, t.engine_temp - random.uniform(3.0, 5.0))
+                
             dnf_chance = max(0.2, 6.5 - t.reliability * 0.25)
             if t.strategy == "Aggressive":
                 dnf_chance += 3.0
+                if getattr(t, 'engine_temp', 85.0) >= 100.0:
+                    dnf_chance += 3.0  # Extra blowup risk from overheating engine!
+                    current_lap_events.append(f"📻 *[Radio - {t.team_name}]: Engine temperature is critical ({t.engine_temp:.1f}°C)! Back off pace!*")
             elif t.strategy == "Conservative":
                 dnf_chance = max(0.05, dnf_chance - 2.0)
                 
@@ -541,12 +685,24 @@ def simulate_duel_generator(team1_data: Dict[str, Any], team2_data: Dict[str, An
             if gap < 0.2:
                 gap = 0.5
             leader, trailer = trailer, leader
-            current_lap_events.append(f"🔄 **Lap {lap}:** **{leader.team_name}** makes a brilliant overtake on **{trailer.team_name}** to take the lead!")
+            comm_msg = random.choice(OVERTAKE_COMMENTARIES).format(lap=lap, leader=leader.team_name, trailer=trailer.team_name)
+            current_lap_events.append(comm_msg)
+            if random.random() < 0.7:
+                radio_msg = random.choice(OVERTAKE_RADIOS).format(leader=leader.team_name)
+                current_lap_events.append(radio_msg)
         else:
             if gap > 3.0:
-                current_lap_events.append(f"🏎️ **Lap {lap}:** **{leader.team_name}** is pulling away, leading **{trailer.team_name}** by **{gap:.2f}s**.")
+                comm_msg = random.choice(PULLING_AWAY_COMMENTARIES).format(lap=lap, leader=leader.team_name, trailer=trailer.team_name, gap=gap)
+                current_lap_events.append(comm_msg)
+                if random.random() < 0.35:
+                    radio_msg = random.choice(PULLING_AWAY_RADIOS).format(leader=leader.team_name, gap=gap)
+                    current_lap_events.append(radio_msg)
             else:
-                current_lap_events.append(f"⚔️ **Lap {lap}:** **{leader.team_name}** defends hard! **{trailer.team_name}** is right on their gearbox (+**{gap:.2f}s**).")
+                comm_msg = random.choice(CLOSE_PURSUIT_COMMENTARIES).format(lap=lap, leader=leader.team_name, trailer=trailer.team_name, gap=gap)
+                current_lap_events.append(comm_msg)
+                if random.random() < 0.4:
+                    radio_msg = random.choice(CLOSE_PURSUIT_RADIOS).format(leader=leader.team_name, trailer=trailer.team_name, gap=gap)
+                    current_lap_events.append(radio_msg)
                 
         current_lap_events.append(
             f"📊 **Tyre Health:** {leader.team_name}: {max(0, int(leader.tyre_health))}% | {trailer.team_name}: {max(0, int(trailer.tyre_health))}%"
@@ -830,8 +986,9 @@ def simulate_gp_generator(entries_data: List[Dict[str, Any]], track_name: str, t
                 wear_penalty = ((80.0 - t.tyre_health) ** 1.5) * 0.005
             lap_time += wear_penalty
             
-            if t.tyre_health < 40.0 and random.random() < 0.15:
-                lap_logs.append(f"📻 *[Radio - {t.team_name}]: Bono, my tyres are dead!*")
+            if t.tyre_health < 40.0 and random.random() < 0.2:
+                tyre_msg = random.choice(DEAD_TYRES_RADIOS).format(team=t.team_name)
+                lap_logs.append(tyre_msg)
                 
             # Weather tire compatibility penalty (bypassed during SC/VSC speed limit)
             weather_penalty = 0.0
@@ -881,12 +1038,14 @@ def simulate_gp_generator(entries_data: List[Dict[str, Any]], track_name: str, t
                     pit_loss = 3.0 + pit_duration
                     t.last_lap_time += pit_loss
                     lap_logs.append(f"🔧 **Lap {lap}:** {t.team_name} pits under **Safety Car** (switched to {needed_tyre}, pit duration: {pit_duration:.2f}s).")
-                    lap_logs.append(f"📻 *[Radio - {t.team_name}]: Safety Car is deployed. Pit now for a cheap stop!*")
+                    sc_radio = random.choice(SC_PIT_CALL_RADIOS).format(team=t.team_name, tyre=needed_tyre)
+                    lap_logs.append(sc_radio)
                 else:
                     pit_loss = 8.0 + pit_duration
                     t.last_lap_time += pit_loss
                     lap_logs.append(f"🔧 **Lap {lap}:** {t.team_name} pits (switched to {needed_tyre}, pit duration: {pit_duration:.2f}s).")
-                    lap_logs.append(f"📻 *[Radio - {t.team_name}]: Box, box, box! Fitting {needed_tyre} tyres.*")
+                    pit_radio = random.choice(PIT_CALL_RADIOS).format(team=t.team_name, tyre=needed_tyre)
+                    lap_logs.append(pit_radio)
                 
                 t.tyre_health = 100.0
                 t.tyre_type = needed_tyre
@@ -938,9 +1097,11 @@ def simulate_gp_generator(entries_data: List[Dict[str, Any]], track_name: str, t
                     t.dnf_reason = reason
                     lap_logs.append(f"💥 **Lap {lap}:** {t.team_name} {reason} and is **DNF**!")
                     if "crash" in reason or "barrier" in reason or "curb" in reason:
-                        lap_logs.append(f"📻 *[Radio - {t.team_name}]: I've crashed! Suspension is broken, I'm out.*")
+                        crash_radio = random.choice(CRASH_RADIOS).format(team=t.team_name)
+                        lap_logs.append(crash_radio)
                     else:
-                        lap_logs.append(f"📻 *[Radio - {t.team_name}]: Engine is losing power! I have lost power, retiring the car.*")
+                        mech_radio = random.choice(MECHANICAL_RADIOS).format(team=t.team_name)
+                        lap_logs.append(mech_radio)
 
         # E. Accumulated time update and Safety Car / VSC Compression
         active_teams = [t for t in teams if not t.dnf]
@@ -1038,7 +1199,11 @@ def simulate_gp_generator(entries_data: List[Dict[str, Any]], track_name: str, t
                         
                         # Adjust times: overtaking car is placed 0.2s ahead of the overtaken car
                         back.total_time = front.total_time - 0.2
-                        lap_logs.append(f"⚔️ **Lap {lap}:** {back.team_name} overtakes {front.team_name} for **P{pos}**!")
+                        gp_comm = random.choice(GP_OVERTAKE_COMMENTARIES).format(lap=lap, back=back.team_name, front=front.team_name, pos=pos)
+                        lap_logs.append(gp_comm)
+                        if random.random() < 0.5:
+                            gp_radio = random.choice(GP_OVERTAKE_RADIOS).format(back=back.team_name, pos=pos)
+                            lap_logs.append(gp_radio)
                     else:
                         # Dirty air restriction: back car cannot finish ahead, cap time behind front car
                         if back.total_time < front.total_time + 0.2:
