@@ -8,7 +8,7 @@ import database
 import utils
 import crates
 
-def create_inventory_embed_and_view(user_id: int, category: str = "engine", notice: str = None):
+def create_inventory_embed_and_view(user_id: int, discord_id: int, category: str = "engine", notice: str = None):
     # Fetch equipped inventory across all categories for user
     equipped = database.get_equipped_inventory(user_id)
     
@@ -61,7 +61,7 @@ def create_inventory_embed_and_view(user_id: int, category: str = "engine", noti
     )
     
     embed = utils.create_embed(title="🧰 Part Inventory & Equipment Hub", description=desc, color=utils.COLOR_INFO)
-    view = InventoryView(user_id, active_category=category)
+    view = InventoryView(user_id, discord_id, active_category=category)
     return embed, view
 
 class CategoryTabButton(discord.ui.Button):
@@ -72,15 +72,16 @@ class CategoryTabButton(discord.ui.Button):
         self.category = category
 
     async def callback(self, interaction: discord.Interaction):
-        if interaction.user.id != self.view.user_id:
+        if interaction.user.id != self.view.discord_id:
             await interaction.response.send_message("❌ You can only navigate your own inventory menu.", ephemeral=True)
             return
-        embed, view = create_inventory_embed_and_view(self.view.user_id, self.category)
+        embed, view = create_inventory_embed_and_view(self.view.user_id, self.view.discord_id, self.category)
         await interaction.response.edit_message(embed=embed, view=view)
 
 class InventorySelectMenu(discord.ui.Select):
-    def __init__(self, user_id: int, category: str):
+    def __init__(self, user_id: int, discord_id: int, category: str):
         self.user_id = user_id
+        self.discord_id = discord_id
         self.category = category
         items = database.get_user_inventory(user_id, category)
         options = [
@@ -107,7 +108,7 @@ class InventorySelectMenu(discord.ui.Select):
         super().__init__(placeholder=f"Equip a {category.upper()} part...", min_values=1, max_values=1, options=options, row=2)
 
     async def callback(self, interaction: discord.Interaction):
-        if interaction.user.id != self.user_id:
+        if interaction.user.id != self.discord_id:
             await interaction.response.send_message("❌ You can only equip parts in your own inventory view.", ephemeral=True)
             return
             
@@ -118,13 +119,14 @@ class InventorySelectMenu(discord.ui.Select):
             item_id = int(val)
             success, msg = database.equip_inventory_part(self.user_id, item_id)
             
-        embed, view = create_inventory_embed_and_view(self.user_id, self.category, notice=msg)
+        embed, view = create_inventory_embed_and_view(self.user_id, self.discord_id, self.category, notice=msg)
         await interaction.response.edit_message(embed=embed, view=view)
 
 class InventoryView(discord.ui.View):
-    def __init__(self, user_id: int, active_category: str = "engine"):
+    def __init__(self, user_id: int, discord_id: int, active_category: str = "engine"):
         super().__init__(timeout=180.0)
         self.user_id = user_id
+        self.discord_id = discord_id
         self.active_category = active_category
         
         # Row 0: Top 3 Category Tabs
@@ -138,17 +140,18 @@ class InventoryView(discord.ui.View):
         self.add_item(CategoryTabButton("🔧 Pit Crew", "pit_crew", active_category, row=1))
         
         # Row 2: Part Dropdown Select for Active Category
-        self.add_item(InventorySelectMenu(user_id, category=active_category))
+        self.add_item(InventorySelectMenu(user_id, discord_id, category=active_category))
 
     @discord.ui.button(label="⚡ Auto-Equip Best Parts", style=discord.ButtonStyle.success, row=3)
     async def auto_equip_click(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if interaction.user.id != self.user_id:
+        if interaction.user.id != self.discord_id:
             await interaction.response.send_message("❌ You can only use actions on your own inventory.", ephemeral=True)
             return
             
         success, msg, count = database.auto_equip_best_parts(self.user_id)
-        embed, view = create_inventory_embed_and_view(self.user_id, self.active_category, notice=msg)
+        embed, view = create_inventory_embed_and_view(self.user_id, self.discord_id, self.active_category, notice=msg)
         await interaction.response.edit_message(embed=embed, view=view)
+
 
 
 
@@ -388,8 +391,9 @@ class GarageCog(commands.Cog):
             await interaction.response.send_message("❌ You do not have a profile. Use `/start`.", ephemeral=True)
             return
             
-        embed, view = create_inventory_embed_and_view(prof['user_id'], "engine")
+        embed, view = create_inventory_embed_and_view(prof['user_id'], interaction.user.id, "engine")
         await interaction.response.send_message(embed=embed, view=view)
+
 
 
     @app_commands.command(name="repairs", description="View damaged components and repair costs.")
