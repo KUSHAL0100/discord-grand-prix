@@ -319,12 +319,20 @@ class SimTeam:
         
         def calculate_effective_stat(category: str, base_level: int) -> float:
             item = equipped.get(category)
-            rarity = item.get('rarity', 'Common') if item else 'Common'
-            offset = RARITY_BASE_OFFSETS.get(rarity, 0)
-            effective_level = base_level + offset
-            tier_mult = config.get_tier_stat_multiplier(effective_level)
-            bonus_mult = RARITY_BONUS_MULTIPLIERS.get(rarity, 1.0)
-            return effective_level * tier_mult * bonus_mult
+            if item:
+                rarity = item.get('rarity', 'Common')
+                item_lvl = item.get('level', 1)
+                offset = RARITY_BASE_OFFSETS.get(rarity, 0)
+                effective_level = max(base_level, item_lvl + offset)
+                tier_mult = config.get_tier_stat_multiplier(effective_level)
+                bonus_mult = RARITY_BONUS_MULTIPLIERS.get(rarity, 1.0)
+                return effective_level * tier_mult * bonus_mult
+            else:
+                effective_level = base_level
+                tier_mult = config.get_tier_stat_multiplier(effective_level)
+                return effective_level * tier_mult
+
+
 
         engine_contrib = calculate_effective_stat('engine', self.engine) * 1.0 * eng_mult
         aero_contrib = calculate_effective_stat('aerodynamics', self.aerodynamics) * 0.8 * aero_mult

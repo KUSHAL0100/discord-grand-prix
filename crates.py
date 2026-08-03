@@ -120,8 +120,8 @@ def unbox_crate(user_id: int, crate_tier: str) -> Tuple[bool, str, Dict[str, Any
         category = random.choice(["engine", "aerodynamics", "tyres", "ers", "reliability", "pit_crew"])
         part_title = random.choice(PART_NAMES[category])
         
-        # Determine part level (user level - 1 to user level + 3, capped 1-20)
-        part_level = max(1, min(20, random.randint(max(1, user['level'] - 1), user['level'] + 3)))
+        # Determine part level (Random Level 2 to Level 6 drop)
+        part_level = random.randint(2, 6)
         stat_bonus = part_level
         
         success, msg, item_id = database.add_inventory_part(

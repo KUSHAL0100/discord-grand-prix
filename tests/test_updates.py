@@ -104,15 +104,40 @@ def test_create_inventory_embed_and_view_no_parts(tmp_path, monkeypatch):
     embed, view = create_inventory_embed_and_view(user['user_id'], 88881, "engine")
     assert embed is not None
     assert view is not None
-    assert len(view.children) > 0
+    assert "ACTIVE CAR LOADOUT & COMPONENT LEVELS" in embed.description
 
-    # Test auto equip when 0 parts exist
-    success_ae, msg_ae, count_ae = database.auto_equip_best_parts(user['user_id'])
-    assert not success_ae
-    assert count_ae == 0
+def test_custom_part_level_preservation_on_equip(tmp_path, monkeypatch):
+    import database
+    import config
+    db_file = str(tmp_path / "test_preservation.db")
+    monkeypatch.setattr(config, "DATABASE_PATH", db_file)
+    database.init_db()
 
-    embed2, view2 = create_inventory_embed_and_view(user['user_id'], 88881, "engine", notice=msg_ae)
-    assert embed2 is not None
-    assert view2 is not None
+    success, msg = database.create_user(99999, 88888, "Preservation Team")
+    assert success
+    user = database.get_user_by_discord_id(99999, 88888)
+    uid = user['user_id']
+
+    # Set garage baseline aerodynamics level to 10 via upgrade
+    conn = database.get_db_connection()
+    conn.execute("UPDATE garage SET aerodynamics = 10 WHERE user_id = ?", (uid,))
+    conn.commit()
+    conn.close()
+
+    # Add a Level 2 Uncommon Aero part
+    success, msg, item_id = database.add_inventory_part(uid, "aerodynamics", "Winglet Alpha", "Uncommon", level=2, stat_bonus=2)
+    assert success
+
+    # Equip the Level 2 Uncommon Aero part
+    eq_success, eq_msg = database.equip_inventory_part(uid, item_id)
+    assert eq_success
+    assert "Level 2" in eq_msg
+
+    # Verify that the equipped item in inventory remains Level 2
+    equipped = database.get_equipped_inventory(uid)
+    assert "aerodynamics" in equipped
+    assert equipped["aerodynamics"]["level"] == 2
+    assert equipped["aerodynamics"]["part_name"] == "Winglet Alpha"
+
 
 

@@ -1429,7 +1429,7 @@ def get_user_inventory(user_id: int, category: Optional[str] = None) -> List[Dic
     return [dict(r) for r in rows]
 
 def equip_inventory_part(user_id: int, item_id: int) -> Tuple[bool, str]:
-    """Equip a part from inventory onto active car setup."""
+    """Equip a part from inventory onto active car setup while keeping exact item level."""
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
@@ -1446,11 +1446,6 @@ def equip_inventory_part(user_id: int, item_id: int) -> Tuple[bool, str]:
         # Equip new part
         cursor.execute("UPDATE user_inventory SET is_equipped = 1 WHERE item_id = ?", (item_id,))
         
-        # Update garage table active level
-        valid_categories = ["engine", "aerodynamics", "tyres", "ers", "reliability", "pit_crew"]
-        if category in valid_categories:
-            cursor.execute(f"UPDATE garage SET {category} = MAX({category}, ?) WHERE user_id = ?", (level, user_id))
-            
         conn.commit()
         return True, f"✅ Successfully equipped **{part['rarity']} {part['part_name']}** (Level {level})!"
     except sqlite3.Error as e:
@@ -1514,10 +1509,11 @@ def auto_equip_best_parts(user_id: int) -> Tuple[bool, str, int]:
             if best:
                 cursor.execute("UPDATE user_inventory SET is_equipped = 0 WHERE user_id = ? AND category = ?", (user_id, cat))
                 cursor.execute("UPDATE user_inventory SET is_equipped = 1 WHERE item_id = ?", (best['item_id'],))
-                cursor.execute(f"UPDATE garage SET {cat} = MAX({cat}, ?) WHERE user_id = ?", (best['level'], user_id))
                 equipped_count += 1
                 cat_title = cat.replace('_', ' ').title()
                 equipped_details.append(f"• **{cat_title}:** {best['rarity']} {best['part_name']} (Lvl {best['level']})")
+
+
                 
         conn.commit()
         if equipped_count == 0:
