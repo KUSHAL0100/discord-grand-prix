@@ -140,6 +140,8 @@ def test_quali_simulation():
         {"user_id": 1, "team_name": "Apex", "discord_id": 1001, "qual": 90, "current_q_tyre": "Soft"},
         {"user_id": 2, "team_name": "Backmarker", "discord_id": 1002, "qual": 10, "current_q_tyre": "Hard"}
     ]
+    import random
+    random.seed(42)
     results = race.simulate_quali_session(entries, "Monza", "Q1")
     assert len(results) == 2
     assert results[0]["user_id"] == 1

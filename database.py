@@ -569,11 +569,10 @@ def update_quali_tyre(user_id: int, race_id: int, tyre: str) -> bool:
     finally:
         conn.close()
 
-def add_user_xp(user_id: int, xp_to_add: int) -> Tuple[int, int, bool]:
+def add_user_xp(user_id: int, xp_to_add: int) -> Tuple[int, int, bool, int]:
     """
     Add XP to user and handle leveling up.
-    Returns (new_xp, new_level, leveled_up: bool)
-    XP curve: level_threshold = level * 1000
+    Returns (new_xp, new_level, leveled_up: bool, total_reward: int)
     """
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -581,7 +580,7 @@ def add_user_xp(user_id: int, xp_to_add: int) -> Tuple[int, int, bool]:
         cursor.execute("SELECT xp, level FROM users WHERE user_id = ?", (user_id,))
         row = cursor.fetchone()
         if not row:
-            return (0, 0, False)
+            return (0, 0, False, 0)
         
         current_xp = row['xp']
         current_level = row['level']
@@ -589,6 +588,7 @@ def add_user_xp(user_id: int, xp_to_add: int) -> Tuple[int, int, bool]:
         new_xp = current_xp + xp_to_add
         new_level = current_level
         leveled_up = False
+        total_reward = 0
         
         # Simple progression curve: level * 1000 XP needed to level up
         while new_xp >= new_level * 1000:
@@ -597,17 +597,18 @@ def add_user_xp(user_id: int, xp_to_add: int) -> Tuple[int, int, bool]:
             leveled_up = True
             # Level up reward: (new_level - 1) * 1000¢ (Level 2 = 1,000¢, Level 3 = 2,000¢)
             reward = (new_level - 1) * 1000
+            total_reward += reward
             cursor.execute("UPDATE users SET money = money + ? WHERE user_id = ?", (reward, user_id))
-
             
         cursor.execute("UPDATE users SET xp = ?, level = ? WHERE user_id = ?", (new_xp, new_level, user_id))
         conn.commit()
-        return (new_xp, new_level, leveled_up)
+        return (new_xp, new_level, leveled_up, total_reward)
     except sqlite3.Error:
         conn.rollback()
-        return (0, 0, False)
+        return (0, 0, False, 0)
     finally:
         conn.close()
+
 
 # ----------------- Daily resets & limit trackers -----------------
 
