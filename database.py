@@ -805,52 +805,39 @@ def repair_part(user_id: int, part_name: str) -> Tuple[bool, str]:
 
 # ----------------- Leaderboard -----------------
 
-def get_leaderboard(guild_id: int, by_type: str = 'points', limit: int = 10) -> List[Dict[str, Any]]:
+def get_leaderboard(guild_id: int, by_type: str = 'points', limit: Optional[int] = None) -> List[Dict[str, Any]]:
     """
     Get leaderboard top lists filtered by guild_id.
     by_type can be 'points', 'wins', 'money', or 'level'.
+    If limit is None, returns all entries.
     """
     conn = get_db_connection()
     cursor = conn.cursor()
     
+    limit_clause = " LIMIT ?" if limit is not None else ""
+    params = (guild_id, limit) if limit is not None else (guild_id,)
+    
     if by_type == 'money':
-        cursor.execute("""
-            SELECT team_name, money as score, level, wins
-            FROM users
-            WHERE guild_id = ?
-            ORDER BY money DESC
-            LIMIT ?
-        """, (guild_id, limit))
+        query = f"SELECT team_name, money as score, level, wins FROM users WHERE guild_id = ? ORDER BY money DESC{limit_clause}"
     elif by_type == 'wins':
-        cursor.execute("""
-            SELECT team_name, wins as score, level, wins
-            FROM users
-            WHERE guild_id = ?
-            ORDER BY wins DESC
-            LIMIT ?
-        """, (guild_id, limit))
+        query = f"SELECT team_name, wins as score, level, wins FROM users WHERE guild_id = ? ORDER BY wins DESC{limit_clause}"
     elif by_type == 'level':
-        cursor.execute("""
-            SELECT team_name, level as score, level, wins
-            FROM users
-            WHERE guild_id = ?
-            ORDER BY level DESC, xp DESC
-            LIMIT ?
-        """, (guild_id, limit))
+        query = f"SELECT team_name, level as score, level, wins FROM users WHERE guild_id = ? ORDER BY level DESC, xp DESC{limit_clause}"
     else:  # Default to championship points
-        cursor.execute("""
+        query = f"""
             SELECT u.team_name, COALESCE(SUM(re.points_earned), 0) as score, u.level, u.wins
             FROM users u
             LEFT JOIN race_entries re ON u.user_id = re.user_id
             WHERE u.guild_id = ?
             GROUP BY u.user_id
-            ORDER BY score DESC
-            LIMIT ?
-        """, (guild_id, limit))
+            ORDER BY score DESC{limit_clause}
+        """
         
+    cursor.execute(query, params)
     rows = cursor.fetchall()
     conn.close()
     return [dict(row) for row in rows]
+
 
 # ----------------- Grand Prix & Race Entries Helpers -----------------
 
@@ -1447,6 +1434,62 @@ def equip_inventory_part(user_id: int, item_id: int) -> Tuple[bool, str]:
         return False, f"Database error: {str(e)}"
     finally:
         conn.close()
+
+def unequip_inventory_part_category(user_id: int, category: str) -> Tuple[bool, str]:
+    """Unequip any custom equipped part for a specific category, reverting to baseline."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("UPDATE user_inventory SET is_equipped = 0 WHERE user_id = ? AND category = ?", (user_id, category))
+        conn.commit()
+        cat_title = category.replace('_', ' ').title()
+        return True, f"✅ Unequipped custom **{cat_title}** part (reverted to stock baseline)."
+    except sqlite3.Error as e:
+        conn.rollback()
+        return False, f"Database error: {str(e)}"
+    finally:
+        conn.close()
+
+def auto_equip_best_parts(user_id: int) -> Tuple[bool, str, int]:
+    """
+    Automatically equip the highest quality/level part in each category for the user.
+    Returns (success, summary_message, count_equipped)
+    """
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    valid_categories = ["engine", "aerodynamics", "tyres", "ers", "reliability", "pit_crew"]
+    equipped_count = 0
+    equipped_details = []
+    
+    try:
+        for cat in valid_categories:
+            cursor.execute("""
+                SELECT item_id, part_name, rarity, level, stat_bonus 
+                FROM user_inventory 
+                WHERE user_id = ? AND category = ?
+                ORDER BY stat_bonus DESC, level DESC
+                LIMIT 1
+            """, (user_id, cat))
+            best = cursor.fetchone()
+            if best:
+                cursor.execute("UPDATE user_inventory SET is_equipped = 0 WHERE user_id = ? AND category = ?", (user_id, cat))
+                cursor.execute("UPDATE user_inventory SET is_equipped = 1 WHERE item_id = ?", (best['item_id'],))
+                cursor.execute(f"UPDATE garage SET {cat} = MAX({cat}, ?) WHERE user_id = ?", (best['level'], user_id))
+                equipped_count += 1
+                cat_title = cat.replace('_', ' ').title()
+                equipped_details.append(f"• **{cat_title}:** {best['rarity']} {best['part_name']} (Lvl {best['level']})")
+                
+        conn.commit()
+        if equipped_count == 0:
+            return False, "⚠️ No custom parts found in inventory to equip.", 0
+        msg = f"⚡ **Auto-Equipped Best Parts ({equipped_count} categories updated):**\n" + "\n".join(equipped_details)
+        return True, msg, equipped_count
+    except sqlite3.Error as e:
+        conn.rollback()
+        return False, f"Database error: {str(e)}", 0
+    finally:
+        conn.close()
+
 
 def get_equipped_inventory(user_id_or_discord_id: int) -> Dict[str, Dict[str, Any]]:
     """Return dictionary of currently equipped parts per category."""

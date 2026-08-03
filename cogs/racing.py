@@ -369,25 +369,46 @@ class RaceChallengeView(discord.ui.View):
             p1_default=self.challenger_prof.get('pref_strategy', 'Balanced'),
             p2_default=self.opponent_prof.get('pref_strategy', 'Balanced')
         )
-        pace_embed = utils.create_embed(
-            title=f"⏱️ Strategy Setup — Choose Your Race Pacing ({self.laps} Laps)!",
-            description=(
-                f"**{self.challenger_prof['team_name']}** vs **{self.opponent_prof['team_name']}**\n\n"
-                f"{h2h_text}"
-                f"Click your pace strategy button below before the lights go out!\n"
-                f"• **Push (Aggressive):** Maximum speed, higher tyre wear.\n"
-                f"• **Standard (Balanced):** Balanced pace & wear.\n"
-                f"• **Save (Conservative):** Protects tyres & engine thermals."
-            ),
-            color=utils.COLOR_QUALIFYING
-        )
-        await thread.send(embed=pace_embed, view=pace_view)
-        
-        # Wait for strategy selections
-        try:
-            await asyncio.wait_for(pace_view.ready_event.wait(), timeout=15.0)
-        except asyncio.TimeoutError:
-            pass
+
+        def make_pace_embed(rem_seconds: int):
+            p1_status = f"✅ Chosen (`{pace_view.p1_strategy}`)" if pace_view.p1_done else "⏳ Selection pending..."
+            p2_status = f"✅ Chosen (`{pace_view.p2_strategy}`)" if pace_view.p2_done else "⏳ Selection pending..."
+            return utils.create_embed(
+                title=f"⏱️ Strategy Setup — Choose Your Race Pacing (Starting in {rem_seconds}s)!",
+                description=(
+                    f"**{self.challenger_prof['team_name']}** vs **{self.opponent_prof['team_name']}**\n\n"
+                    f"{h2h_text}"
+                    f"⏱️ **Lights out in:** `{rem_seconds}s` (updates every 5s)\n"
+                    f"• **{self.challenger_prof['team_name']}:** {p1_status}\n"
+                    f"• **{self.opponent_prof['team_name']}:** {p2_status}\n\n"
+                    f"Click your pace strategy button below before the lights go out!\n"
+                    f"• **Push (Aggressive):** Maximum speed, higher tyre wear.\n"
+                    f"• **Standard (Balanced):** Balanced pace & wear.\n"
+                    f"• **Save (Conservative):** Protects tyres & engine thermals."
+                ),
+                color=utils.COLOR_QUALIFYING
+            )
+
+        pace_msg = await thread.send(embed=make_pace_embed(20), view=pace_view)
+
+        # 20-second countdown, updating message every 5 seconds or starting immediately if both drivers selected
+        total_timer = 20
+        tick_interval = 5
+        remaining_timer = total_timer
+
+        while remaining_timer > 0 and not pace_view.ready_event.is_set():
+            try:
+                await asyncio.wait_for(pace_view.ready_event.wait(), timeout=float(tick_interval))
+                # If both drivers responded, exit immediately!
+                break
+            except asyncio.TimeoutError:
+                remaining_timer -= tick_interval
+                if not pace_view.ready_event.is_set():
+                    try:
+                        await pace_msg.edit(embed=make_pace_embed(max(0, remaining_timer)), view=pace_view)
+                    except Exception:
+                        pass
+
 
         t1_data = database.get_full_team_profile(self.challenger_prof['discord_id'], self.guild_id)
         t2_data = database.get_full_team_profile(self.opponent_prof['discord_id'], self.guild_id)

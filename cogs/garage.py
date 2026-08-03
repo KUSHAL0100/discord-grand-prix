@@ -8,67 +8,149 @@ import database
 import utils
 import crates
 
+def create_inventory_embed_and_view(user_id: int, category: str = "engine", notice: str = None):
+    # Fetch equipped inventory across all categories for user
+    equipped = database.get_equipped_inventory(user_id)
+    
+    cat_icons = {
+        "engine": "🏎️",
+        "aerodynamics": "🪽",
+        "tyres": "🛞",
+        "ers": "⚡",
+        "reliability": "🛡️",
+        "pit_crew": "🔧"
+    }
+    
+    # Active Car Loadout Summary Box
+    loadout_lines = []
+    for c_key in ["engine", "aerodynamics", "tyres", "ers", "reliability", "pit_crew"]:
+        c_title = c_key.replace("_", " ").title()
+        icon = cat_icons.get(c_key, "⚙️")
+        item = equipped.get(c_key)
+        if item:
+            r_emoji = crates.RARITY_EMOJIS.get(item['rarity'], '⚪')
+            loadout_lines.append(f"{icon} **{c_title}:** {r_emoji} **{item['rarity']} {item['part_name']}** (Lvl {item['level']})")
+        else:
+            loadout_lines.append(f"{icon} **{c_title}:** ⚪ *Stock Baseline*")
+            
+    loadout_text = "🔧 **ACTIVE CAR LOADOUT OVERVIEW**\n" + "\n".join(loadout_lines)
+    
+    # Storage items in active category
+    items = database.get_user_inventory(user_id, category)
+    cat_title = category.replace("_", " ").upper()
+    cat_icon = cat_icons.get(category, "🧰")
+    
+    storage_lines = []
+    if not items:
+        storage_lines.append("⚙️ *No custom parts in storage for this category yet. Upgrade your car via `/upgrade` or unbox crates via `/open`!*")
+    else:
+        for item in items:
+            status = "🟢 **[EQUIPPED]**" if item['is_equipped'] else "⚪ *(Storage)*"
+            e_emoji = crates.RARITY_EMOJIS.get(item['rarity'], '⚪')
+            bonus_pct = f"+{(crates.RARITY_BONUS_MULTIPLIERS.get(item['rarity'], 1.0) - 1.0)*100:.0f}%"
+            storage_lines.append(f"{status} {e_emoji} **{item['rarity']} {item['part_name']}** (Level {item['level']}) — Efficiency: `{bonus_pct}`")
+            
+    notice_str = f"{notice}\n\n" if notice else ""
+    
+    desc = (
+        f"{notice_str}"
+        f"{loadout_text}\n\n"
+        f"─────────────────────────────\n"
+        f"{cat_icon} **CATEGORY STORAGE — {cat_title}**\n\n"
+        + "\n".join(storage_lines)
+    )
+    
+    embed = utils.create_embed(title="🧰 Part Inventory & Equipment Hub", description=desc, color=utils.COLOR_INFO)
+    view = InventoryView(user_id, active_category=category)
+    return embed, view
+
+class CategoryTabButton(discord.ui.Button):
+    def __init__(self, label: str, category: str, active_category: str, row: int):
+        is_active = (category == active_category)
+        style = discord.ButtonStyle.primary if is_active else discord.ButtonStyle.secondary
+        super().__init__(label=label, style=style, row=row)
+        self.category = category
+
+    async def callback(self, interaction: discord.Interaction):
+        if interaction.user.id != self.view.user_id:
+            await interaction.response.send_message("❌ You can only navigate your own inventory menu.", ephemeral=True)
+            return
+        embed, view = create_inventory_embed_and_view(self.view.user_id, self.category)
+        await interaction.response.edit_message(embed=embed, view=view)
+
 class InventorySelectMenu(discord.ui.Select):
-    def __init__(self, user_id, category):
+    def __init__(self, user_id: int, category: str):
         self.user_id = user_id
         self.category = category
         items = database.get_user_inventory(user_id, category)
-        options = []
-        if not items:
-            options.append(discord.SelectOption(label="No parts in this category", value="none"))
-        else:
-            for item in items[:25]:
+        options = [
+            discord.SelectOption(
+                label="⚪ Stock / Unequip Custom Part",
+                value="unequip",
+                description="Revert to baseline stock component"
+            )
+        ]
+        
+        if items:
+            for item in items[:24]:
                 status = "🟢 [Equipped]" if item['is_equipped'] else "⚪ [Storage]"
                 emoji_str = crates.RARITY_EMOJIS.get(item['rarity'], '⚪')
                 label = f"{emoji_str} {item['part_name'][:25]} (Lvl {item['level']})"
                 desc = f"{status} {item['rarity']} | +{item['stat_bonus']} Stat"
-                options.append(discord.SelectOption(label=label, value=str(item['item_id']), description=desc))
+                options.append(discord.SelectOption(
+                    label=label,
+                    value=str(item['item_id']),
+                    description=desc,
+                    default=bool(item['is_equipped'])
+                ))
                 
-        super().__init__(placeholder=f"Select {category.upper()} part to equip...", min_values=1, max_values=1, options=options)
+        super().__init__(placeholder=f"Equip a {category.upper()} part...", min_values=1, max_values=1, options=options, row=2)
 
     async def callback(self, interaction: discord.Interaction):
-        val = self.values[0]
-        if val == "none":
-            await interaction.response.send_message("❌ No parts available in this category.", ephemeral=True)
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message("❌ You can only equip parts in your own inventory view.", ephemeral=True)
             return
             
-        item_id = int(val)
-        success, msg = database.equip_inventory_part(self.user_id, item_id)
-        color = utils.COLOR_SUCCESS if success else utils.COLOR_ERROR
-        await interaction.response.send_message(embed=utils.create_embed(title="🔧 Garage Equipment", description=msg, color=color), ephemeral=True)
-
-class InventoryCategorySelect(discord.ui.Select):
-    def __init__(self, user_id):
-        self.user_id = user_id
-        options = [
-            discord.SelectOption(label="Engine Parts", value="engine", description="View stored engine blocks & turbochargers"),
-            discord.SelectOption(label="Aerodynamics Parts", value="aerodynamics", description="View wings & floor diffusers"),
-            discord.SelectOption(label="Tyre Compounds", value="tyres", description="View tyre tread compounds"),
-            discord.SelectOption(label="ERS Hybrid Units", value="ers", description="View MGU-K and battery cells"),
-            discord.SelectOption(label="Reliability Parts", value="reliability", description="View coolers & gearboxes"),
-            discord.SelectOption(label="Pit Crew Gear", value="pit_crew", description="View wheel guns & jacks")
-        ]
-        super().__init__(placeholder="Filter Inventory by Category...", min_values=1, max_values=1, options=options)
-
-    async def callback(self, interaction: discord.Interaction):
-        cat = self.values[0]
-        view = discord.ui.View(timeout=180.0)
-        view.add_item(InventoryCategorySelect(self.user_id))
-        view.add_item(InventorySelectMenu(self.user_id, cat))
-        
-        items = database.get_user_inventory(self.user_id, cat)
-        desc = f"🧰 **GARAGE INVENTORY — {cat.upper()}**\n\n"
-        if not items:
-            desc += "⚙️ *No parts owned in this category yet. Unbox crates via `/open` to find rare parts!*"
+        val = self.values[0]
+        if val == "unequip":
+            success, msg = database.unequip_inventory_part_category(self.user_id, self.category)
         else:
-            for item in items:
-                status = "🟢 **[EQUIPPED]**" if item['is_equipped'] else "⚪ *(Storage)*"
-                e_emoji = crates.RARITY_EMOJIS.get(item['rarity'], '⚪')
-                bonus_pct = f"+{(crates.RARITY_BONUS_MULTIPLIERS.get(item['rarity'], 1.0) - 1.0)*100:.0f}%"
-                desc += f"{status} {e_emoji} **{item['rarity']} {item['part_name']}** (Level {item['level']}) — Efficiency: `{bonus_pct}`\n"
-                
-        embed = utils.create_embed(title="🧰 Part Inventory & Equipment", description=desc, color=utils.COLOR_INFO)
+            item_id = int(val)
+            success, msg = database.equip_inventory_part(self.user_id, item_id)
+            
+        embed, view = create_inventory_embed_and_view(self.user_id, self.category, notice=msg)
         await interaction.response.edit_message(embed=embed, view=view)
+
+class InventoryView(discord.ui.View):
+    def __init__(self, user_id: int, active_category: str = "engine"):
+        super().__init__(timeout=180.0)
+        self.user_id = user_id
+        self.active_category = active_category
+        
+        # Row 0: Top 3 Category Tabs
+        self.add_item(CategoryTabButton("🏎️ Engine", "engine", active_category, row=0))
+        self.add_item(CategoryTabButton("🪽 Aero", "aerodynamics", active_category, row=0))
+        self.add_item(CategoryTabButton("🛞 Tyres", "tyres", active_category, row=0))
+        
+        # Row 1: Bottom 3 Category Tabs
+        self.add_item(CategoryTabButton("⚡ ERS", "ers", active_category, row=1))
+        self.add_item(CategoryTabButton("🛡️ Reliability", "reliability", active_category, row=1))
+        self.add_item(CategoryTabButton("🔧 Pit Crew", "pit_crew", active_category, row=1))
+        
+        # Row 2: Part Dropdown Select for Active Category
+        self.add_item(InventorySelectMenu(user_id, category=active_category))
+
+    @discord.ui.button(label="⚡ Auto-Equip Best Parts", style=discord.ButtonStyle.success, row=3)
+    async def auto_equip_click(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message("❌ You can only use actions on your own inventory.", ephemeral=True)
+            return
+            
+        success, msg, count = database.auto_equip_best_parts(self.user_id)
+        embed, view = create_inventory_embed_and_view(self.user_id, self.active_category, notice=msg)
+        await interaction.response.edit_message(embed=embed, view=view)
+
+
 
 class GarageCog(commands.Cog):
     """Cog containing all Garage, Profile, Upgrades and Equipment commands."""
@@ -306,23 +388,9 @@ class GarageCog(commands.Cog):
             await interaction.response.send_message("❌ You do not have a profile. Use `/start`.", ephemeral=True)
             return
             
-        view = discord.ui.View(timeout=180.0)
-        view.add_item(InventoryCategorySelect(prof['user_id']))
-        view.add_item(InventorySelectMenu(prof['user_id'], "engine"))
-        
-        items = database.get_user_inventory(prof['user_id'], "engine")
-        desc = "🧰 **GARAGE INVENTORY — ENGINE**\n\n"
-        if not items:
-            desc += "⚙️ *No custom parts in inventory yet. Upgrade your car via `/upgrade` or unbox crates via `/open`!*"
-        else:
-            for item in items:
-                status = "🟢 **[EQUIPPED]**" if item['is_equipped'] else "⚪ *(Storage)*"
-                e_emoji = crates.RARITY_EMOJIS.get(item['rarity'], '⚪')
-                bonus_pct = f"+{(crates.RARITY_BONUS_MULTIPLIERS.get(item['rarity'], 1.0) - 1.0)*100:.0f}%"
-                desc += f"{status} {e_emoji} **{item['rarity']} {item['part_name']}** (Level {item['level']}) — Efficiency: `{bonus_pct}`\n"
-                
-        embed = utils.create_embed(title="🧰 Part Inventory & Equipment", description=desc, color=utils.COLOR_INFO)
+        embed, view = create_inventory_embed_and_view(prof['user_id'], "engine")
         await interaction.response.send_message(embed=embed, view=view)
+
 
     @app_commands.command(name="repairs", description="View damaged components and repair costs.")
     @app_commands.guild_only()

@@ -210,8 +210,89 @@ class EconomyCog(commands.Cog):
 
 
 
-    @app_commands.command(name="leaderboard", description="View top racing teams in the server.")
-    @app_commands.describe(sort_by="Sort leaderboard by money, level, wins, or points")
+class LeaderboardView(discord.ui.View):
+    def __init__(self, user_id: int, results: list, criterion: str, title: str, top_10_only: bool = False):
+        super().__init__(timeout=180.0)
+        self.user_id = user_id
+        self.results = results
+        self.criterion = criterion
+        self.title = title
+        self.top_10_only = top_10_only
+        self.page_size = 10
+        self.current_page = 0
+        self.update_buttons()
+
+    @property
+    def display_results(self):
+        if self.top_10_only:
+            return self.results[:10]
+        return self.results
+
+    @property
+    def total_pages(self):
+        total = len(self.display_results)
+        return max(1, (total + self.page_size - 1) // self.page_size)
+
+    def get_embed(self) -> discord.Embed:
+        display = self.display_results
+        total_items = len(display)
+        start_idx = self.current_page * self.page_size
+        end_idx = min(start_idx + self.page_size, total_items)
+        page_items = display[start_idx:end_idx]
+
+        filter_status = " *(Top 10 Only)*" if self.top_10_only else ""
+        desc = f"📊 **Total Server Teams:** `{len(self.results)}`{filter_status}\n\n"
+
+        for idx_offset, row in enumerate(page_items):
+            global_rank = start_idx + idx_offset + 1
+            medal = "🥇" if global_rank == 1 else ("🥈" if global_rank == 2 else ("🥉" if global_rank == 3 else f"**{global_rank}.**"))
+            score_val = row['score']
+            unit = "pts" if self.criterion == "points" else ("wins" if self.criterion == "wins" else ("credits" if self.criterion == "money" else "Level"))
+            if self.criterion == "money":
+                score_str = f"{score_val:,} {unit}"
+            else:
+                score_str = f"{score_val} {unit}"
+            desc += f"{medal} **{row['team_name']}** — {score_str}\n"
+
+        embed = utils.create_embed(title=self.title, description=desc, color=utils.COLOR_INFO)
+        embed.set_footer(text=f"Page {self.current_page + 1} of {self.total_pages} • Total Entries: {total_items}")
+        return embed
+
+    def update_buttons(self):
+        self.prev_button.disabled = (self.current_page == 0)
+        self.next_button.disabled = (self.current_page >= self.total_pages - 1)
+        self.toggle_top10_button.label = "📋 Show All Teams" if self.top_10_only else "🔝 Top 10 Only"
+
+    @discord.ui.button(label="◀️ Prev", style=discord.ButtonStyle.primary, row=0)
+    async def prev_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if self.current_page > 0:
+            self.current_page -= 1
+            self.update_buttons()
+            await interaction.response.edit_message(embed=self.get_embed(), view=self)
+        else:
+            await interaction.response.defer()
+
+    @discord.ui.button(label="▶️ Next", style=discord.ButtonStyle.primary, row=0)
+    async def next_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if self.current_page < self.total_pages - 1:
+            self.current_page += 1
+            self.update_buttons()
+            await interaction.response.edit_message(embed=self.get_embed(), view=self)
+        else:
+            await interaction.response.defer()
+
+    @discord.ui.button(label="🔝 Top 10 Only", style=discord.ButtonStyle.secondary, row=0)
+    async def toggle_top10_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.top_10_only = not self.top_10_only
+        self.current_page = 0
+        self.update_buttons()
+        await interaction.response.edit_message(embed=self.get_embed(), view=self)
+
+    @app_commands.command(name="leaderboard", description="View top racing teams in the server with pagination.")
+    @app_commands.describe(
+        sort_by="Sort leaderboard by money, level, wins, or points",
+        top_10_only="Optional: Show only the top 10 teams"
+    )
     @app_commands.choices(sort_by=[
         app_commands.Choice(name="Championship Points", value="points"),
         app_commands.Choice(name="Total Wins", value="wins"),
@@ -219,9 +300,9 @@ class EconomyCog(commands.Cog):
         app_commands.Choice(name="Driver Level", value="level"),
     ])
     @app_commands.guild_only()
-    async def leaderboard(self, interaction: discord.Interaction, sort_by: app_commands.Choice[str] = None):
+    async def leaderboard(self, interaction: discord.Interaction, sort_by: app_commands.Choice[str] = None, top_10_only: bool = False):
         criterion = sort_by.value if sort_by else "points"
-        results = database.get_leaderboard(interaction.guild_id, criterion)
+        results = database.get_leaderboard(interaction.guild_id, criterion, limit=None)
         
         if not results:
             await interaction.response.send_message("❌ No driver profiles created on this server yet.", ephemeral=True)
@@ -234,20 +315,9 @@ class EconomyCog(commands.Cog):
             "level": "⭐ Driver Level Leaderboard"
         }
         
-        desc = ""
-        for idx, row in enumerate(results):
-            medal = "🥇" if idx == 0 else ("🥈" if idx == 1 else ("🥉" if idx == 2 else f"**{idx + 1}.**"))
-            score_val = row['score']
-            unit = "pts" if criterion == "points" else ("wins" if criterion == "wins" else ("credits" if criterion == "money" else "Level"))
-            if criterion == "money":
-                score_str = f"{score_val:,} {unit}"
-            else:
-                score_str = f"{score_val} {unit}"
-                
-            desc += f"{medal} **{row['team_name']}** — {score_str}\n"
-
-        embed = utils.create_embed(title=title_map[criterion], description=desc, color=utils.COLOR_INFO)
-        await interaction.response.send_message(embed=embed)
+        view = LeaderboardView(interaction.user.id, results, criterion, title_map[criterion], top_10_only=top_10_only)
+        await interaction.response.send_message(embed=view.get_embed(), view=view)
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(EconomyCog(bot))
+
