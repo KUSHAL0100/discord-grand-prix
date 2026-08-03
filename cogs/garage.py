@@ -36,9 +36,10 @@ def create_inventory_embed_and_view(user_id: int, discord_id: int, category: str
                 part_name = item.get('part_name', 'Custom Part')
                 item_lvl = item.get('level', 1)
                 bonus = item.get('stat_bonus', 0)
-                loadout_lines.append(f"{icon} **{c_title}:** Level `{g_lvl}` | {r_emoji} **{rarity} {part_name}** (Part Lvl `{item_lvl}` | +`{bonus}` Stat)")
+                loadout_lines.append(f"{icon} **{c_title}:** {r_emoji} **{rarity} {part_name}** (Level `{item_lvl}` | +`{bonus}` Stat)")
             else:
-                loadout_lines.append(f"{icon} **{c_title}:** Level `{g_lvl}` | ⚪ *Stock Baseline (No Custom Part)*")
+                loadout_lines.append(f"{icon} **{c_title}:** ⚪ **Stock Baseline** (Level `{g_lvl}`)")
+
                 
         loadout_text = "🔧 **ACTIVE CAR LOADOUT & COMPONENT LEVELS**\n" + "\n".join(loadout_lines)
         
