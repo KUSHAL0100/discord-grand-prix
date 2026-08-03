@@ -265,28 +265,37 @@ class LeaderboardView(discord.ui.View):
 
     @discord.ui.button(label="◀️ Prev", style=discord.ButtonStyle.primary, row=0)
     async def prev_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message("❌ Only the person who ran `/leaderboard` can use these page controls.", ephemeral=True)
+            return
+        await interaction.response.defer()
         if self.current_page > 0:
             self.current_page -= 1
             self.update_buttons()
-            await interaction.response.edit_message(embed=self.get_embed(), view=self)
-        else:
-            await interaction.response.defer()
+            await interaction.edit_original_response(embed=self.get_embed(), view=self)
 
     @discord.ui.button(label="▶️ Next", style=discord.ButtonStyle.primary, row=0)
     async def next_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message("❌ Only the person who ran `/leaderboard` can use these page controls.", ephemeral=True)
+            return
+        await interaction.response.defer()
         if self.current_page < self.total_pages - 1:
             self.current_page += 1
             self.update_buttons()
-            await interaction.response.edit_message(embed=self.get_embed(), view=self)
-        else:
-            await interaction.response.defer()
+            await interaction.edit_original_response(embed=self.get_embed(), view=self)
 
     @discord.ui.button(label="🔝 Top 10 Only", style=discord.ButtonStyle.secondary, row=0)
     async def toggle_top10_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message("❌ Only the person who ran `/leaderboard` can use these page controls.", ephemeral=True)
+            return
+        await interaction.response.defer()
         self.top_10_only = not self.top_10_only
         self.current_page = 0
         self.update_buttons()
-        await interaction.response.edit_message(embed=self.get_embed(), view=self)
+        await interaction.edit_original_response(embed=self.get_embed(), view=self)
+
 
 
 class EconomyCog(commands.Cog):

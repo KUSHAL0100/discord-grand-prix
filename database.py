@@ -595,8 +595,9 @@ def add_user_xp(user_id: int, xp_to_add: int) -> Tuple[int, int, bool]:
             new_xp -= new_level * 1000
             new_level += 1
             leveled_up = True
-            # Level up reward: new_level * 500¢
-            cursor.execute("UPDATE users SET money = money + ? WHERE user_id = ?", (new_level * 500, user_id))
+            # Level up reward: new_level * 1000¢
+            reward = new_level * 1000
+            cursor.execute("UPDATE users SET money = money + ? WHERE user_id = ?", (reward, user_id))
             
         cursor.execute("UPDATE users SET xp = ?, level = ? WHERE user_id = ?", (new_xp, new_level, user_id))
         conn.commit()
