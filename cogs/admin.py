@@ -333,6 +333,24 @@ class AdminCog(commands.Cog):
     async def top_removemoney(self, interaction: discord.Interaction, user: discord.User, amount: int):
         await self._do_remove_money(interaction, user, amount)
 
+    @admin_group.command(name="resetdaily", description="Reset daily chat/voice credit trackers for a player (Admin only).")
+    @app_commands.describe(user="The player to reset daily credit limits for")
+    @is_admin()
+    @app_commands.guild_only()
+    async def admin_resetdaily(self, interaction: discord.Interaction, user: discord.User):
+        target_prof = database.get_user_by_discord_id(user.id, interaction.guild_id)
+        if not target_prof:
+            await interaction.response.send_message(f"❌ User {user.mention} does not have a profile.", ephemeral=True)
+            return
+
+        database.reset_user_daily_activity(target_prof['user_id'])
+        await interaction.response.send_message(embed=utils.create_embed(
+            title="🔄 Daily Activity Limit Reset",
+            description=f"Successfully reset daily chat & voice credit trackers for {user.mention}.",
+            color=utils.COLOR_SUCCESS
+        ))
+
+
     @admin_group.command(name="broadcast", description="Broadcast an announcement message to a channel (Admin only).")
     @app_commands.describe(
         message="The announcement message content (supports \\n for line breaks)",

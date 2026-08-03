@@ -612,8 +612,14 @@ def add_user_xp(user_id: int, xp_to_add: int) -> Tuple[int, int, bool, int]:
 
 # ----------------- Daily resets & limit trackers -----------------
 
+def get_ist_date_str() -> str:
+    """Return current YYYY-MM-DD date string in Indian Standard Time (IST, UTC+5:30)."""
+    from datetime import datetime, timezone, timedelta
+    ist_tz = timezone(timedelta(hours=5, minutes=30))
+    return datetime.now(ist_tz).date().isoformat()
+
 def reset_daily_limits_if_new_day(user_id: int) -> None:
-    """Reset daily chat and voice credits if the day has changed."""
+    """Reset daily chat and voice credits if the day has changed (Midnight IST reset)."""
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
@@ -622,7 +628,7 @@ def reset_daily_limits_if_new_day(user_id: int) -> None:
         if not row:
             return
         
-        today_str = date.today().isoformat()
+        today_str = get_ist_date_str()
         if row['last_credits_reset'] != today_str:
             cursor.execute("""
                 UPDATE users 
@@ -634,6 +640,21 @@ def reset_daily_limits_if_new_day(user_id: int) -> None:
         conn.rollback()
     finally:
         conn.close()
+
+def reset_user_daily_activity(user_id: int) -> bool:
+    """Reset daily chat and voice credit trackers to 0 for a user."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("UPDATE users SET daily_chat_credits = 0, daily_voice_credits = 0 WHERE user_id = ?", (user_id,))
+        conn.commit()
+        return True
+    except sqlite3.Error:
+        conn.rollback()
+        return False
+    finally:
+        conn.close()
+
 
 def award_daily_activity_credits(user_id: int, amount: int, credit_type: str) -> int:
     """
