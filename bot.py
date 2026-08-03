@@ -126,21 +126,15 @@ async def on_message(message: discord.Message):
     now = datetime.now()
     last_awarded = chat_cooldowns.get(message.author.id)
     
-    # Only award credits and 25 XP once every 60 seconds (1 minute) per user
+    # Only award chat activity credits once every 60 seconds (1 minute) per user
     if last_awarded is None or (now - last_awarded).total_seconds() >= 60:
         user = database.get_user_by_discord_id(message.author.id, message.guild.id)
         if user:
             earned = database.award_daily_activity_credits(user['user_id'], config.CHAT_CREDITS_PER_MSG, 'chat')
             if earned > 0:
                 chat_cooldowns[message.author.id] = now
-                new_xp, new_lvl, lvl_up, reward = database.add_user_xp(user['user_id'], 25)
-                if lvl_up:
-                    embed = utils.create_embed(
-                        title="🎉 DRIVER LEVEL UP!",
-                        description=f"Congratulations {message.author.mention}! Your driver reached **Level {new_lvl}**!\n💰 **Level-Up Reward:** Received **+{reward:,} credits** into your team wallet!",
-                        color=utils.COLOR_SUCCESS
-                    )
-                    await message.channel.send(embed=embed)
+                if debug_mode:
+                    print(f"Awarded {earned} chat credits to {message.author.name}.")
             
     await bot.process_commands(message)
 
