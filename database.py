@@ -1710,8 +1710,41 @@ def get_track_mastery_bonus(user_id: int, track_name: str) -> float:
     finally:
         conn.close()
 
-def record_race_result(winner_user_id: int, loser_user_id: int, guild_id: int, win_prize: int = None, loss_prize: int = None, win_xp: int = None, loss_xp: int = None) -> bool:
-    """Record 1v1 duel race results: update wins/losses, award XP and prize credits."""
+def apply_race_damage(user_id: int, is_dnf: bool = False) -> None:
+    """Apply engine and tyre damage to a user's garage after a race."""
+    if user_id is None or user_id == 0 or user_id >= 999900:
+        return  # Skip AI drivers
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        if is_dnf:
+            dmg_eng = random.randint(25, 45)
+            dmg_tyr = random.randint(40, 70)
+        else:
+            dmg_eng = random.randint(5, 15)
+            dmg_tyr = random.randint(15, 30)
+
+        cursor.execute("""
+            UPDATE garage
+            SET damage_engine = MIN(100, damage_engine + ?),
+                damage_tyres = MIN(100, damage_tyres + ?)
+            WHERE user_id = ?
+        """, (dmg_eng, dmg_tyr, user_id))
+
+        cursor.execute("SELECT damage_engine, damage_tyres FROM garage WHERE user_id = ?", (user_id,))
+        row = cursor.fetchone()
+        if row:
+            new_total = row['damage_engine'] + row['damage_tyres']
+            cursor.execute("UPDATE garage SET damage_total = ? WHERE user_id = ?", (new_total, user_id))
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        print(f"Error applying race damage: {e}")
+    finally:
+        conn.close()
+
+def record_race_result(winner_user_id: int, loser_user_id: int, guild_id: int, win_prize: int = None, loss_prize: int = None, win_xp: int = None, loss_xp: int = None, winner_dnf: bool = False, loser_dnf: bool = False) -> bool:
+    """Record 1v1 duel race results: update wins/losses, award XP, prize credits, and apply garage damage."""
     conn = get_db_connection()
     cursor = conn.cursor()
     w_prize = config.WIN_PRIZE_CREDITS if win_prize is None else win_prize
@@ -1747,6 +1780,11 @@ def record_race_result(winner_user_id: int, loser_user_id: int, guild_id: int, w
                     cursor.execute("UPDATE users SET level = level + 1 WHERE user_id = ?", (uid,))
 
         conn.commit()
+
+        # Apply car wear/damage to garage
+        apply_race_damage(winner_user_id, is_dnf=winner_dnf)
+        apply_race_damage(loser_user_id, is_dnf=loser_dnf)
+
         return True
     except sqlite3.Error:
         conn.rollback()

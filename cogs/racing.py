@@ -38,19 +38,23 @@ class RaceStartReactionView(discord.ui.View):
             await interaction.response.send_message("⚡ You already launched off the grid!", ephemeral=True)
             return
 
-        if self.go_time is None:
+        click_ts = interaction.created_at.timestamp()
+        
+        if self.go_time is None or click_ts < self.go_time:
             self.reactions[uid] = -1.0
             await interaction.response.send_message("⚠️ **FALSE START!** You launched before the green lights went out! Launch penalty incurred!", ephemeral=True)
             return
 
-        r_time = time.time() - self.go_time
+        # Compensate for Discord Gateway & client render latency (~1.25s average offset)
+        raw_r_time = click_ts - self.go_time
+        r_time = max(0.12, raw_r_time - 1.25)
         self.reactions[uid] = r_time
         
-        if r_time < 0.35:
-            feedback = f"⚡ **PERFECT GOD-TIER LAUNCH!** (`{r_time:.3f}s`) — Exceptional reflexes! Gained **+0.8s** launch advantage!"
-        elif r_time < 0.75:
-            feedback = f"🟢 **LIGHTNING LAUNCH!** (`{r_time:.3f}s`) — Great reaction! Gained **+0.4s** launch boost!"
-        elif r_time <= 1.5:
+        if r_time < 0.40:
+            feedback = f"⚡ **PERFECT GOD-TIER LAUNCH!** (`{r_time:.2f}s`) — Exceptional reflexes! Gained **+0.8s** launch advantage!"
+        elif r_time < 0.80:
+            feedback = f"🟢 **LIGHTNING LAUNCH!** (`{r_time:.2f}s`) — Great reaction! Gained **+0.4s** launch boost!"
+        elif r_time <= 1.60:
             feedback = f"👍 **Clean Launch!** (`{r_time:.2f}s` reaction off the line)"
         else:
             feedback = f"🐢 **Slow Launch & Wheelspin!** (`{r_time:.2f}s`) — **-0.8s** grid launch delay."
@@ -75,12 +79,15 @@ class PitstopReactionView(discord.ui.View):
             await interaction.response.send_message("🔧 Pit stop reaction already recorded!", ephemeral=True)
             return
             
-        self.reaction_time = time.time() - self.start_time
+        click_ts = interaction.created_at.timestamp()
+        raw_time = click_ts - self.start_time
+        # Compensate for Discord Gateway & client render latency (~1.25s average offset)
+        self.reaction_time = max(0.10, raw_time - 1.25)
         button.disabled = True
         
-        if self.reaction_time < 1.5:
+        if self.reaction_time < 0.50:
             feedback = f"⚡ **LIGHTNING FAST PITSTOP!** (`{self.reaction_time:.2f}s`) — Pit Crew gained **+0.8s** advantage!"
-        elif self.reaction_time <= 3.5:
+        elif self.reaction_time <= 1.50:
             feedback = f"🔧 **Clean Pitstop!** (`{self.reaction_time:.2f}s` pit reaction)"
         else:
             feedback = f"🐢 **Slow Wheel Nut Release!** (`{self.reaction_time:.2f}s`) — Lost **-1.2s** in the pit lane!"
@@ -558,35 +565,35 @@ class RaceChallengeView(discord.ui.View):
             ),
             view=start_view
         )
-        await asyncio.sleep(1.0)
+        await asyncio.sleep(2.0)
 
         await start_msg.edit(embed=utils.create_embed(
             title="🔴🔴⬛⬛⬛ 2 RED LIGHTS...",
             description="**HOLD BRAKES & BUILD REVS**\nEngines roaring on the grid...",
             color=utils.COLOR_QUALIFYING
         ))
-        await asyncio.sleep(1.0)
+        await asyncio.sleep(2.0)
 
         await start_msg.edit(embed=utils.create_embed(
             title="🔴🔴🔴⬛⬛ 3 RED LIGHTS...",
             description="**STAGING COMPLETED**\nFocus on the gantry lights...",
             color=utils.COLOR_QUALIFYING
         ))
-        await asyncio.sleep(1.0)
+        await asyncio.sleep(2.0)
 
         await start_msg.edit(embed=utils.create_embed(
             title="🔴🔴🔴🔴⬛ 4 RED LIGHTS...",
             description="**READY TO RELEASE CLUTCH**\nGet ready on **🟢 LAUNCH / GO! GO! GO!**!",
             color=utils.COLOR_QUALIFYING
         ))
-        await asyncio.sleep(1.0)
+        await asyncio.sleep(2.0)
 
         await start_msg.edit(embed=utils.create_embed(
             title="🔴🔴🔴🔴🔴 FIVE RED LIGHTS ARE ON!",
             description="**STANDBY FOR LIGHTS OUT...**",
             color=utils.COLOR_QUALIFYING
         ))
-        await asyncio.sleep(1.0)
+        await asyncio.sleep(2.0)
 
         # GREEN LIGHT / LIGHTS OUT!
         start_view.go_time = time.time()
@@ -618,15 +625,15 @@ class RaceChallengeView(discord.ui.View):
                     lap_events = item[2]
                     lap_snapshot = item[3]
                     
-                    # Check for Pitstop Reaction Opportunities
+                    # Check for Pitstop Reaction Opportunities (Only for the specific team pitting!)
                     for ev in (lap_events if isinstance(lap_events, list) else [str(lap_events)]):
                         if "pits for fresh" in ev:
                             for t_obj in teams_list:
-                                if t_obj.discord_id and t_obj.discord_id != 0:
+                                if t_obj.team_name in ev and t_obj.discord_id and t_obj.discord_id != 0:
                                     pit_view = PitstopReactionView(driver_id=t_obj.discord_id)
                                     pit_embed = utils.create_embed(
                                         title=f"🔧 PIT STOP ALERT — Lap {l_num}",
-                                        description=f"**{t_obj.team_name} is in the pit lane!** Click **BOX NOW!** for a fast pit stop!",
+                                        description=f"**{t_obj.team_name} is in the pit lane!** <@{t_obj.discord_id}> Click **BOX NOW!** for a fast pit stop!",
                                         color=utils.COLOR_WARNING
                                     )
                                     await thread.send(embed=pit_embed, view=pit_view)
@@ -706,18 +713,24 @@ class RaceChallengeView(discord.ui.View):
                 database.update_user_balance(fastest_lap_user_id, 25)
                 fl_str = f"\n⚡ **Fastest Lap Bonus:** **{fastest_lap_team}** (`{fastest_lap_time:.2f}s`) (+25¢ bonus!)"
 
+            w_dnf = winner.get('dnf', False) if isinstance(winner, dict) else False
+            l_dnf = loser.get('dnf', False) if isinstance(loser, dict) else False
+
             if self.opponent_prof.get('is_ai'):
                 if is_challenger_winner:
                     database.update_user_balance(self.challenger_prof['user_id'], config.AI_DUEL_WIN_CREDITS)
                     database.add_user_xp(self.challenger_prof['user_id'], config.WIN_XP)
+                    database.apply_race_damage(self.challenger_prof['user_id'], is_dnf=w_dnf)
                 else:
                     database.update_user_balance(self.challenger_prof['user_id'], config.AI_DUEL_LOSS_CREDITS)
                     database.add_user_xp(self.challenger_prof['user_id'], config.LOSS_XP)
+                    database.apply_race_damage(self.challenger_prof['user_id'], is_dnf=l_dnf)
             else:
                 database.record_race_result(
                     winner['user_id'], loser['user_id'], self.guild_id,
                     win_prize=win_money_delta, loss_prize=loss_money_delta,
-                    win_xp=win_xp_delta, loss_xp=loss_xp_delta
+                    win_xp=win_xp_delta, loss_xp=loss_xp_delta,
+                    winner_dnf=w_dnf, loser_dnf=l_dnf
                 )
                 database.record_duel_history(self.guild_id, winner['user_id'], loser['user_id'])
 
