@@ -758,6 +758,16 @@ class RaceChallengeView(discord.ui.View):
             rematch_view = DuelRematchView(self.challenger_prof, self.opponent_prof, self.guild_id, self.wager, self.laps, self.track_name)
             await thread.send(embed=embed, file=chart_file, view=rematch_view)
 
+            # Schedule automatic thread cleanup in 2 minutes
+            async def auto_delete_thread(target_thread, delay_secs: float = 120.0):
+                await asyncio.sleep(delay_secs)
+                try:
+                    await target_thread.delete()
+                except Exception:
+                    pass
+
+            asyncio.create_task(auto_delete_thread(thread, 120.0))
+
             # Update original main channel message with Winner Summary Banner
             try:
                 await orig_msg.edit(
@@ -1849,12 +1859,12 @@ class RacingCog(commands.Cog):
                 "level": p1['level'],
                 "wins": 5,
                 "losses": 5,
-                "pace": max(30, p1_full.get('pace', 50) - random.randint(1, 4)),
-                "qual": max(30, p1_full.get('qual', 50) - random.randint(1, 4)),
-                "wet_skill": max(30, p1_full.get('wet_skill', 50) - 2),
-                "consistency": max(30, p1_full.get('consistency', 50) - 2),
-                "aggression": 50,
-                "overtaking": 50,
+                "pace": p1_full.get('pace', 50),
+                "qual": p1_full.get('qual', 50),
+                "wet_skill": p1_full.get('wet_skill', 50),
+                "consistency": p1_full.get('consistency', 50),
+                "aggression": p1_full.get('aggression', 50),
+                "overtaking": p1_full.get('overtaking', 50),
                 "engine": max(1, p1_full.get('engine', 1)),
                 "aerodynamics": max(1, p1_full.get('aerodynamics', 1)),
                 "tyres": max(1, p1_full.get('tyres', 1)),

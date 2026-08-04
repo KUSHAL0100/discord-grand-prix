@@ -612,11 +612,11 @@ def simulate_duel_generator(team1_data: Dict[str, Any], team2_data: Dict[str, An
             yield "lap", lap, current_lap_events, {}, track
             break
             
-        # Pitting logic (automatic if not manual)
+        # Pitting logic (automatic at 40% tyre degradation / 60% health remaining)
         for t in [leader, trailer]:
             if t.dnf:
                 continue
-            if total_laps > 3 and (lap in t.pit_laps) and t.tyre_health < 50.0:
+            if total_laps > 3 and (t.tyre_health <= 60.0 or (lap in t.pit_laps and t.tyre_health < 75.0)):
                 pit_duration = 3.5 - (t.pit_crew * 0.15)
                 if t == leader:
                     gap -= pit_duration

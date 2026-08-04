@@ -67,6 +67,12 @@ async def sync_prefix_command(ctx: commands.Context):
     await msg.edit(content=f"✅ **Synced {len(synced)} commands** to **{ctx.guild.name}**!\nCommands: `{', '.join(names)}`")
 
 @bot.event
+async def on_command_error(ctx: commands.Context, error: Exception):
+    if isinstance(error, commands.CommandNotFound):
+        return  # Ignore unhandled prefix commands like !stock cleanly
+    print(f"⚠️ Command error in {ctx.command}: {error}")
+
+@bot.event
 async def on_ready():
     print(f"Logged in as {bot.user.name} (ID: {bot.user.id})")
     print("Initializing database schema and performance indexes...")
