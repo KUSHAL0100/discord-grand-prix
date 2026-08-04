@@ -1489,6 +1489,47 @@ def unequip_inventory_part_category(user_id: int, category: str) -> Tuple[bool, 
     finally:
         conn.close()
 
+def sell_inventory_part(user_id: int, item_id: int) -> Tuple[bool, str, int]:
+    """
+    Sell an unequipped inventory part for 60% of its upgrade cost value.
+    Returns (success, message, credits_earned)
+    """
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT * FROM user_inventory WHERE item_id = ? AND user_id = ?", (item_id, user_id))
+        part = cursor.fetchone()
+        if not part:
+            return False, "❌ Part not found in your inventory.", 0
+            
+        if part['is_equipped']:
+            return False, "❌ You cannot sell a part that is currently equipped! Unequip or equip another part first.", 0
+            
+        category = part['category']
+        level = part['level']
+        rarity = part['rarity']
+        part_name = part['part_name']
+        
+        if level in config.ENGINE_UPGRADE_COSTS:
+            full_val = config.get_upgrade_cost(category, level, rarity)
+        else:
+            base_cost = config.ENGINE_UPGRADE_COSTS.get(2, 200)
+            full_val = int(base_cost * config.PART_MULTIPLIERS.get(category, 1.0) * config.RARITY_PRICE_MULTIPLIERS.get(rarity, 1.0) * 0.5)
+            
+        sell_price = max(50, int(full_val * config.PART_SELL_RATIO))
+        
+        cursor.execute("DELETE FROM user_inventory WHERE item_id = ?", (item_id,))
+        cursor.execute("UPDATE users SET money = money + ? WHERE user_id = ?", (sell_price, user_id))
+        conn.commit()
+        
+        msg = f"💰 **Part Salvaged!** Sold **{rarity} {part_name}** (Lvl {level} {category.capitalize()}) for **+{sell_price:,} credits** (60% value)!"
+        return True, msg, sell_price
+    except sqlite3.Error as e:
+        conn.rollback()
+        return False, f"Database error: {str(e)}", 0
+    finally:
+        conn.close()
+
 def auto_equip_best_parts(user_id: int) -> Tuple[bool, str, int]:
     """
     Automatically equip the highest quality/level part in each category for the user.

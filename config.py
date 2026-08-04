@@ -100,7 +100,10 @@ WIN_XP = 100
 LOSS_XP = 25
 DUEL_WIN_CREDITS = 200
 DUEL_LOSS_CREDITS = 50
+AI_DUEL_WIN_CREDITS = 150
+AI_DUEL_LOSS_CREDITS = 40
 DUEL_COOLDOWN_SECONDS = 60  # Anti-spam limit for duels
+PART_SELL_RATIO = 0.60     # 60% refund when selling unequipped parts
 
 # Grand Prix Rewards & Settings
 GP_ENTRY_FEE = 500

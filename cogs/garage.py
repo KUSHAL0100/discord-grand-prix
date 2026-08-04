@@ -219,6 +219,99 @@ class InventoryView(discord.ui.View):
 
 
 
+def create_sell_embed_and_view(user_id: int, discord_id: int, notice: str = None):
+    inventory = database.get_user_inventory(user_id)
+    unequipped = [item for item in inventory if not item.get('is_equipped')]
+    
+    notice_str = f"{notice}\n\n" if notice else ""
+    
+    if not unequipped:
+        desc = (
+            f"{notice_str}"
+            f"🎒 **NO SALVAGEABLE PARTS IN STORAGE**\n\n"
+            f"All your car components are currently equipped or your inventory is empty.\n"
+            f"Unbox crates with `/open` or upgrade components to acquire extra inventory parts to sell!"
+        )
+        embed = utils.create_embed(title="💰 Salvage & Sell Car Parts (60% Refund)", description=desc, color=utils.COLOR_WARNING)
+        return embed, None
+        
+    desc = (
+        f"{notice_str}"
+        f"💰 **PART SALVAGE & RECYCLING SHOP**\n"
+        f"Select an unequipped component from your garage storage to sell for **60% of its upgrade credit value**!\n\n"
+        f"📦 **Unequipped Parts Available ({len(unequipped)}):**\n"
+    )
+    
+    for item in unequipped[:10]:
+        cat = item['category']
+        lvl = item['level']
+        rarity = item['rarity']
+        part_name = item['part_name']
+        emoji = crates.RARITY_EMOJIS.get(rarity, '⚪')
+        
+        if lvl in config.ENGINE_UPGRADE_COSTS:
+            full_val = config.get_upgrade_cost(cat, lvl, rarity)
+        else:
+            base_cost = config.ENGINE_UPGRADE_COSTS.get(2, 200)
+            full_val = int(base_cost * config.PART_MULTIPLIERS.get(cat, 1.0) * config.RARITY_PRICE_MULTIPLIERS.get(rarity, 1.0) * 0.5)
+            
+        sell_val = max(50, int(full_val * config.PART_SELL_RATIO))
+        desc += f"  • {emoji} **{rarity} {part_name}** (Lvl `{lvl}` {cat.capitalize()}) — Sell Price: `+{sell_val:,}¢`\n"
+        
+    if len(unequipped) > 10:
+        desc += f"  *...and {len(unequipped) - 10} more in dropdown below.*"
+        
+    embed = utils.create_embed(title="💰 Salvage & Sell Car Parts (60% Refund)", description=desc, color=utils.COLOR_SUCCESS)
+    view = SellPartView(user_id, discord_id, unequipped)
+    return embed, view
+
+
+class SellPartSelect(discord.ui.Select):
+    def __init__(self, user_id: int, discord_id: int, unequipped_items: list):
+        self.user_id = user_id
+        self.discord_id = discord_id
+        
+        options = []
+        for item in unequipped_items[:25]:
+            cat = item['category']
+            lvl = item['level']
+            rarity = item['rarity']
+            part_name = item['part_name']
+            
+            if lvl in config.ENGINE_UPGRADE_COSTS:
+                full_val = config.get_upgrade_cost(cat, lvl, rarity)
+            else:
+                base_cost = config.ENGINE_UPGRADE_COSTS.get(2, 200)
+                full_val = int(base_cost * config.PART_MULTIPLIERS.get(cat, 1.0) * config.RARITY_PRICE_MULTIPLIERS.get(rarity, 1.0) * 0.5)
+                
+            sell_val = max(50, int(full_val * config.PART_SELL_RATIO))
+            
+            label = f"{rarity} {part_name[:20]}"
+            desc_str = f"Lvl {lvl} {cat.capitalize()} | Sell: +{sell_val:,}¢"
+            options.append(discord.SelectOption(label=label, description=desc_str, value=str(item['item_id']), emoji=crates.RARITY_EMOJIS.get(rarity, '⚪')))
+            
+        super().__init__(placeholder="💰 Select an unequipped part to sell...", min_values=1, max_values=1, options=options)
+
+    async def callback(self, interaction: discord.Interaction):
+        if interaction.user.id != self.discord_id:
+            await interaction.response.send_message("❌ You can only sell parts from your own inventory.", ephemeral=True)
+            return
+            
+        item_id = int(self.values[0])
+        success, msg, earned = database.sell_inventory_part(self.user_id, item_id)
+        
+        embed, view = create_sell_embed_and_view(self.user_id, self.discord_id, notice=msg)
+        if view:
+            await interaction.response.edit_message(embed=embed, view=view)
+        else:
+            await interaction.response.edit_message(embed=embed, view=None)
+
+class SellPartView(discord.ui.View):
+    def __init__(self, user_id: int, discord_id: int, unequipped_items: list):
+        super().__init__(timeout=120.0)
+        self.add_item(SellPartSelect(user_id, discord_id, unequipped_items))
+
+
 class GarageCog(commands.Cog):
     """Cog containing all Garage, Profile, Upgrades and Equipment commands."""
     
@@ -457,6 +550,20 @@ class GarageCog(commands.Cog):
             
         embed, view = create_inventory_embed_and_view(prof['user_id'], interaction.user.id, "engine")
         await interaction.response.send_message(embed=embed, view=view)
+
+    @app_commands.command(name="sell", description="Sell unequipped or duplicate car parts for 60% of their upgrade value.")
+    @app_commands.guild_only()
+    async def sell_cmd(self, interaction: discord.Interaction):
+        prof = database.get_user_by_discord_id(interaction.user.id, interaction.guild_id)
+        if not prof:
+            await interaction.response.send_message("❌ You do not have a profile. Use `/start`.", ephemeral=True)
+            return
+            
+        embed, view = create_sell_embed_and_view(prof['user_id'], interaction.user.id)
+        if view:
+            await interaction.response.send_message(embed=embed, view=view)
+        else:
+            await interaction.response.send_message(embed=embed)
 
 
 

@@ -11,10 +11,75 @@ import utils
 import race
 import crates
 
+import time
+
 # Active Races Registry for Live Telemetry Updates
 ACTIVE_RACES = {}
 # Rejection Cooldown Tracking: (challenger_id, opponent_id) -> expiry_datetime
 REJECT_COOLDOWNS: Dict[Tuple[int, int], datetime] = {}
+
+
+class RaceStartReactionView(discord.ui.View):
+    def __init__(self, challenger_id: int, opponent_id: int = 0):
+        super().__init__(timeout=8.0)
+        self.challenger_id = challenger_id
+        self.opponent_id = opponent_id
+        self.start_time = time.time()
+        self.reactions = {}
+
+    @discord.ui.button(label="🟢 LAUNCH / GO! GO! GO!", style=discord.ButtonStyle.success, custom_id="race_start_launch_btn")
+    async def launch_click(self, interaction: discord.Interaction, button: discord.ui.Button):
+        uid = interaction.user.id
+        if uid not in [self.challenger_id, self.opponent_id] and self.opponent_id != 0:
+            await interaction.response.send_message("❌ Only participating drivers in this race can hit the launch button!", ephemeral=True)
+            return
+            
+        if uid in self.reactions:
+            await interaction.response.send_message("⚡ You already launched off the grid!", ephemeral=True)
+            return
+            
+        r_time = time.time() - self.start_time
+        self.reactions[uid] = r_time
+        
+        if r_time < 1.2:
+            feedback = f"⚡ **LIGHTNING JUMP START!** (`{r_time:.2f}s`) — Gained **+0.6s** grid launch boost!"
+        elif r_time <= 2.8:
+            feedback = f"🟢 **Clean Launch!** (`{r_time:.2f}s` reaction off the line)"
+        else:
+            feedback = f"🐢 **Hesitant Launch & Wheelspin!** (`{r_time:.2f}s`) — **-0.8s** grid launch delay."
+            
+        await interaction.response.send_message(feedback, ephemeral=True)
+
+
+class PitstopReactionView(discord.ui.View):
+    def __init__(self, driver_id: int):
+        super().__init__(timeout=8.0)
+        self.driver_id = driver_id
+        self.start_time = time.time()
+        self.reaction_time = None
+
+    @discord.ui.button(label="🔧 BOX NOW! (PERFORM PIT STOP)", style=discord.ButtonStyle.danger, custom_id="pitstop_reaction_btn")
+    async def pit_click(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.driver_id:
+            await interaction.response.send_message("❌ Only the pitting driver can perform this pit stop!", ephemeral=True)
+            return
+            
+        if self.reaction_time is not None:
+            await interaction.response.send_message("🔧 Pit stop reaction already recorded!", ephemeral=True)
+            return
+            
+        self.reaction_time = time.time() - self.start_time
+        button.disabled = True
+        
+        if self.reaction_time < 1.5:
+            feedback = f"⚡ **LIGHTNING FAST PITSTOP!** (`{self.reaction_time:.2f}s`) — Pit Crew gained **+0.8s** advantage!"
+        elif self.reaction_time <= 3.5:
+            feedback = f"🔧 **Clean Pitstop!** (`{self.reaction_time:.2f}s` pit reaction)"
+        else:
+            feedback = f"🐢 **Slow Wheel Nut Release!** (`{self.reaction_time:.2f}s`) — Lost **-1.2s** in the pit lane!"
+            
+        await interaction.response.send_message(feedback, ephemeral=True)
+        self.stop()
 
 class RacePaceView(discord.ui.View):
     def __init__(self, user1_id, user2_id, guild_id, p1_default="Balanced", p2_default="Balanced"):
@@ -411,7 +476,10 @@ class RaceChallengeView(discord.ui.View):
 
 
         t1_data = database.get_full_team_profile(self.challenger_prof['discord_id'], self.guild_id)
-        t2_data = database.get_full_team_profile(self.opponent_prof['discord_id'], self.guild_id)
+        if self.opponent_prof.get('is_ai'):
+            t2_data = dict(self.opponent_prof)
+        else:
+            t2_data = database.get_full_team_profile(self.opponent_prof['discord_id'], self.guild_id)
         
         t1_data['pref_strategy'] = pace_view.p1_strategy
         t2_data['pref_strategy'] = pace_view.p2_strategy
@@ -438,6 +506,19 @@ class RaceChallengeView(discord.ui.View):
             color=utils.COLOR_QUALIFYING
         )
         await thread.send(embed=quali_embed)
+
+        # --- Interactive Race Start Launch Reaction Game ---
+        start_view = RaceStartReactionView(
+            challenger_id=self.challenger_prof['discord_id'],
+            opponent_id=self.opponent_prof.get('discord_id', 0)
+        )
+        start_embed = utils.create_embed(
+            title="🔴🔴🔴🔴🔴 FIVE RED LIGHTS ARE ON! GET READY...",
+            description="**GET READY ON THE GRID!**\nClick **🟢 LAUNCH / GO! GO! GO!** the moment the lights go out to get a launch boost off the line!",
+            color=utils.COLOR_QUALIFYING
+        )
+        await thread.send(embed=start_embed, view=start_view)
+        await asyncio.sleep(5.0)
         
         try:
             lap_logs = []
@@ -451,7 +532,7 @@ class RaceChallengeView(discord.ui.View):
             cheer_view = DuelSpectatorCheerView(
                 thread.id,
                 self.challenger_prof['user_id'], self.challenger_prof['team_name'], self.challenger_prof['discord_id'],
-                self.opponent_prof['user_id'], self.opponent_prof['team_name'], self.opponent_prof['discord_id']
+                self.opponent_prof['user_id'], self.opponent_prof['team_name'], self.opponent_prof.get('discord_id', 0)
             )
 
             for item in generator:
@@ -460,6 +541,20 @@ class RaceChallengeView(discord.ui.View):
                     lap_events = item[2]
                     lap_snapshot = item[3]
                     
+                    # Check for Pitstop Reaction Opportunities
+                    for ev in (lap_events if isinstance(lap_events, list) else [str(lap_events)]):
+                        if "pits for fresh" in ev:
+                            for t_obj in teams_list:
+                                if t_obj.discord_id and t_obj.discord_id != 0:
+                                    pit_view = PitstopReactionView(driver_id=t_obj.discord_id)
+                                    pit_embed = utils.create_embed(
+                                        title=f"🔧 PIT STOP ALERT — Lap {l_num}",
+                                        description=f"**{t_obj.team_name} is in the pit lane!** Click **BOX NOW!** for a fast pit stop!",
+                                        color=utils.COLOR_WARNING
+                                    )
+                                    await thread.send(embed=pit_embed, view=pit_view)
+                                    await asyncio.sleep(4.0)
+
                     lap_logs.append(lap_events)
                     ACTIVE_RACES[thread.id]["lap"] = l_num
                     ACTIVE_RACES[thread.id]["snapshot"] = lap_snapshot
@@ -484,7 +579,7 @@ class RaceChallengeView(discord.ui.View):
                     
                     cheer_view.update_button_labels()
                     await thread.send(embed=lap_embed, view=cheer_view)
-                    await asyncio.sleep(20.0)
+                    await asyncio.sleep(15.0 if self.opponent_prof.get('is_ai') else 20.0)
                     
                 elif item[0] == "finish":
                     winner = item[1]
@@ -497,29 +592,44 @@ class RaceChallengeView(discord.ui.View):
                 await thread.send("❌ Race simulation finished without a clear winner.")
                 return
 
-            if self.wager > 0:
+            if self.opponent_prof.get('is_ai'):
+                is_challenger_winner = (winner['user_id'] == self.challenger_prof['user_id'])
+                winner_credits_display = config.AI_DUEL_WIN_CREDITS if is_challenger_winner else config.AI_DUEL_LOSS_CREDITS
+                loser_credits_display = config.AI_DUEL_LOSS_CREDITS if is_challenger_winner else config.AI_DUEL_WIN_CREDITS
+                win_money_delta = config.AI_DUEL_WIN_CREDITS if is_challenger_winner else 0
+                loss_money_delta = config.AI_DUEL_LOSS_CREDITS if not is_challenger_winner else 0
+                wager_str = "\n🤖 **AI Competitive Race** (Free Entry)"
+            elif self.wager > 0:
                 winner_credits_display = self.wager * 2
                 loser_credits_display = int(self.wager * 0.25)
                 win_money_delta = self.wager
                 loss_money_delta = -int(self.wager * 0.75)
                 wager_str = f"\n💰 **Wager Paid:** **+{self.wager * 2:,} credits** pot won!"
             else:
-                winner_credits_display = config.WIN_PRIZE_CREDITS
-                loser_credits_display = config.LOSS_PRIZE_CREDITS
-                win_money_delta = None
-                loss_money_delta = None
-                wager_str = ""
+                winner_credits_display = config.DUEL_WIN_CREDITS
+                loser_credits_display = config.DUEL_LOSS_CREDITS
+                win_money_delta = config.DUEL_WIN_CREDITS
+                loss_money_delta = config.DUEL_LOSS_CREDITS
+                wager_str = "\n🏎️ **Free Duel** (Free Entry)"
 
             fl_str = ""
-            if fastest_lap_user_id:
+            if fastest_lap_user_id and fastest_lap_user_id != 0:
                 database.update_user_balance(fastest_lap_user_id, 25)
                 fl_str = f"\n⚡ **Fastest Lap Bonus:** **{fastest_lap_team}** (`{fastest_lap_time:.2f}s`) (+25¢ bonus!)"
 
-            database.record_race_result(
-                winner['user_id'], loser['user_id'], self.guild_id,
-                win_prize=win_money_delta, loss_prize=loss_money_delta
-            )
-            database.record_duel_history(self.guild_id, winner['user_id'], loser['user_id'])
+            if self.opponent_prof.get('is_ai'):
+                if is_challenger_winner:
+                    database.update_user_balance(self.challenger_prof['user_id'], config.AI_DUEL_WIN_CREDITS)
+                    database.add_user_xp(self.challenger_prof['user_id'], config.WIN_XP)
+                else:
+                    database.update_user_balance(self.challenger_prof['user_id'], config.AI_DUEL_LOSS_CREDITS)
+                    database.add_user_xp(self.challenger_prof['user_id'], config.LOSS_XP)
+            else:
+                database.record_race_result(
+                    winner['user_id'], loser['user_id'], self.guild_id,
+                    win_prize=win_money_delta, loss_prize=loss_money_delta
+                )
+                database.record_duel_history(self.guild_id, winner['user_id'], loser['user_id'])
 
             telemetry_chart = utils.generate_race_telemetry_graph(lap_telemetry_history)
             chart_file = discord.File(telemetry_chart, filename="telemetry_chart.png")
@@ -1565,18 +1675,93 @@ class RacingCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
-    @app_commands.command(name="race", description="Challenge another user to a 1v1 racing duel!")
-    @app_commands.describe(
-        opponent="The user to challenge to a 1v1 duel",
-        wager="Credit wager amount (minimum 200 credits, default 200)",
-        laps="Race distance in laps (5 to 20 laps, default 5 laps)",
-        track="Select official F1 track (e.g. Monza, Monaco, Silverstone, Spa)"
-    )
-    @app_commands.autocomplete(track=track_autocomplete)
-    @app_commands.guild_only()
-    async def race_cmd(self, interaction: discord.Interaction, opponent: discord.User, wager: int = 200, laps: int = 5, track: str = None):
-        if opponent.bot or opponent == interaction.user:
-            await interaction.response.send_message("❌ Invalid opponent.", ephemeral=True)
+    async def execute_duel_or_race(self, interaction: discord.Interaction, opponent: discord.User = None, wager: int = 0, laps: int = 5, track: str = None):
+        p1 = database.get_user_by_discord_id(interaction.user.id, interaction.guild_id)
+        if not p1:
+            await interaction.response.send_message("❌ You do not have a profile yet. Use `/start` to create one!", ephemeral=True)
+            return
+
+        if wager < 0:
+            wager = 0
+
+        if laps < 5 or laps > 20:
+            await interaction.response.send_message("❌ Race distance must be between 5 and 20 laps.", ephemeral=True)
+            return
+
+        if track and track not in race.TRACK_PROFILES:
+            await interaction.response.send_message(f"❌ Invalid track profile `{track}`.", ephemeral=True)
+            return
+
+        # Check if AI Duel (when opponent is not specified, is a bot, or is self)
+        if opponent is None or opponent.bot or opponent == interaction.user:
+            import random
+            ai_names = ["🤖 Apex AI Racing", "🤖 Cyber Grand Prix", "🤖 Velocity AI", "🤖 Turbo Tech GP"]
+            ai_team_name = random.choice(ai_names)
+            p1_full = database.get_full_team_profile(interaction.user.id, interaction.guild_id)
+            
+            p2 = {
+                "user_id": 999990 + random.randint(1, 900),
+                "discord_id": 0,
+                "team_name": ai_team_name,
+                "country": "🤖",
+                "money": 10000,
+                "level": p1['level'],
+                "wins": 5,
+                "losses": 5,
+                "pace": max(30, p1_full.get('pace', 50) - random.randint(1, 4)),
+                "qual": max(30, p1_full.get('qual', 50) - random.randint(1, 4)),
+                "wet_skill": max(30, p1_full.get('wet_skill', 50) - 2),
+                "consistency": max(30, p1_full.get('consistency', 50) - 2),
+                "aggression": 50,
+                "overtaking": 50,
+                "engine": max(1, p1_full.get('engine', 1)),
+                "aerodynamics": max(1, p1_full.get('aerodynamics', 1)),
+                "tyres": max(1, p1_full.get('tyres', 1)),
+                "ers": max(1, p1_full.get('ers', 1)),
+                "reliability": max(1, p1_full.get('reliability', 1)),
+                "pit_crew": max(1, p1_full.get('pit_crew', 1)),
+                "damage_engine": 0,
+                "damage_tyres": 0,
+                "damage_total": 0,
+                "pref_strategy": random.choice(["Balanced", "Push", "Conservative"]),
+                "pref_tyres": random.choice(["Soft", "Medium", "Hard"]),
+                "is_ai": True
+            }
+            
+            view = RaceChallengeView(p1, p2, interaction.guild_id, wager=0, laps=laps, track_name=track)
+            
+            track_text = f"\n📍 **Track venue:** `{track}`" if track else ""
+            embed = utils.create_embed(
+                title=f"🤖 AI Race Duel Initialized ({laps} Laps)!",
+                description=(
+                    f"🏎️ **{p1['team_name']}** vs **{p2['team_name']}**{track_text}\n"
+                    f"🎁 **Rewards:** `+150¢` & `+100 XP` on victory | `+40¢` & `+25 XP` on loss.\n\n"
+                    f"Initializing race track & launch countdown..."
+                ),
+                color=utils.COLOR_QUALIFYING
+            )
+            await interaction.response.send_message(embed=embed)
+            msg = await interaction.original_response()
+            
+            class MockInteraction:
+                def __init__(self, orig_interaction, msg):
+                    self.user = type('User', (), {'id': 0})()
+                    self.guild_id = orig_interaction.guild_id
+                    self.message = msg
+                    self.channel = orig_interaction.channel
+                    self.response = type('Response', (), {
+                        'send_message': orig_interaction.followup.send,
+                        'edit_message': msg.edit
+                    })()
+                    
+            mock_inter = MockInteraction(interaction, msg)
+            await view.accept_challenge(mock_inter, None)
+            return
+
+        # Human Opponent Duel
+        p2 = database.get_user_by_discord_id(opponent.id, interaction.guild_id)
+        if not p2:
+            await interaction.response.send_message(f"❌ {opponent.mention} has not created a profile yet.", ephemeral=True)
             return
 
         now = datetime.now()
@@ -1597,26 +1782,6 @@ class RacingCog(commands.Cog):
             else:
                 del REJECT_COOLDOWNS[(c_id, o_id)]
 
-        if wager < 200:
-            await interaction.response.send_message("❌ Minimum race wager is 200 credits.", ephemeral=True)
-            return
-
-        if laps < 5 or laps > 20:
-            await interaction.response.send_message("❌ Race distance must be between 5 and 20 laps.", ephemeral=True)
-            return
-
-        if track and track not in race.TRACK_PROFILES:
-            await interaction.response.send_message(f"❌ Invalid track profile `{track}`. Please select an official F1 track from the list.", ephemeral=True)
-            return
-
-        p1 = database.get_user_by_discord_id(interaction.user.id, interaction.guild_id)
-        p2 = database.get_user_by_discord_id(opponent.id, interaction.guild_id)
-
-        if not p1 or not p2:
-            msg = "You must create a profile using `/start` first." if not p1 else f"{opponent.mention} has not created a profile yet."
-            await interaction.response.send_message(f"❌ {msg}", ephemeral=True)
-            return
-
         if wager > 0:
             if p1['money'] < wager:
                 await interaction.response.send_message(f"❌ You do not have `{wager:,} credits` to wager.", ephemeral=True)
@@ -1626,7 +1791,7 @@ class RacingCog(commands.Cog):
                 return
 
         view = RaceChallengeView(p1, p2, interaction.guild_id, wager=wager, laps=laps, track_name=track)
-        wager_text = f"\n💰 **Wager Amount:** `{wager:,} credits` (Winner takes **{wager * 2:,}¢**!)" if wager > 0 else ""
+        wager_text = f"\n💰 **Wager Amount:** `{wager:,} credits` (Winner takes **{wager * 2:,}¢**!)" if wager > 0 else "\n🏎️ **Free Duel Entry** (Winner: `+200¢` | Runner-up: `+50¢`)"
         track_text = f"\n📍 **Track venue:** `{track}`" if track else ""
         embed = utils.create_embed(
             title=f"🏁 1v1 Race Challenge ({laps} Laps)!",
@@ -1637,6 +1802,31 @@ class RacingCog(commands.Cog):
             color=utils.COLOR_QUALIFYING
         )
         await interaction.response.send_message(content=opponent.mention, embed=embed, view=view)
+
+    @app_commands.command(name="duel", description="Race 1v1 against a competitive AI driver for credits & XP (Free entry)!")
+    @app_commands.describe(
+        laps="Race distance in laps (5 to 20 laps, default 5 laps)",
+        track="Select official F1 track (e.g. Monza, Monaco, Silverstone, Spa)"
+    )
+    @app_commands.autocomplete(track=track_autocomplete)
+    @app_commands.guild_only()
+    async def duel_cmd(self, interaction: discord.Interaction, laps: int = 5, track: str = None):
+        await self.execute_duel_or_race(interaction, opponent=None, wager=0, laps=laps, track=track)
+
+    @app_commands.command(name="race", description="Challenge another real driver to a 1v1 sprint race (Free entry by default)!")
+    @app_commands.describe(
+        opponent="The real driver to challenge to a 1v1 race",
+        wager="Optional credit wager amount (default 0 for free entry)",
+        laps="Race distance in laps (5 to 20 laps, default 5 laps)",
+        track="Select official F1 track (e.g. Monza, Monaco, Silverstone, Spa)"
+    )
+    @app_commands.autocomplete(track=track_autocomplete)
+    @app_commands.guild_only()
+    async def race_cmd(self, interaction: discord.Interaction, opponent: discord.User, wager: int = 0, laps: int = 5, track: str = None):
+        if opponent.bot or opponent == interaction.user:
+            await interaction.response.send_message("❌ Invalid opponent. Use `/duel` if you want to race against an AI driver!", ephemeral=True)
+            return
+        await self.execute_duel_or_race(interaction, opponent=opponent, wager=wager, laps=laps, track=track)
 
 
     @app_commands.command(name="joinrace", description="Register and pay 500¢ entry fee to join the upcoming Grand Prix.")
