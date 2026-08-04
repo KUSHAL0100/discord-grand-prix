@@ -186,10 +186,62 @@ class DuelRematchView(discord.ui.View):
 
     @discord.ui.button(label="🔁 Quick Rematch", style=discord.ButtonStyle.primary)
     async def rematch_click(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if self.opponent_prof.get('is_ai'):
+            if interaction.user.id != self.challenger_prof['discord_id']:
+                await interaction.response.send_message("❌ Only the participating driver can trigger a rematch!", ephemeral=True)
+                return
+
+            if is_user_in_race(self.challenger_prof['user_id']):
+                await interaction.response.send_message("❌ You are already in an active race or duel! Finish your current race before starting another.", ephemeral=True)
+                return
+
+            can_free, free_err = database.can_user_free_duel(self.challenger_prof['user_id'])
+            if not can_free:
+                await interaction.response.send_message(free_err, ephemeral=True)
+                return
+
+            set_user_in_race(self.challenger_prof['user_id'])
+            database.increment_daily_free_duels(self.challenger_prof['user_id'])
+
+            new_view = RaceChallengeView(self.challenger_prof, self.opponent_prof, self.guild_id, wager=0, laps=self.laps, track_name=self.track_name)
+            track_text = f"\n📍 **Track venue:** `{self.track_name}`" if self.track_name else ""
+            embed = utils.create_embed(
+                title=f"🤖 AI Race Rematch Initialized ({self.laps} Laps)!",
+                description=(
+                    f"🏎️ **{self.challenger_prof['team_name']}** vs **{self.opponent_prof['team_name']}**{track_text}\n"
+                    f"🎁 **Rewards:** `+150¢` & `+100 XP` on victory | `+40¢` & `+25 XP` on loss.\n\n"
+                    f"Initializing race track & launch countdown..."
+                ),
+                color=utils.COLOR_QUALIFYING
+            )
+            await interaction.response.send_message(embed=embed)
+            self.stop()
+            await new_view.start_duel(interaction)
+            return
+
+        # Human Opponent Rematch
         if interaction.user.id not in [self.challenger_prof['discord_id'], self.opponent_prof['discord_id']]:
             await interaction.response.send_message("❌ Only the duel competitors can trigger a rematch!", ephemeral=True)
             return
 
+        if is_user_in_race(self.challenger_prof['user_id']):
+            await interaction.response.send_message("❌ You are already in an active race or duel!", ephemeral=True)
+            return
+        if is_user_in_race(self.opponent_prof['user_id']):
+            await interaction.response.send_message(f"❌ {self.opponent_prof['team_name']} is currently in an active race or duel!", ephemeral=True)
+            return
+
+        if self.wager == 0:
+            can_free1, free_err1 = database.can_user_free_race(self.challenger_prof['user_id'])
+            if not can_free1:
+                await interaction.response.send_message(free_err1, ephemeral=True)
+                return
+            can_free2, free_err2 = database.can_user_free_race(self.opponent_prof['user_id'])
+            if not can_free2:
+                await interaction.response.send_message(f"❌ {self.opponent_prof['team_name']} has reached their daily limit of 5 free 1v1 races today!", ephemeral=True)
+                return
+
+        set_user_in_race(self.challenger_prof['user_id'])
         parent_channel = interaction.channel.parent or interaction.channel
         new_view = RaceChallengeView(self.challenger_prof, self.opponent_prof, self.guild_id, wager=self.wager, laps=self.laps, track_name=self.track_name)
         wager_text = f"\n💰 **Wager Amount:** `{self.wager:,} credits`" if self.wager > 0 else ""
