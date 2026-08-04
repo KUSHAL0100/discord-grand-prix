@@ -1932,7 +1932,7 @@ class RacingCog(commands.Cog):
                 return
 
         view = RaceChallengeView(p1, p2, interaction.guild_id, wager=wager, laps=laps, track_name=track)
-        wager_text = f"\n💰 **Wager Amount:** `{wager:,} credits` (Winner takes **{wager * 2:,}¢**!)" if wager > 0 else "\n🏎️ **Free Duel Entry** (Winner: `+200¢` | Runner-up: `+50¢`)"
+        wager_text = f"\n💰 **Wager Amount:** `{wager:,} credits` (Winner takes total pot of **{wager * 2:,}¢**!)" if wager > 0 else f"\n🏎️ **Free Race Entry** (Winner: `+{config.DUEL_WIN_CREDITS:,}¢` | Runner-up: `+{config.DUEL_LOSS_CREDITS:,}¢`)"
         track_text = f"\n📍 **Track venue:** `{track}`" if track else ""
         embed = utils.create_embed(
             title=f"🏁 1v1 Race Challenge ({laps} Laps)!",
