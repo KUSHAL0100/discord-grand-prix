@@ -554,6 +554,7 @@ def simulate_duel_generator(team1_data: Dict[str, Any], team2_data: Dict[str, An
                 new_tyre = getattr(t, 'pit_next_lap_tyre', t.tyre_type) or t.tyre_type
                 t.tyre_type = new_tyre
                 t.tyre_health = 100.0
+                t.engine_temp = 85.0
                 t.pit_next_lap = False
                 t.pit_stops_completed += 1
                 
@@ -631,6 +632,7 @@ def simulate_duel_generator(team1_data: Dict[str, Any], team2_data: Dict[str, An
                     gap += pit_duration
                     
                 t.tyre_health = 100.0
+                t.engine_temp = 85.0
                 t.pit_stops_completed += 1
                 current_lap_events.append(f"🔧 **Lap {lap}:** {t.team_name} pits for fresh {t.tyre_type} tyres (time: {pit_duration:.2f}s)!")
                 
@@ -1056,6 +1058,7 @@ def simulate_gp_generator(entries_data: List[Dict[str, Any]], track_name: str, t
                     lap_logs.append(pit_radio)
                 
                 t.tyre_health = 100.0
+                t.engine_temp = 85.0
                 t.tyre_type = needed_tyre
                 t.pit_stops_completed += 1
 
