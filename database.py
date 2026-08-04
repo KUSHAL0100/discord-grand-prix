@@ -1710,30 +1710,32 @@ def get_track_mastery_bonus(user_id: int, track_name: str) -> float:
     finally:
         conn.close()
 
-def record_race_result(winner_user_id: int, loser_user_id: int, guild_id: int, win_prize: int = None, loss_prize: int = None) -> bool:
+def record_race_result(winner_user_id: int, loser_user_id: int, guild_id: int, win_prize: int = None, loss_prize: int = None, win_xp: int = None, loss_xp: int = None) -> bool:
     """Record 1v1 duel race results: update wins/losses, award XP and prize credits."""
     conn = get_db_connection()
     cursor = conn.cursor()
     w_prize = config.WIN_PRIZE_CREDITS if win_prize is None else win_prize
     l_prize = config.LOSS_PRIZE_CREDITS if loss_prize is None else loss_prize
+    w_xp = config.WIN_XP if win_xp is None else win_xp
+    l_xp = config.LOSS_XP if loss_xp is None else loss_xp
     try:
-        # Update winner: +1 win, +WIN_XP, +w_prize
+        # Update winner: +1 win, +w_xp, +w_prize
         cursor.execute("""
             UPDATE users
             SET wins = wins + 1,
                 xp = xp + ?,
                 money = money + ?
             WHERE user_id = ?
-        """, (config.WIN_XP, w_prize, winner_user_id))
+        """, (w_xp, w_prize, winner_user_id))
         
-        # Update loser: +1 loss, +LOSS_XP, +l_prize
+        # Update loser: +1 loss, +l_xp, +l_prize
         cursor.execute("""
             UPDATE users
             SET losses = losses + 1,
                 xp = xp + ?,
                 money = money + ?
             WHERE user_id = ?
-        """, (config.LOSS_XP, l_prize, loser_user_id))
+        """, (l_xp, l_prize, loser_user_id))
 
         # Level up checks
         for uid in [winner_user_id, loser_user_id]:

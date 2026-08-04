@@ -21,10 +21,10 @@ REJECT_COOLDOWNS: Dict[Tuple[int, int], datetime] = {}
 
 class RaceStartReactionView(discord.ui.View):
     def __init__(self, challenger_id: int, opponent_id: int = 0):
-        super().__init__(timeout=8.0)
+        super().__init__(timeout=15.0)
         self.challenger_id = challenger_id
         self.opponent_id = opponent_id
-        self.start_time = time.time()
+        self.go_time = None
         self.reactions = {}
 
     @discord.ui.button(label="🟢 LAUNCH / GO! GO! GO!", style=discord.ButtonStyle.success, custom_id="race_start_launch_btn")
@@ -37,16 +37,23 @@ class RaceStartReactionView(discord.ui.View):
         if uid in self.reactions:
             await interaction.response.send_message("⚡ You already launched off the grid!", ephemeral=True)
             return
-            
-        r_time = time.time() - self.start_time
+
+        if self.go_time is None:
+            self.reactions[uid] = -1.0
+            await interaction.response.send_message("⚠️ **FALSE START!** You launched before the green lights went out! Launch penalty incurred!", ephemeral=True)
+            return
+
+        r_time = time.time() - self.go_time
         self.reactions[uid] = r_time
         
-        if r_time < 1.2:
-            feedback = f"⚡ **LIGHTNING JUMP START!** (`{r_time:.2f}s`) — Gained **+0.6s** grid launch boost!"
-        elif r_time <= 2.8:
-            feedback = f"🟢 **Clean Launch!** (`{r_time:.2f}s` reaction off the line)"
+        if r_time < 0.35:
+            feedback = f"⚡ **PERFECT GOD-TIER LAUNCH!** (`{r_time:.3f}s`) — Exceptional reflexes! Gained **+0.8s** launch advantage!"
+        elif r_time < 0.75:
+            feedback = f"🟢 **LIGHTNING LAUNCH!** (`{r_time:.3f}s`) — Great reaction! Gained **+0.4s** launch boost!"
+        elif r_time <= 1.5:
+            feedback = f"👍 **Clean Launch!** (`{r_time:.2f}s` reaction off the line)"
         else:
-            feedback = f"🐢 **Hesitant Launch & Wheelspin!** (`{r_time:.2f}s`) — **-0.8s** grid launch delay."
+            feedback = f"🐢 **Slow Launch & Wheelspin!** (`{r_time:.2f}s`) — **-0.8s** grid launch delay."
             
         await interaction.response.send_message(feedback, ephemeral=True)
 
@@ -394,7 +401,7 @@ class RaceChallengeView(discord.ui.View):
         self.track_name = track_name
 
     @discord.ui.button(label="🏁 Accept Challenge", style=discord.ButtonStyle.green)
-    async def accept_challenge(self, interaction: discord.Interaction, button: discord.ui.Button):
+    async def accept_challenge_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         if interaction.user.id != self.opponent_prof['discord_id']:
             await interaction.response.send_message("❌ Only the challenged opponent can accept this race!", ephemeral=True)
             return
@@ -410,34 +417,65 @@ class RaceChallengeView(discord.ui.View):
         for item in self.children:
             item.disabled = True
 
-        orig_msg = interaction.message
+        await self.start_duel(interaction)
+
+    async def start_duel(self, interaction: discord.Interaction):
+        if interaction.response.is_done():
+            orig_msg = await interaction.original_response()
+        else:
+            await interaction.response.defer()
+            orig_msg = await interaction.original_response()
+
         thread_name = f"🏎️ Duel: {self.challenger_prof['team_name'][:12]} vs {self.opponent_prof['team_name'][:12]}"
         thread = await orig_msg.create_thread(name=thread_name, auto_archive_duration=60)
 
-        await interaction.response.edit_message(
-            content=(
-                f"🏁 **Challenge Accepted!** The 1v1 duel between **{self.challenger_prof['team_name']}** and **{self.opponent_prof['team_name']}** is live!\n"
-                f"➡️ **Watch live commentary & select strategy in thread:** {thread.mention}"
-            ),
-            embed=None,
-            view=self
-        )
+        if not self.opponent_prof.get('is_ai'):
+            try:
+                await orig_msg.edit(
+                    content=(
+                        f"🏁 **Challenge Accepted!** The 1v1 duel between **{self.challenger_prof['team_name']}** and **{self.opponent_prof['team_name']}** is live!\n"
+                        f"➡️ **Watch live commentary & select strategy in thread:** {thread.mention}"
+                    ),
+                    embed=None,
+                    view=self
+                )
+            except Exception:
+                pass
+        else:
+            try:
+                await orig_msg.edit(
+                    content=(
+                        f"🤖 **AI Duel Active!** Racing against **{self.opponent_prof['team_name']}**!\n"
+                        f"➡️ **Watch live commentary & race telemetry in thread:** {thread.mention}"
+                    ),
+                    embed=None,
+                    view=None
+                )
+            except Exception:
+                pass
 
         # Lookup Head-to-Head record
-        u1_wins, u2_wins = database.get_head_to_head_record(self.challenger_prof['user_id'], self.opponent_prof['user_id'])
-        h2h_text = f"⚔️ **Rivalry Head-to-Head:** `{self.challenger_prof['team_name']} ({u1_wins}) — ({u2_wins}) {self.opponent_prof['team_name']}`\n\n"
+        if not self.opponent_prof.get('is_ai'):
+            u1_wins, u2_wins = database.get_head_to_head_record(self.challenger_prof['user_id'], self.opponent_prof['user_id'])
+            h2h_text = f"⚔️ **Rivalry Head-to-Head:** `{self.challenger_prof['team_name']} ({u1_wins}) — ({u2_wins}) {self.opponent_prof['team_name']}`\n\n"
+        else:
+            h2h_text = f"🤖 **AI Challenge:** `{self.challenger_prof['team_name']}` vs `{self.opponent_prof['team_name']}`\n\n"
 
         pace_view = RacePaceView(
             self.challenger_prof['discord_id'],
-            self.opponent_prof['discord_id'],
+            self.opponent_prof.get('discord_id', 0),
             self.guild_id,
             p1_default=self.challenger_prof.get('pref_strategy', 'Balanced'),
             p2_default=self.opponent_prof.get('pref_strategy', 'Balanced')
         )
 
+        if self.opponent_prof.get('is_ai'):
+            pace_view.p2_done = True
+            pace_view.p2_strategy = self.opponent_prof.get('pref_strategy', 'Balanced')
+
         def make_pace_embed(rem_seconds: int):
             p1_status = f"✅ Chosen (`{pace_view.p1_strategy}`)" if pace_view.p1_done else "⏳ Selection pending..."
-            p2_status = f"✅ Chosen (`{pace_view.p2_strategy}`)" if pace_view.p2_done else "⏳ Selection pending..."
+            p2_status = f"✅ Chosen (`{pace_view.p2_strategy}`)" if pace_view.p2_done else ("🤖 AI Ready (`" + pace_view.p2_strategy + "`)")
             return utils.create_embed(
                 title=f"⏱️ Strategy Setup — Choose Your Race Pacing (Starting in {rem_seconds}s)!",
                 description=(
@@ -454,17 +492,16 @@ class RaceChallengeView(discord.ui.View):
                 color=utils.COLOR_QUALIFYING
             )
 
-        pace_msg = await thread.send(embed=make_pace_embed(20), view=pace_view)
+        pace_timer = 10 if self.opponent_prof.get('is_ai') else 20
+        pace_msg = await thread.send(embed=make_pace_embed(pace_timer), view=pace_view)
 
-        # 20-second countdown, updating message every 5 seconds or starting immediately if both drivers selected
-        total_timer = 20
+        # Countdown loop
         tick_interval = 5
-        remaining_timer = total_timer
+        remaining_timer = pace_timer
 
         while remaining_timer > 0 and not pace_view.ready_event.is_set():
             try:
                 await asyncio.wait_for(pace_view.ready_event.wait(), timeout=float(tick_interval))
-                # If both drivers responded, exit immediately!
                 break
             except asyncio.TimeoutError:
                 remaining_timer -= tick_interval
@@ -507,18 +544,58 @@ class RaceChallengeView(discord.ui.View):
         )
         await thread.send(embed=quali_embed)
 
-        # --- Interactive Race Start Launch Reaction Game ---
+        # --- Interactive Animated Race Start Launch Reaction Game ---
         start_view = RaceStartReactionView(
             challenger_id=self.challenger_prof['discord_id'],
             opponent_id=self.opponent_prof.get('discord_id', 0)
         )
-        start_embed = utils.create_embed(
-            title="🔴🔴🔴🔴🔴 FIVE RED LIGHTS ARE ON! GET READY...",
-            description="**GET READY ON THE GRID!**\nClick **🟢 LAUNCH / GO! GO! GO!** the moment the lights go out to get a launch boost off the line!",
-            color=utils.COLOR_QUALIFYING
+        
+        start_msg = await thread.send(
+            embed=utils.create_embed(
+                title="🔴⬛⬛⬛⬛ 1 RED LIGHT...",
+                description="**GRID LAUNCH PREPARATION**\nDrivers lining up on the starting grid...",
+                color=utils.COLOR_QUALIFYING
+            ),
+            view=start_view
         )
-        await thread.send(embed=start_embed, view=start_view)
-        await asyncio.sleep(5.0)
+        await asyncio.sleep(1.0)
+
+        await start_msg.edit(embed=utils.create_embed(
+            title="🔴🔴⬛⬛⬛ 2 RED LIGHTS...",
+            description="**HOLD BRAKES & BUILD REVS**\nEngines roaring on the grid...",
+            color=utils.COLOR_QUALIFYING
+        ))
+        await asyncio.sleep(1.0)
+
+        await start_msg.edit(embed=utils.create_embed(
+            title="🔴🔴🔴⬛⬛ 3 RED LIGHTS...",
+            description="**STAGING COMPLETED**\nFocus on the gantry lights...",
+            color=utils.COLOR_QUALIFYING
+        ))
+        await asyncio.sleep(1.0)
+
+        await start_msg.edit(embed=utils.create_embed(
+            title="🔴🔴🔴🔴⬛ 4 RED LIGHTS...",
+            description="**READY TO RELEASE CLUTCH**\nGet ready on **🟢 LAUNCH / GO! GO! GO!**!",
+            color=utils.COLOR_QUALIFYING
+        ))
+        await asyncio.sleep(1.0)
+
+        await start_msg.edit(embed=utils.create_embed(
+            title="🔴🔴🔴🔴🔴 FIVE RED LIGHTS ARE ON!",
+            description="**STANDBY FOR LIGHTS OUT...**",
+            color=utils.COLOR_QUALIFYING
+        ))
+        await asyncio.sleep(1.0)
+
+        # GREEN LIGHT / LIGHTS OUT!
+        start_view.go_time = time.time()
+        await start_msg.edit(embed=utils.create_embed(
+            title="🟢🟢🟢🟢🟢 LIGHTS OUT AND AWAY WE GO!",
+            description="**GO! GO! GO!** Click **🟢 LAUNCH / GO! GO! GO!** NOW for reaction time!",
+            color=utils.COLOR_SUCCESS
+        ))
+        await asyncio.sleep(4.0)
         
         try:
             lap_logs = []
@@ -596,24 +673,36 @@ class RaceChallengeView(discord.ui.View):
                 is_challenger_winner = (winner['user_id'] == self.challenger_prof['user_id'])
                 winner_credits_display = config.AI_DUEL_WIN_CREDITS if is_challenger_winner else config.AI_DUEL_LOSS_CREDITS
                 loser_credits_display = config.AI_DUEL_LOSS_CREDITS if is_challenger_winner else config.AI_DUEL_WIN_CREDITS
+                winner_xp_display = config.WIN_XP if is_challenger_winner else config.LOSS_XP
+                loser_xp_display = config.LOSS_XP if is_challenger_winner else config.WIN_XP
                 win_money_delta = config.AI_DUEL_WIN_CREDITS if is_challenger_winner else 0
                 loss_money_delta = config.AI_DUEL_LOSS_CREDITS if not is_challenger_winner else 0
+                win_xp_delta = config.WIN_XP if is_challenger_winner else config.LOSS_XP
+                loss_xp_delta = config.LOSS_XP if not is_challenger_winner else config.WIN_XP
                 wager_str = "\n🤖 **AI Competitive Race** (Free Entry)"
             elif self.wager > 0:
                 winner_credits_display = self.wager * 2
                 loser_credits_display = int(self.wager * 0.25)
+                winner_xp_display = config.WIN_XP
+                loser_xp_display = config.LOSS_XP
                 win_money_delta = self.wager
                 loss_money_delta = -int(self.wager * 0.75)
+                win_xp_delta = config.WIN_XP
+                loss_xp_delta = config.LOSS_XP
                 wager_str = f"\n💰 **Wager Paid:** **+{self.wager * 2:,} credits** pot won!"
             else:
-                winner_credits_display = config.DUEL_WIN_CREDITS
-                loser_credits_display = config.DUEL_LOSS_CREDITS
+                winner_credits_display = config.DUEL_WIN_CREDITS       # 50 credits
+                loser_credits_display = config.DUEL_LOSS_CREDITS      # 25 credits
+                winner_xp_display = config.FREE_RACE_WIN_XP           # 25 XP
+                loser_xp_display = config.FREE_RACE_LOSS_XP          # 0 XP
                 win_money_delta = config.DUEL_WIN_CREDITS
                 loss_money_delta = config.DUEL_LOSS_CREDITS
-                wager_str = "\n🏎️ **Free Duel** (Free Entry)"
+                win_xp_delta = config.FREE_RACE_WIN_XP
+                loss_xp_delta = config.FREE_RACE_LOSS_XP
+                wager_str = "\n🏎️ **Free Race** (Free Entry)"
 
             fl_str = ""
-            if fastest_lap_user_id and fastest_lap_user_id != 0:
+            if fastest_lap_user_id and fastest_lap_user_id != 0 and (self.wager > 0 or self.opponent_prof.get('is_ai')):
                 database.update_user_balance(fastest_lap_user_id, 25)
                 fl_str = f"\n⚡ **Fastest Lap Bonus:** **{fastest_lap_team}** (`{fastest_lap_time:.2f}s`) (+25¢ bonus!)"
 
@@ -627,9 +716,48 @@ class RaceChallengeView(discord.ui.View):
             else:
                 database.record_race_result(
                     winner['user_id'], loser['user_id'], self.guild_id,
-                    win_prize=win_money_delta, loss_prize=loss_money_delta
+                    win_prize=win_money_delta, loss_prize=loss_money_delta,
+                    win_xp=win_xp_delta, loss_xp=loss_xp_delta
                 )
                 database.record_duel_history(self.guild_id, winner['user_id'], loser['user_id'])
+
+            telemetry_chart = utils.generate_race_telemetry_graph(lap_telemetry_history)
+            chart_file = discord.File(telemetry_chart, filename="telemetry_chart.png")
+
+            victory_radio = utils.get_victory_team_radio(winner['team_name'])
+
+            summary_desc = (
+                f"🏆 **WINNER:** **{winner['team_name']}**!{wager_str}{fl_str}\n"
+                f"{victory_radio}\n\n"
+                f"⏱️ **Distance:** `{self.laps} Laps`\n"
+                f"📊 **Rewards Earned:**\n"
+                f"  • **Winner ({winner['team_name']}):** `+{winner_credits_display:,}¢` | `+{winner_xp_display:,} XP`\n"
+                f"  • **Runner-up ({loser['team_name']}):** `+{loser_credits_display:,}¢` | `+{loser_xp_display:,} XP`\n\n"
+                f"🗑️ *This live duel thread will automatically delete in 2 minutes to keep the channel clean.*"
+            )
+
+            embed = utils.create_embed(
+                title=f"🏁 RACE RESULTS: {winner['team_name']} VICTORY!",
+                description=summary_desc,
+                color=utils.COLOR_SUCCESS
+            )
+            embed.set_image(url="attachment://telemetry_chart.png")
+            rematch_view = DuelRematchView(self.challenger_prof, self.opponent_prof, self.guild_id, self.wager, self.laps, self.track_name)
+            await thread.send(embed=embed, file=chart_file, view=rematch_view)
+
+            # Update original main channel message with Winner Summary Banner
+            try:
+                await orig_msg.edit(
+                    content=f"🏆 **DUEL CONCLUDED:** **{winner['team_name']}** defeated **{loser['team_name']}**! (+{winner_credits_display:,}¢, +{config.WIN_XP} XP){wager_str}",
+                    embed=None,
+                    view=None
+                )
+            except Exception:
+                pass
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            await thread.send(f"❌ **Error running duel simulation:** `{e}`")
 
             telemetry_chart = utils.generate_race_telemetry_graph(lap_telemetry_history)
             chart_file = discord.File(telemetry_chart, filename="telemetry_chart.png")
@@ -1741,21 +1869,7 @@ class RacingCog(commands.Cog):
                 color=utils.COLOR_QUALIFYING
             )
             await interaction.response.send_message(embed=embed)
-            msg = await interaction.original_response()
-            
-            class MockInteraction:
-                def __init__(self, orig_interaction, msg):
-                    self.user = type('User', (), {'id': 0})()
-                    self.guild_id = orig_interaction.guild_id
-                    self.message = msg
-                    self.channel = orig_interaction.channel
-                    self.response = type('Response', (), {
-                        'send_message': orig_interaction.followup.send,
-                        'edit_message': msg.edit
-                    })()
-                    
-            mock_inter = MockInteraction(interaction, msg)
-            await view.accept_challenge(mock_inter, None)
+            await view.start_duel(interaction)
             return
 
         # Human Opponent Duel
