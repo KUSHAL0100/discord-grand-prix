@@ -396,10 +396,15 @@ class SimTeam:
             except Exception:
                 pass
                 
-        if data.get("pref_strategy") and data.get("pref_strategy") != "Balanced":
+        if data.get("override_strategy"):
+            self.strategy = data["override_strategy"]
+        elif self.pit_strategy.get("pace"):
+            self.strategy = self.pit_strategy.get("pace")
+        elif data.get("pref_strategy"):
             self.strategy = data["pref_strategy"]
         else:
-            self.strategy = self.pit_strategy.get("pace") or data.get("pref_strategy") or "Balanced"
+            self.strategy = "Balanced"
+            
         self.tyre_type = self.pit_strategy.get("start_tyre") or data.get("pref_tyres") or "Medium"
         
         self.pit_laps = []
@@ -498,9 +503,9 @@ def simulate_duel_generator(team1_data: Dict[str, Any], team2_data: Dict[str, An
         track = random.choice(list(TRACK_PROFILES.keys()))
     qual_logs.append(f"📍 Track: **{track}** - {TRACK_PROFILES[track]['description']}")
     
-    # Setup initial pit stops
+    # Setup initial pit stops (AI only for auto pit stops)
     for t in [t1, t2]:
-        if total_laps > 3:
+        if total_laps > 3 and t.is_ai:
             intervals = total_laps / (t.pref_pit_stops + 1)
             t.pit_laps = [int(round(intervals * i)) for i in range(1, t.pref_pit_stops + 1)]
         else:
@@ -614,11 +619,11 @@ def simulate_duel_generator(team1_data: Dict[str, Any], team2_data: Dict[str, An
             yield "lap", lap, current_lap_events, {}, track
             break
             
-        # Pitting logic (automatic at 40% tyre degradation / 60% health remaining)
+        # Pitting logic (automatic at 60% tyre health for AI drivers only)
         for t in [leader, trailer]:
             if t.dnf:
                 continue
-            if total_laps > 3 and (t.tyre_health <= 60.0 or (lap in t.pit_laps and t.tyre_health < 75.0)):
+            if t.is_ai and total_laps > 3 and (t.tyre_health <= 60.0 or (getattr(t, 'pit_laps', None) and lap in t.pit_laps and t.tyre_health < 75.0)):
                 pit_duration = 3.5 - (t.pit_crew * 0.15)
                 if t == leader:
                     gap -= pit_duration
@@ -1026,13 +1031,11 @@ def simulate_gp_generator(entries_data: List[Dict[str, Any]], track_name: str, t
                     wants_pit = True
                     needed_tyre = getattr(t, "pit_tyres_plan", {}).get(lap, t.pref_tyres)
             else:
+                # Human players pit exclusively when manually requested via DM/telemetry
                 if t.pit_next_lap:
                     wants_pit = True
                     needed_tyre = t.pit_next_lap_tyre
                     t.pit_next_lap = False  # Reset scheduled flag
-                elif getattr(t, "pit_laps", None) and lap in t.pit_laps:
-                    wants_pit = True
-                    needed_tyre = getattr(t, "pit_tyres_plan", {}).get(lap, t.pref_tyres)
                 
             if wants_pit:
                 # Scaled pit stop cost (8s base + crew time for 45s laps)

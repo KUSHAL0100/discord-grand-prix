@@ -529,8 +529,8 @@ class RaceChallengeView(discord.ui.View):
         else:
             t2_data = database.get_full_team_profile(self.opponent_prof['discord_id'], self.guild_id)
         
-        t1_data['pref_strategy'] = pace_view.p1_strategy
-        t2_data['pref_strategy'] = pace_view.p2_strategy
+        t1_data['override_strategy'] = pace_view.p1_strategy
+        t2_data['override_strategy'] = pace_view.p2_strategy
 
         generator = race.simulate_duel_generator(t1_data, t2_data, total_laps=self.laps, track_name=self.track_name)
         
