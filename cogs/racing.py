@@ -15,6 +15,20 @@ import time
 
 # Active Races Registry for Live Telemetry Updates
 ACTIVE_RACES = {}
+# Active Drivers set to prevent multiple simultaneous races/duels
+ACTIVE_USER_RACES = set()
+
+def is_user_in_race(user_id: int) -> bool:
+    return user_id in ACTIVE_USER_RACES
+
+def set_user_in_race(user_id: int) -> None:
+    if user_id:
+        ACTIVE_USER_RACES.add(user_id)
+
+def clear_user_in_race(user_id: int) -> None:
+    if user_id in ACTIVE_USER_RACES:
+        ACTIVE_USER_RACES.remove(user_id)
+
 # Rejection Cooldown Tracking: (challenger_id, opponent_id) -> expiry_datetime
 REJECT_COOLDOWNS: Dict[Tuple[int, int], datetime] = {}
 
@@ -411,10 +425,18 @@ class RaceChallengeView(discord.ui.View):
         self.laps = max(5, min(20, laps))
         self.track_name = track_name
 
+    async def on_timeout(self):
+        clear_user_in_race(self.challenger_prof.get('user_id'))
+        clear_user_in_race(self.opponent_prof.get('user_id'))
+
     @discord.ui.button(label="🏁 Accept Challenge", style=discord.ButtonStyle.green)
     async def accept_challenge_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         if interaction.user.id != self.opponent_prof['discord_id']:
             await interaction.response.send_message("❌ Only the challenged opponent can accept this race!", ephemeral=True)
+            return
+
+        if is_user_in_race(self.opponent_prof['user_id']):
+            await interaction.response.send_message("❌ You are currently in an active race or duel!", ephemeral=True)
             return
 
         if self.wager > 0:
@@ -422,8 +444,15 @@ class RaceChallengeView(discord.ui.View):
             o_check = database.get_user_by_discord_id(self.opponent_prof['discord_id'], self.guild_id)
             if c_check['money'] < self.wager or o_check['money'] < self.wager:
                 await interaction.response.send_message("❌ Race cancelled: One of the players no longer has enough credits for the wager.", ephemeral=True)
+                clear_user_in_race(self.challenger_prof.get('user_id'))
+                clear_user_in_race(self.opponent_prof.get('user_id'))
                 self.stop()
                 return
+
+        set_user_in_race(self.opponent_prof['user_id'])
+        if self.wager == 0 and not self.opponent_prof.get('is_ai'):
+            database.increment_daily_free_races(self.challenger_prof['user_id'])
+            database.increment_daily_free_races(self.opponent_prof['user_id'])
 
         for item in self.children:
             item.disabled = True
@@ -833,6 +862,9 @@ class RaceChallengeView(discord.ui.View):
             if thread.id in ACTIVE_RACES:
                 del ACTIVE_RACES[thread.id]
             await thread.send(f"❌ **Race Error:** `{e}`")
+        finally:
+            clear_user_in_race(self.challenger_prof.get('user_id'))
+            clear_user_in_race(self.opponent_prof.get('user_id'))
 
     @discord.ui.button(label="❌ Decline", style=discord.ButtonStyle.red)
     async def decline_challenge(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -840,6 +872,8 @@ class RaceChallengeView(discord.ui.View):
             await interaction.response.send_message("❌ Only the challenged opponent can decline this race!", ephemeral=True)
             return
 
+        clear_user_in_race(self.challenger_prof.get('user_id'))
+        clear_user_in_race(self.opponent_prof.get('user_id'))
         for item in self.children:
             item.disabled = True
         await interaction.response.edit_message(content="❌ Race challenge declined.", embed=None, view=None)
@@ -850,6 +884,8 @@ class RaceChallengeView(discord.ui.View):
             await interaction.response.send_message("❌ Only the challenged opponent can decline this race!", ephemeral=True)
             return
 
+        clear_user_in_race(self.challenger_prof.get('user_id'))
+        clear_user_in_race(self.opponent_prof.get('user_id'))
         c_id = self.challenger_prof['discord_id']
         o_id = self.opponent_prof['discord_id']
         REJECT_COOLDOWNS[(c_id, o_id)] = datetime.now() + timedelta(minutes=5)
@@ -1836,6 +1872,10 @@ class RacingCog(commands.Cog):
             await interaction.response.send_message("❌ You do not have a profile yet. Use `/start` to create one!", ephemeral=True)
             return
 
+        if is_user_in_race(p1['user_id']):
+            await interaction.response.send_message("❌ You are already in an active race or duel! Finish your current race before starting another.", ephemeral=True)
+            return
+
         if wager < 0:
             wager = 0
 
@@ -1849,6 +1889,14 @@ class RacingCog(commands.Cog):
 
         # Check if AI Duel (when opponent is not specified, is a bot, or is self)
         if opponent is None or opponent.bot or opponent == interaction.user:
+            can_free, free_err = database.can_user_free_duel(p1['user_id'])
+            if not can_free:
+                await interaction.response.send_message(free_err, ephemeral=True)
+                return
+
+            set_user_in_race(p1['user_id'])
+            database.increment_daily_free_duels(p1['user_id'])
+
             import random
             ai_names = ["🤖 Apex AI Racing", "🤖 Cyber Grand Prix", "🤖 Velocity AI", "🤖 Turbo Tech GP"]
             ai_team_name = random.choice(ai_names)
@@ -1905,6 +1953,20 @@ class RacingCog(commands.Cog):
             await interaction.response.send_message(f"❌ {opponent.mention} has not created a profile yet.", ephemeral=True)
             return
 
+        if is_user_in_race(p2['user_id']):
+            await interaction.response.send_message(f"❌ {opponent.mention} is currently in an active race or duel!", ephemeral=True)
+            return
+
+        if wager == 0:
+            can_free1, free_err1 = database.can_user_free_race(p1['user_id'])
+            if not can_free1:
+                await interaction.response.send_message(free_err1, ephemeral=True)
+                return
+            can_free2, free_err2 = database.can_user_free_race(p2['user_id'])
+            if not can_free2:
+                await interaction.response.send_message(f"❌ {opponent.mention} has reached their daily limit of **{config.FREE_RACE_DAILY_LIMIT} free 1v1 races** today!", ephemeral=True)
+                return
+
         now = datetime.now()
         c_id = interaction.user.id
         o_id = opponent.id
@@ -1931,6 +1993,7 @@ class RacingCog(commands.Cog):
                 await interaction.response.send_message(f"❌ {opponent.mention} does not have `{wager:,} credits` to wager.", ephemeral=True)
                 return
 
+        set_user_in_race(p1['user_id'])
         view = RaceChallengeView(p1, p2, interaction.guild_id, wager=wager, laps=laps, track_name=track)
         wager_text = f"\n💰 **Wager Amount:** `{wager:,} credits` (Winner takes total pot of **{wager * 2:,}¢**!)" if wager > 0 else f"\n🏎️ **Free Race Entry** (Winner: `+{config.DUEL_WIN_CREDITS:,}¢` | Runner-up: `+{config.DUEL_LOSS_CREDITS:,}¢`)"
         track_text = f"\n📍 **Track venue:** `{track}`" if track else ""

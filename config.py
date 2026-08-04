@@ -104,6 +104,8 @@ FREE_RACE_WIN_XP = 25       # 25 XP for free race winner
 FREE_RACE_LOSS_XP = 0       # 0 XP for free race runner-up
 AI_DUEL_WIN_CREDITS = 150
 AI_DUEL_LOSS_CREDITS = 40
+FREE_DUEL_DAILY_LIMIT = 5     # Max 5 free AI duels per day
+FREE_RACE_DAILY_LIMIT = 5     # Max 5 free 1v1 human races per day
 DUEL_COOLDOWN_SECONDS = 60  # Anti-spam limit for duels
 PART_SELL_RATIO = 0.60     # 60% refund when selling unequipped parts
 

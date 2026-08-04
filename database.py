@@ -35,6 +35,8 @@ def init_db():
         losses INTEGER NOT NULL DEFAULT 0,
         daily_chat_credits INTEGER NOT NULL DEFAULT 0,
         daily_voice_credits INTEGER NOT NULL DEFAULT 0,
+        daily_free_duels INTEGER NOT NULL DEFAULT 0,
+        daily_free_races INTEGER NOT NULL DEFAULT 0,
         last_credits_reset TEXT DEFAULT (date('now')),
         last_daily_claim TEXT,
         last_work_claim TEXT,
@@ -243,6 +245,10 @@ def init_db():
         cursor.execute("ALTER TABLE users ADD COLUMN guild_id BIGINT DEFAULT 0")
     if "pit_strategy_json" not in users_cols:
         cursor.execute("ALTER TABLE users ADD COLUMN pit_strategy_json TEXT DEFAULT '{\"pace\":\"Balanced\", \"start_tyre\":\"Medium\", \"stops\":[]}'")
+    if "daily_free_duels" not in users_cols:
+        cursor.execute("ALTER TABLE users ADD COLUMN daily_free_duels INTEGER NOT NULL DEFAULT 0")
+    if "daily_free_races" not in users_cols:
+        cursor.execute("ALTER TABLE users ADD COLUMN daily_free_races INTEGER NOT NULL DEFAULT 0")
 
     # Race Entries table migrations
     re_cols = get_existing_columns("race_entries")
@@ -633,7 +639,7 @@ def reset_daily_limits_if_new_day(user_id: int) -> None:
         if row['last_credits_reset'] != today_str:
             cursor.execute("""
                 UPDATE users 
-                SET daily_chat_credits = 0, daily_voice_credits = 0, last_credits_reset = ? 
+                SET daily_chat_credits = 0, daily_voice_credits = 0, daily_free_duels = 0, daily_free_races = 0, last_credits_reset = ? 
                 WHERE user_id = ?
             """, (today_str, user_id))
             conn.commit()
@@ -647,12 +653,72 @@ def reset_user_daily_activity(user_id: int) -> bool:
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        cursor.execute("UPDATE users SET daily_chat_credits = 0, daily_voice_credits = 0 WHERE user_id = ?", (user_id,))
+        cursor.execute("UPDATE users SET daily_chat_credits = 0, daily_voice_credits = 0, daily_free_duels = 0, daily_free_races = 0 WHERE user_id = ?", (user_id,))
         conn.commit()
         return True
     except sqlite3.Error:
         conn.rollback()
         return False
+    finally:
+        conn.close()
+
+def can_user_free_duel(user_id: int) -> Tuple[bool, str]:
+    """Check if user can participate in a free AI duel today (max config.FREE_DUEL_DAILY_LIMIT)."""
+    reset_daily_limits_if_new_day(user_id)
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT daily_free_duels FROM users WHERE user_id = ?", (user_id,))
+        row = cursor.fetchone()
+        if not row:
+            return False, "❌ User profile not found."
+        count = row['daily_free_duels']
+        if count >= config.FREE_DUEL_DAILY_LIMIT:
+            return False, f"❌ You have reached your daily limit of **{config.FREE_DUEL_DAILY_LIMIT} free AI duels**! Try again tomorrow after midnight IST."
+        return True, ""
+    finally:
+        conn.close()
+
+def increment_daily_free_duels(user_id: int) -> None:
+    """Increment user's daily free duel count."""
+    reset_daily_limits_if_new_day(user_id)
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("UPDATE users SET daily_free_duels = daily_free_duels + 1 WHERE user_id = ?", (user_id,))
+        conn.commit()
+    except sqlite3.Error:
+        conn.rollback()
+    finally:
+        conn.close()
+
+def can_user_free_race(user_id: int) -> Tuple[bool, str]:
+    """Check if user can participate in a free 1v1 human race today (max config.FREE_RACE_DAILY_LIMIT)."""
+    reset_daily_limits_if_new_day(user_id)
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT daily_free_races FROM users WHERE user_id = ?", (user_id,))
+        row = cursor.fetchone()
+        if not row:
+            return False, "❌ User profile not found."
+        count = row['daily_free_races']
+        if count >= config.FREE_RACE_DAILY_LIMIT:
+            return False, f"❌ You have reached your daily limit of **{config.FREE_RACE_DAILY_LIMIT} free 1v1 races**! Challenge another driver with a credit wager (`/race wager:amount`) or try again tomorrow after midnight IST."
+        return True, ""
+    finally:
+        conn.close()
+
+def increment_daily_free_races(user_id: int) -> None:
+    """Increment user's daily free race count."""
+    reset_daily_limits_if_new_day(user_id)
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("UPDATE users SET daily_free_races = daily_free_races + 1 WHERE user_id = ?", (user_id,))
+        conn.commit()
+    except sqlite3.Error:
+        conn.rollback()
     finally:
         conn.close()
 
@@ -2043,6 +2109,19 @@ def admin_set_user_stat(discord_id: int, guild_id: int, stat_name: str, value: i
     finally:
         conn.close()
 
+def get_daily_reset_cooldown_str() -> Tuple[str, int]:
+    """Returns formatted remaining time string (e.g. '2h 15m 30s') and target Unix timestamp for next midnight IST."""
+    from datetime import datetime, timezone, timedelta
+    ist_tz = timezone(timedelta(hours=5, minutes=30))
+    now_ist = datetime.now(ist_tz)
+    tomorrow_midnight = datetime.combine(now_ist.date() + timedelta(days=1), datetime.min.time(), tzinfo=ist_tz)
+    rem_seconds = max(0, int((tomorrow_midnight - now_ist).total_seconds()))
+    hours = rem_seconds // 3600
+    mins = (rem_seconds % 3600) // 60
+    secs = rem_seconds % 60
+    ts = int(tomorrow_midnight.timestamp())
+    return f"**{hours}h {mins}m {secs}s** (<t:{ts}:R>)", ts
+
 def claim_daily_bonus(user_id: int) -> Tuple[bool, str]:
     """Claim daily credit bonus (500 credits)."""
     conn = get_db_connection()
@@ -2050,10 +2129,11 @@ def claim_daily_bonus(user_id: int) -> Tuple[bool, str]:
     try:
         cursor.execute("SELECT last_daily_claim FROM users WHERE user_id = ?", (user_id,))
         row = cursor.fetchone()
-        today_str = datetime.now().date().isoformat()
+        today_str = get_ist_date_str()
         
         if row and row['last_daily_claim'] == today_str:
-            return False, "⏳ You have already claimed your daily bonus today! Come back tomorrow."
+            cd_str, _ = get_daily_reset_cooldown_str()
+            return False, f"⏳ You have already claimed your daily bonus today! Cooldown: {cd_str}."
             
         reward = 500
         cursor.execute("UPDATE users SET money = money + ?, last_daily_claim = ? WHERE user_id = ?", (reward, today_str, user_id))
@@ -2072,10 +2152,11 @@ def claim_work_rewards(user_id: int) -> Tuple[bool, str]:
     try:
         cursor.execute("SELECT last_work_claim FROM users WHERE user_id = ?", (user_id,))
         row = cursor.fetchone()
-        today_str = datetime.now().date().isoformat()
+        today_str = get_ist_date_str()
         
         if row and row['last_work_claim'] == today_str:
-            return False, "⏳ You have already completed your team work today! Come back tomorrow."
+            cd_str, _ = get_daily_reset_cooldown_str()
+            return False, f"⏳ You have already completed your team work today! Cooldown: {cd_str}."
             
         import random
         reward = random.randint(250, 600)
