@@ -460,7 +460,7 @@ class GarageCog(commands.Cog):
             f"  • **Pit Crew:** Level `{prof['pit_crew']}`/{config.MAX_STAT_LEVEL}\n\n"
             f"🔧 **Component Wear & Damage:**\n"
             f"  • Engine Wear: {engine_bar} ({prof['damage_engine']:.1f}%)\n"
-            f"  • Tyre Wear: {tyres_bar} ({prof['damage_tyres']:.1f}%)\n"
+            f"  • Body Wear: {tyres_bar} ({prof['damage_tyres']:.1f}%)\n"
             f"  • Overall Damage: {total_bar} ({prof['damage_total']:.1f}%)\n\n"
             f"*Use `/upgrade` to research parts or `/repairs` to service your car!*"
         )
@@ -582,7 +582,7 @@ class GarageCog(commands.Cog):
         desc = (
             f"🔧 **Repair Assessment & Costs:**\n\n"
             f"  • **Engine Damage:** `{prof['damage_engine']:.1f}%` (Cost: `{cost_engine:,}¢`)\n"
-            f"  • **Tyre Wear:** `{prof['damage_tyres']:.1f}%` (Cost: `{cost_tyres:,}¢`)\n\n"
+            f"  • **Body Damage:** `{prof['damage_tyres']:.1f}%` (Cost: `{cost_tyres:,}¢`)\n\n"
             f"💰 **Total Overhaul Cost:** `{cost_total:,} credits`\n"
             f"💳 **Your Balance:** `{prof['money']:,} credits`\n\n"
             f"*Use `/repair component:<engine/tyres/full>` to service your car!*"
@@ -591,10 +591,10 @@ class GarageCog(commands.Cog):
         await interaction.response.send_message(embed=embed)
 
     @app_commands.command(name="repair", description="Pay credits to repair a damaged component.")
-    @app_commands.describe(component="Component to repair (engine, tyres, or full overhaul)")
+    @app_commands.describe(component="Component to repair (engine, body wear, or full overhaul)")
     @app_commands.choices(component=[
         app_commands.Choice(name="Engine", value="engine"),
-        app_commands.Choice(name="Tyres", value="tyres"),
+        app_commands.Choice(name="Body Wear", value="tyres"),
         app_commands.Choice(name="Full Overhaul (Both)", value="full"),
     ])
     @app_commands.guild_only()
@@ -605,6 +605,8 @@ class GarageCog(commands.Cog):
             await interaction.response.send_message("❌ You do not have a profile. Use `/start`.", ephemeral=True)
             return
 
+        display_comp = "Body" if comp == "tyres" else comp.capitalize()
+
         if comp == "engine":
             damage_pct = prof['damage_engine']
         elif comp == "tyres":
@@ -613,13 +615,13 @@ class GarageCog(commands.Cog):
             damage_pct = prof['damage_total']
 
         if damage_pct <= 0:
-            await interaction.response.send_message(f"❌ Your car's **{comp.capitalize()}** has no damage to repair!", ephemeral=True)
+            await interaction.response.send_message(f"❌ Your car's **{display_comp}** has no damage to repair!", ephemeral=True)
             return
 
         cost = int(damage_pct * config.REPAIR_COST_PER_PCT)
         if prof['money'] < cost:
             await interaction.response.send_message(
-                f"❌ Insufficient funds! Repairing **{comp.capitalize()}** costs **{cost:,} credits**, but you have **{prof['money']:,} credits**.",
+                f"❌ Insufficient funds! Repairing **{display_comp}** costs **{cost:,} credits**, but you have **{prof['money']:,} credits**.",
                 ephemeral=True
             )
             return

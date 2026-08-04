@@ -84,14 +84,14 @@ PART_MULTIPLIERS = {
 }
 
 # Repair settings
-REPAIR_COST_PER_PCT = 10  # e.g., 20% damage * 10 credits = 200 credits to repair
+REPAIR_COST_PER_PCT = 5 # e.g., 20% damage * 5 credits = 100 credits to repair
 MAX_DAMAGE = 100
 
 # Stat Caps
 MAX_STAT_LEVEL = 20
 MAX_DRIVER_STAT_LEVEL = 100
 TRAINING_BASE_COST = 400
-PRACTICE_SESSION_COST = 500
+PRACTICE_SESSION_COST = 400
 
 # Race Payouts & XP Rewards
 WIN_PRIZE_CREDITS = 200

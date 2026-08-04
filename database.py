@@ -801,17 +801,18 @@ def repair_part(user_id: int, part_name: str) -> Tuple[bool, str]:
             cursor.execute("UPDATE users SET money = money - ? WHERE user_id = ?", (cost, user_id))
             cursor.execute("UPDATE garage SET damage_engine = 0, damage_tyres = 0, damage_total = 0 WHERE user_id = ?", (user_id,))
             conn.commit()
-            return True, f"🛠️ **Full Car Overhaul Complete!** Repaired engine & tyres to 0% damage for **{cost:,} credits**!"
+            return True, f"🛠️ **Full Car Overhaul Complete!** Repaired engine & body to 0% damage for **{cost:,} credits**!"
             
         else:
             damage_col = f"damage_{part_name}"
             damage_val = garage_row[damage_col]
+            display_name = "Body" if part_name == "tyres" else part_name.capitalize()
             if damage_val <= 0:
-                return False, f"Your **{part_name.capitalize()}** is already in perfect condition (0% damage)."
+                return False, f"Your **{display_name}** is already in perfect condition (0% damage)."
                 
             cost = int(damage_val * config.REPAIR_COST_PER_PCT)
             if current_money < cost:
-                return False, f"Insufficient credits! Repairing your **{part_name.capitalize()}** costs {cost:,}¢, but you have {current_money:,}¢."
+                return False, f"Insufficient credits! Repairing your **{display_name}** costs {cost:,}¢, but you have {current_money:,}¢."
                 
             cursor.execute("UPDATE users SET money = money - ? WHERE user_id = ?", (cost, user_id))
             cursor.execute(f"UPDATE garage SET {damage_col} = 0 WHERE user_id = ?", (user_id,))
@@ -823,7 +824,7 @@ def repair_part(user_id: int, part_name: str) -> Tuple[bool, str]:
             cursor.execute("UPDATE garage SET damage_total = ? WHERE user_id = ?", (new_total, user_id))
             
             conn.commit()
-            return True, f"🔧 Repaired your **{part_name.capitalize()}**! Cost: **{cost:,} credits**. Damage is now 0%."
+            return True, f"🔧 Repaired your **{display_name}**! Cost: **{cost:,} credits**. Damage is now 0%."
             
     except sqlite3.Error as e:
         conn.rollback()

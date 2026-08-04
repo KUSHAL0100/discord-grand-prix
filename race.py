@@ -570,7 +570,9 @@ def simulate_duel_generator(team1_data: Dict[str, Any], team2_data: Dict[str, An
             if t.strategy == "Aggressive":
                 t.engine_temp += random.uniform(4.0, 6.0) * heat_mult
             elif t.strategy == "Conservative":
-                t.engine_temp = max(80.0, t.engine_temp - random.uniform(3.0, 5.0))
+                t.engine_temp = max(85.0, t.engine_temp - random.uniform(6.0, 9.0))
+            else:  # Balanced
+                t.engine_temp = max(85.0, t.engine_temp - random.uniform(3.0, 5.0))
                 
             dnf_chance = max(0.2, 6.5 - t.reliability * 0.25)
             if t.strategy == "Aggressive":
@@ -957,9 +959,9 @@ def simulate_gp_generator(entries_data: List[Dict[str, Any]], track_name: str, t
                 if t.strategy == "Aggressive":
                     t.engine_temp += random.uniform(4.0, 6.0) * heat_multiplier
                 elif t.strategy == "Conservative":
-                    t.engine_temp = max(85.0, t.engine_temp - random.uniform(4.0, 6.0))
+                    t.engine_temp = max(85.0, t.engine_temp - random.uniform(6.0, 9.0))
                 else: # Balanced
-                    t.engine_temp = max(85.0, t.engine_temp - random.uniform(1.5, 2.5))
+                    t.engine_temp = max(85.0, t.engine_temp - random.uniform(3.0, 5.0))
                     
                 if t.engine_temp >= 100.0:
                     lap_logs.append(f"📻 *[Radio - {t.team_name}]: Engine temp critical ({t.engine_temp:.1f}°C)! Pushing too hard, back off or risk a blowup!*")
