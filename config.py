@@ -84,7 +84,7 @@ PART_MULTIPLIERS = {
 }
 
 # Repair settings
-REPAIR_COST_PER_PCT = 25  # e.g., 20% damage * 25 credits = 500 credits to repair
+REPAIR_COST_PER_PCT = 10  # e.g., 20% damage * 10 credits = 200 credits to repair
 MAX_DAMAGE = 100
 
 # Stat Caps

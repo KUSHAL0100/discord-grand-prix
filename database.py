@@ -1198,11 +1198,11 @@ def save_gp_results(race_id: int, results: List[Dict[str, Any]], winner_user_id:
             # Apply race damage to garage
             # If DNF, damage is high. Otherwise moderate.
             if res["dnf"]:
-                dmg_eng = random.randint(15, 30)
-                dmg_tyr = random.randint(30, 60)
+                dmg_eng = random.randint(10, 20)
+                dmg_tyr = random.randint(20, 35)
             else:
-                dmg_eng = random.randint(3, 10)
-                dmg_tyr = random.randint(10, 25)
+                dmg_eng = random.randint(2, 5)
+                dmg_tyr = random.randint(4, 10)
                 
             cursor.execute("""
                 UPDATE garage 
@@ -1718,11 +1718,11 @@ def apply_race_damage(user_id: int, is_dnf: bool = False) -> None:
     cursor = conn.cursor()
     try:
         if is_dnf:
-            dmg_eng = random.randint(25, 45)
-            dmg_tyr = random.randint(40, 70)
+            dmg_eng = random.randint(10, 20)
+            dmg_tyr = random.randint(20, 35)
         else:
-            dmg_eng = random.randint(5, 15)
-            dmg_tyr = random.randint(15, 30)
+            dmg_eng = random.randint(2, 5)
+            dmg_tyr = random.randint(4, 10)
 
         cursor.execute("""
             UPDATE garage

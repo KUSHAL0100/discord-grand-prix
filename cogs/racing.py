@@ -30,7 +30,11 @@ class RaceStartReactionView(discord.ui.View):
     @discord.ui.button(label="🟢 LAUNCH / GO! GO! GO!", style=discord.ButtonStyle.success, custom_id="race_start_launch_btn")
     async def launch_click(self, interaction: discord.Interaction, button: discord.ui.Button):
         uid = interaction.user.id
-        if uid not in [self.challenger_id, self.opponent_id] and self.opponent_id != 0:
+        allowed_drivers = [self.challenger_id]
+        if self.opponent_id and self.opponent_id != 0:
+            allowed_drivers.append(self.opponent_id)
+
+        if uid not in allowed_drivers:
             await interaction.response.send_message("❌ Only participating drivers in this race can hit the launch button!", ephemeral=True)
             return
             
@@ -678,10 +682,10 @@ class RaceChallengeView(discord.ui.View):
 
             if self.opponent_prof.get('is_ai'):
                 is_challenger_winner = (winner['user_id'] == self.challenger_prof['user_id'])
-                winner_credits_display = config.AI_DUEL_WIN_CREDITS if is_challenger_winner else config.AI_DUEL_LOSS_CREDITS
-                loser_credits_display = config.AI_DUEL_LOSS_CREDITS if is_challenger_winner else config.AI_DUEL_WIN_CREDITS
-                winner_xp_display = config.WIN_XP if is_challenger_winner else config.LOSS_XP
-                loser_xp_display = config.LOSS_XP if is_challenger_winner else config.WIN_XP
+                winner_credits_display = config.AI_DUEL_WIN_CREDITS
+                loser_credits_display = config.AI_DUEL_LOSS_CREDITS
+                winner_xp_display = config.WIN_XP
+                loser_xp_display = config.LOSS_XP
                 win_money_delta = config.AI_DUEL_WIN_CREDITS if is_challenger_winner else 0
                 loss_money_delta = config.AI_DUEL_LOSS_CREDITS if not is_challenger_winner else 0
                 win_xp_delta = config.WIN_XP if is_challenger_winner else config.LOSS_XP

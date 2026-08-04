@@ -275,10 +275,42 @@
 
                         <div class="slider-container">
                             <div class="slider-header">
-                                <span class="slider-label">☔ Wet weather Skill</span>
+                                <span class="slider-label">🎯 Qualifying Skill</span>
+                                <span id="val-qual" class="slider-value">1</span>
+                            </div>
+                            <input type="range" id="slide-qual" class="custom-slider" min="1" max="100" value="1" oninput="calculateStats()">
+                        </div>
+
+                        <div class="slider-container">
+                            <div class="slider-header">
+                                <span class="slider-label">☔ Wet Weather Skill</span>
                                 <span id="val-wet_skill" class="slider-value">1</span>
                             </div>
                             <input type="range" id="slide-wet_skill" class="custom-slider" min="1" max="100" value="1" oninput="calculateStats()">
+                        </div>
+
+                        <div class="slider-container">
+                            <div class="slider-header">
+                                <span class="slider-label">🧠 Consistency Skill</span>
+                                <span id="val-consistency" class="slider-value">1</span>
+                            </div>
+                            <input type="range" id="slide-consistency" class="custom-slider" min="1" max="100" value="1" oninput="calculateStats()">
+                        </div>
+
+                        <div class="slider-container">
+                            <div class="slider-header">
+                                <span class="slider-label">🔥 Aggression Skill</span>
+                                <span id="val-aggression" class="slider-value">1</span>
+                            </div>
+                            <input type="range" id="slide-aggression" class="custom-slider" min="1" max="100" value="1" oninput="calculateStats()">
+                        </div>
+
+                        <div class="slider-container">
+                            <div class="slider-header">
+                                <span class="slider-label">⚔️ Overtaking Skill</span>
+                                <span id="val-overtaking" class="slider-value">1</span>
+                            </div>
+                            <input type="range" id="slide-overtaking" class="custom-slider" min="1" max="100" value="1" oninput="calculateStats()">
                         </div>
                     </div>
 
@@ -314,8 +346,18 @@
                         </div>
 
                         <div class="total-cost-box">
-                            <div class="total-cost-label">Total Part Upgrades Investment</div>
-                            <div id="res-totalcost" class="total-cost-val">0¢</div>
+                            <div style="margin-bottom: 0.6rem; border-bottom: 1px dashed rgba(255,255,255,0.1); padding-bottom: 0.5rem;">
+                                <div class="total-cost-label">🏎️ Car Parts Upgrades Investment</div>
+                                <div id="res-partscost" style="font-family: 'JetBrains Mono', monospace; font-size: 1.15rem; font-weight: 700; color: var(--neon-cyan);">0¢</div>
+                            </div>
+                            <div style="margin-bottom: 0.6rem; border-bottom: 1px dashed rgba(255,255,255,0.1); padding-bottom: 0.5rem;">
+                                <div class="total-cost-label">👤 Driver Training Investment</div>
+                                <div id="res-drivercost" style="font-family: 'JetBrains Mono', monospace; font-size: 1.15rem; font-weight: 700; color: #ff9800;">0¢</div>
+                            </div>
+                            <div>
+                                <div class="total-cost-label">💰 Total Combined Investment</div>
+                                <div id="res-totalcost" class="total-cost-val">0¢</div>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -507,22 +549,39 @@
             });
         }
 
-        // Calculator upgrade costs config
-        const upgradeCosts = [
-            0, 200, 400, 800, 1400, 2200, 3200, 4400, 5800, 7400, 
-            9200, 11200, 13400, 15800, 18400, 21200, 24200, 27400, 30800, 34400
-        ];
+        // Base upgrade costs for Engine (Level 1 -> 2, etc.)
+        const baseUpgradeCosts = {
+            2: 200, 3: 400, 4: 700, 5: 1100, 6: 1600, 7: 2200, 8: 2900, 9: 3700, 10: 4700,
+            11: 5900, 12: 7300, 13: 8900, 14: 10700, 15: 12700, 16: 15000, 17: 17500,
+            18: 20300, 19: 23400, 20: 26800
+        };
+
+        const partMultipliers = {
+            engine: 1.0,
+            aero: 0.8,
+            tyres: 0.5,
+            ers: 0.8,
+            reliability: 0.25,
+            pit_crew: 0.25
+        };
+
+        const TRAINING_BASE_COST = 400;
 
         // Stats calculation
         function calculateStats() {
-            const engine = parseInt(document.getElementById('slide-engine').value);
-            const aero = parseInt(document.getElementById('slide-aero').value);
-            const tyres = parseInt(document.getElementById('slide-tyres').value);
-            const ers = parseInt(document.getElementById('slide-ers').value);
-            const reliability = parseInt(document.getElementById('slide-reliability').value);
-            const pit_crew = parseInt(document.getElementById('slide-pit_crew').value);
-            const pace = parseInt(document.getElementById('slide-pace').value);
-            const wet_skill = parseInt(document.getElementById('slide-wet_skill').value);
+            const engine = parseInt(document.getElementById('slide-engine').value) || 1;
+            const aero = parseInt(document.getElementById('slide-aero').value) || 1;
+            const tyres = parseInt(document.getElementById('slide-tyres').value) || 1;
+            const ers = parseInt(document.getElementById('slide-ers').value) || 1;
+            const reliability = parseInt(document.getElementById('slide-reliability').value) || 1;
+            const pit_crew = parseInt(document.getElementById('slide-pit_crew').value) || 1;
+
+            const pace = parseInt(document.getElementById('slide-pace').value) || 1;
+            const qual = parseInt(document.getElementById('slide-qual') ? document.getElementById('slide-qual').value : 1) || 1;
+            const wet_skill = parseInt(document.getElementById('slide-wet_skill').value) || 1;
+            const consistency = parseInt(document.getElementById('slide-consistency') ? document.getElementById('slide-consistency').value : 1) || 1;
+            const aggression = parseInt(document.getElementById('slide-aggression') ? document.getElementById('slide-aggression').value : 1) || 1;
+            const overtaking = parseInt(document.getElementById('slide-overtaking') ? document.getElementById('slide-overtaking').value : 1) || 1;
 
             // Display slide values
             document.getElementById('val-engine').innerText = `Level ${engine}`;
@@ -531,8 +590,13 @@
             document.getElementById('val-ers').innerText = `Level ${ers}`;
             document.getElementById('val-reliability').innerText = `Level ${reliability}`;
             document.getElementById('val-pit_crew').innerText = `Level ${pit_crew}`;
+
             document.getElementById('val-pace').innerText = pace;
+            if (document.getElementById('val-qual')) document.getElementById('val-qual').innerText = qual;
             document.getElementById('val-wet_skill').innerText = wet_skill;
+            if (document.getElementById('val-consistency')) document.getElementById('val-consistency').innerText = consistency;
+            if (document.getElementById('val-aggression')) document.getElementById('val-aggression').innerText = aggression;
+            if (document.getElementById('val-overtaking')) document.getElementById('val-overtaking').innerText = overtaking;
 
             // Lap Time calculations (engine*0.12 + aero*0.08 + ers*0.08)
             const carLapTimeRed = (engine * 0.12) + (aero * 0.08) + (ers * 0.08);
@@ -558,15 +622,47 @@
             const wetPenalty = 15.0 - (wet_skill / 10.0);
             document.getElementById('res-wetpenalty').innerText = `+${wetPenalty.toFixed(1)}s / lap`;
 
-            // Calculate total costs
-            let totalCost = 0;
-            const components = [engine, aero, tyres, ers, reliability, pit_crew];
-            components.forEach(lvl => {
-                for (let i = 2; i <= lvl; i++) {
-                    totalCost += upgradeCosts[i - 1] || 0;
+            // Calculate Car Parts Costs
+            let partsCost = 0;
+            const components = [
+                { name: 'engine', lvl: engine },
+                { name: 'aero', lvl: aero },
+                { name: 'tyres', lvl: tyres },
+                { name: 'ers', lvl: ers },
+                { name: 'reliability', lvl: reliability },
+                { name: 'pit_crew', lvl: pit_crew }
+            ];
+
+            components.forEach(comp => {
+                const mult = partMultipliers[comp.name] || 1.0;
+                for (let i = 2; i <= comp.lvl; i++) {
+                    partsCost += (baseUpgradeCosts[i] || 0) * mult;
                 }
             });
-            document.getElementById('res-totalcost').innerText = `${totalCost.toLocaleString()}¢`;
+
+            // Calculate Driver Training Costs (400 credits per skill level from 1)
+            const driverSkills = [pace, qual, wet_skill, consistency, aggression, overtaking];
+            let driverCost = 0;
+            driverSkills.forEach(lvl => {
+                if (lvl > 1) {
+                    driverCost += (lvl - 1) * TRAINING_BASE_COST;
+                }
+            });
+
+            const totalCost = partsCost + driverCost;
+
+            const formatCurrency = (amount) => {
+                const rounded = Math.round(amount);
+                return `${rounded.toLocaleString()}¢`;
+            };
+
+            if (document.getElementById('res-partscost')) {
+                document.getElementById('res-partscost').innerText = formatCurrency(partsCost);
+            }
+            if (document.getElementById('res-drivercost')) {
+                document.getElementById('res-drivercost').innerText = formatCurrency(driverCost);
+            }
+            document.getElementById('res-totalcost').innerText = formatCurrency(totalCost);
         }
 
         // ================= SIMULATOR ENGINE =================
