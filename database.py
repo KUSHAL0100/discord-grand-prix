@@ -1041,7 +1041,7 @@ def get_active_gp_race(guild_id: int) -> Optional[Dict[str, Any]]:
     return dict(row) if row else None
 
 def cancel_active_gp(guild_id: int) -> Tuple[bool, str]:
-    """Cancel the active Grand Prix and refund entry fees for a specific guild."""
+    """Cancel the active Grand Prix for a specific guild."""
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
@@ -1052,17 +1052,13 @@ def cancel_active_gp(guild_id: int) -> Tuple[bool, str]:
             
         race_id = row['race_id']
         
-        # Refund entries
         cursor.execute("SELECT user_id FROM race_entries WHERE race_id = ?", (race_id,))
         entries = cursor.fetchall()
         
-        for entry in entries:
-            cursor.execute("UPDATE users SET money = money + ? WHERE user_id = ?", (config.GP_ENTRY_FEE, entry['user_id']))
-            
         # Update race status
         cursor.execute("UPDATE races SET status = 'Cancelled' WHERE race_id = ?", (race_id,))
         conn.commit()
-        return True, f"Cancelled Grand Prix and refunded {len(entries)} players their entry fee of {config.GP_ENTRY_FEE}¢."
+        return True, f"Cancelled Grand Prix for {len(entries)} registered players."
     except sqlite3.Error as e:
         conn.rollback()
         return False, f"Database error: {str(e)}"
@@ -1070,7 +1066,7 @@ def cancel_active_gp(guild_id: int) -> Tuple[bool, str]:
         conn.close()
 
 def register_gp_entry(discord_id: int, guild_id: int) -> Tuple[bool, str]:
-    """Register a user for the upcoming Grand Prix in a specific guild. Deducts entry fee."""
+    """Register a user for the upcoming Grand Prix in a specific guild."""
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
@@ -1083,29 +1079,23 @@ def register_gp_entry(discord_id: int, guild_id: int) -> Tuple[bool, str]:
         race_id = race_row['race_id']
         
         # Get user details for this guild
-        cursor.execute("SELECT user_id, money FROM users WHERE discord_id = ? AND guild_id = ?", (discord_id, guild_id))
+        cursor.execute("SELECT user_id FROM users WHERE discord_id = ? AND guild_id = ?", (discord_id, guild_id))
         user_row = cursor.fetchone()
         if not user_row:
             return False, "You need to create a profile first! Use `/start`."
             
         user_id = user_row['user_id']
-        money = user_row['money']
         
         # Check if already registered
         cursor.execute("SELECT entry_id FROM race_entries WHERE race_id = ? AND user_id = ?", (race_id, user_id))
         if cursor.fetchone():
             return False, "You are already registered for this Grand Prix."
             
-        # Check money
-        if money < config.GP_ENTRY_FEE:
-            return False, f"Insufficient funds! Entry fee is {config.GP_ENTRY_FEE}¢ (You have {money}¢)."
-            
-        # Deduct entry fee and insert entry record
-        cursor.execute("UPDATE users SET money = money - ? WHERE user_id = ?", (config.GP_ENTRY_FEE, user_id))
+        # Insert entry record
         cursor.execute("INSERT INTO race_entries (race_id, user_id) VALUES (?, ?)", (race_id, user_id))
         
         conn.commit()
-        return True, f"You successfully registered for the Grand Prix! Paid {config.GP_ENTRY_FEE}¢ entry fee."
+        return True, "You successfully registered for the Grand Prix!"
     except sqlite3.Error as e:
         conn.rollback()
         return False, f"Database error: {str(e)}"
@@ -1113,7 +1103,7 @@ def register_gp_entry(discord_id: int, guild_id: int) -> Tuple[bool, str]:
         conn.close()
 
 def unregister_gp_entry(discord_id: int, guild_id: int) -> Tuple[bool, str]:
-    """Unregister a user from the upcoming Grand Prix in a specific guild. Refunds entry fee."""
+    """Unregister a user from the upcoming Grand Prix in a specific guild."""
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
@@ -1141,12 +1131,11 @@ def unregister_gp_entry(discord_id: int, guild_id: int) -> Tuple[bool, str]:
         if not cursor.fetchone():
             return False, "You are not registered for this Grand Prix."
             
-        # Refund entry fee and delete entry record
-        cursor.execute("UPDATE users SET money = money + ? WHERE user_id = ?", (config.GP_ENTRY_FEE, user_id))
+        # Delete entry record
         cursor.execute("DELETE FROM race_entries WHERE race_id = ? AND user_id = ?", (race_id, user_id))
         
         conn.commit()
-        return True, f"You successfully left the Grand Prix and have been refunded your {config.GP_ENTRY_FEE}¢ entry fee."
+        return True, "You successfully left the Grand Prix."
     except sqlite3.Error as e:
         conn.rollback()
         return False, f"Database error: {str(e)}"

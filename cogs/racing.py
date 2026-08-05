@@ -2132,14 +2132,14 @@ class RacingCog(commands.Cog):
         await self.execute_duel_or_race(interaction, opponent=opponent, wager=wager, laps=laps, track=track)
 
 
-    @app_commands.command(name="joinrace", description="Register and pay 500¢ entry fee to join the upcoming Grand Prix.")
+    @app_commands.command(name="joinrace", description="Register to join the upcoming Grand Prix.")
     @app_commands.guild_only()
     async def join_race(self, interaction: discord.Interaction):
         success, msg = database.register_gp_entry(interaction.user.id, interaction.guild_id)
         color = utils.COLOR_SUCCESS if success else utils.COLOR_ERROR
         await interaction.response.send_message(embed=utils.create_embed(title="🏁 Race Entry", description=msg, color=color))
 
-    @app_commands.command(name="leaverace", description="Leave the upcoming Grand Prix and receive a refund of your 500¢ entry fee.")
+    @app_commands.command(name="leaverace", description="Leave the upcoming Grand Prix.")
 
     @app_commands.guild_only()
     async def leave_race(self, interaction: discord.Interaction):

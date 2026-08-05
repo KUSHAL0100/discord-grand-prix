@@ -69,7 +69,7 @@ class SimulatorCog(commands.Cog):
             "• `/shop` & `/booster` — Buy consumable Tyre Warmers, ERS Injectors, or Radiators.\n\n"
             "🏎️ **4. Race Events & Competitions**\n"
             "• `/race <user>` — Challenge another user to a 1v1 sprint duel.\n"
-            "• `/joinrace` — Register for the server Grand Prix event (1,000¢ entry fee).\n"
+            "• `/joinrace` — Register for the server Grand Prix event.\n"
             "• `/strategy` — Set starting tyre compounds and pacing strategy.\n"
             "• `/sprint` & `/gp` — Scheduled Sprint and Grand Prix race weekend controls."
         )

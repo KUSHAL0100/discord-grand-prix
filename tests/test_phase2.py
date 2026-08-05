@@ -126,28 +126,26 @@ def test_large_calendar_handling():
     # 5. Clean up season
     database.cancel_active_season(guild_id)
 
-def test_gp_entry_fee_and_refund():
-    """Verify that GP registration deducts 500¢ and leaving refunds 500¢."""
+def test_gp_free_registration_and_no_refund():
+    """Verify that GP registration is free and leaving does not refund anything."""
     guild_id = 77777
-    database.create_user(discord_id=8881, guild_id=guild_id, team_name="Refund Test Team")
+    database.create_user(discord_id=8881, guild_id=guild_id, team_name="Free Registration Test Team")
     user = database.get_user_by_discord_id(8881, guild_id)
     initial_money = user['money']
     
     # Create GP
-    database.create_gp_race(guild_id, "Refund GP", "Monza (Italy)", 10)
+    database.create_gp_race(guild_id, "Free GP", "Monza (Italy)", 10)
     
-    # Register (costs 500)
+    # Register (free)
     ok_reg, msg_reg = database.register_gp_entry(8881, guild_id)
     assert ok_reg is True
-    assert "500" in msg_reg
     
     user_after_reg = database.get_user_by_discord_id(8881, guild_id)
-    assert user_after_reg['money'] == initial_money - 500
+    assert user_after_reg['money'] == initial_money
     
-    # Leave/Unregister (refunds 500)
+    # Leave/Unregister (no refund, money stays unchanged)
     ok_unreg, msg_unreg = database.unregister_gp_entry(8881, guild_id)
     assert ok_unreg is True
-    assert "500" in msg_unreg
     
     user_after_unreg = database.get_user_by_discord_id(8881, guild_id)
     assert user_after_unreg['money'] == initial_money

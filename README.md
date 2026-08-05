@@ -78,7 +78,7 @@
 ### 🏎️ Racing & Strategy
 | Command | Description |
 | :--- | :--- |
-| `/joinrace` | Enter the upcoming server Grand Prix (500¢ entry fee). |
+| `/joinrace` | Enter the upcoming server Grand Prix. |
 | `/strategy` | Configure tyre selection (Soft/Medium/Hard) and pace mode (Aggressive/Balanced/Conservative). |
 | `/pit` | Call your driver into the pit lane on the next lap. |
 | `/duel <user>` | Challenge a rival manager to a 1v1 sprint race. |

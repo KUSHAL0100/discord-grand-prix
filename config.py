@@ -112,7 +112,7 @@ DUEL_COOLDOWN_SECONDS = 60  # Anti-spam limit for duels
 PART_SELL_RATIO = 0.60     # 60% refund when selling unequipped parts
 
 # Grand Prix Rewards & Settings
-GP_ENTRY_FEE = 500
+GP_ENTRY_FEE = 0
 
 GP_PODIUM_REWARDS = {
     1: 5000,
