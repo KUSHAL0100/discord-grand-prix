@@ -2,6 +2,7 @@ import discord
 from discord.ext import commands
 from discord import app_commands
 
+import config
 import database
 import utils
 import race
@@ -39,11 +40,11 @@ class SimulatorCog(commands.Cog):
         embed = utils.create_embed(
             title="🏎️ Track Practice & Simulator",
             description=(
-                "Run a solo practice session on any official F1 calendar track to build **Track Mastery**.\n\n"
-                "⏱️ **Mastery Benefit:** Up to **`-0.15s` lap time bonus** per track (+4% Track Familiarity per session).\n"
-                "💰 **Session Fee:** **`500¢`** per practice session.\n"
-                "📅 **Daily Limit:** Maximum **3 practice sessions per day** to prevent single-track spamming.\n\n"
-                "Select a track below to begin your practice run:"
+                f"Run a solo practice session on any official F1 calendar track to build **Track Mastery**.\n\n"
+                f"⏱️ **Mastery Benefit:** Up to **`-0.15s` lap time bonus** per track (+4% Track Familiarity per session).\n"
+                f"💰 **Session Fee:** **`{config.PRACTICE_SESSION_COST:,}¢`** per practice session.\n"
+                f"📅 **Daily Limit:** Maximum **3 practice sessions per day** to prevent single-track spamming.\n\n"
+                f"Select a track below to begin your practice run:"
             ),
             color=utils.COLOR_QUALIFYING
         )

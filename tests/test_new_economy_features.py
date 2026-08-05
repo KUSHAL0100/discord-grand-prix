@@ -8,8 +8,10 @@ def test_part_sell_ratio_config():
     assert config.AI_DUEL_LOSS_CREDITS == 40
     assert config.DUEL_WIN_CREDITS == 50
     assert config.DUEL_LOSS_CREDITS == 25
-    assert config.FREE_RACE_WIN_XP == 25
+    assert config.FREE_RACE_WIN_XP == 5
     assert config.FREE_RACE_LOSS_XP == 0
+    assert config.MIN_WAGER == 100
+    assert config.MIN_XP_WAGER_THRESHOLD == 200
 
 def test_sell_inventory_part():
     database.init_db()

@@ -97,3 +97,41 @@ def test_daily_and_work_cooldown_formatting():
     assert "<t:" in wmsg2
     
     database.delete_user_profile(discord_id, guild_id)
+
+@pytest.mark.asyncio
+async def test_start_duel_cleanup_on_exception():
+    from cogs.racing import RaceChallengeView, is_user_in_race, set_user_in_race
+    from unittest.mock import AsyncMock, MagicMock
+
+    p1 = {"user_id": 8881, "discord_id": 111, "team_name": "Team A", "pref_strategy": "Balanced"}
+    p2 = {"user_id": 8882, "discord_id": 222, "team_name": "Team B", "pref_strategy": "Balanced", "is_ai": True}
+    
+    view = RaceChallengeView(p1, p2, 5544)
+    set_user_in_race(8881)
+    set_user_in_race(8882)
+
+    # Mock interaction that raises exception on thread creation
+    mock_interaction = MagicMock()
+    mock_response = AsyncMock()
+    mock_interaction.response = mock_response
+    mock_response.is_done = MagicMock(return_value=False)
+
+    mock_msg = AsyncMock()
+    mock_msg.create_thread.side_effect = Exception("Discord API error: Cannot create thread in thread")
+    mock_response.original_response.return_value = mock_msg
+
+    await view.start_duel(mock_interaction)
+
+    # Assert that despite exception, user race locks were cleared and not deadlocked
+    assert not is_user_in_race(8881)
+    assert not is_user_in_race(8882)
+
+def test_wager_minimum_and_xp_scaling():
+    assert config.MIN_WAGER == 100
+    assert config.MIN_XP_WAGER_THRESHOLD == 200
+    assert config.FREE_RACE_WIN_XP == 5
+    assert config.FREE_RACE_LOSS_XP == 0
+    assert config.WIN_XP == 100
+    assert config.LOSS_XP == 25
+
+

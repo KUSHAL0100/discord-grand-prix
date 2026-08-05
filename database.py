@@ -704,7 +704,7 @@ def can_user_free_race(user_id: int) -> Tuple[bool, str]:
             return False, "❌ User profile not found."
         count = row['daily_free_races']
         if count >= config.FREE_RACE_DAILY_LIMIT:
-            return False, f"❌ You have reached your daily limit of **{config.FREE_RACE_DAILY_LIMIT} free 1v1 races**! Challenge another driver with a credit wager (`/race wager:amount`) or try again tomorrow after midnight IST."
+            return False, f"❌ You have reached your daily limit of **{config.FREE_RACE_DAILY_LIMIT} free 1v1 races**! Challenge another driver with a credit wager of at least **{config.MIN_WAGER:,} credits** (`/race wager:amount`) or try again tomorrow after midnight IST."
         return True, ""
     finally:
         conn.close()
@@ -1718,7 +1718,7 @@ def record_track_practice(user_id: int, track_name: str) -> Tuple[bool, str, flo
     cursor = conn.cursor()
     today_str = date.today().isoformat()
     try:
-        # Check user balance for practice fee (500¢)
+        # Check user balance for practice fee (400¢)
         cursor.execute("SELECT money FROM users WHERE user_id = ?", (user_id,))
         user_row = cursor.fetchone()
         user_money = user_row['money'] if user_row else 0
@@ -1755,7 +1755,7 @@ def record_track_practice(user_id: int, track_name: str) -> Tuple[bool, str, flo
                 VALUES (?, ?, 1, ?, 0.04)
             """, (user_id, track_name, today_str))
             
-        # Deduct practice fee (500¢)
+        # Deduct practice fee (400¢)
         cursor.execute("UPDATE users SET money = money - ? WHERE user_id = ?", (config.PRACTICE_SESSION_COST, user_id))
 
         conn.commit()
