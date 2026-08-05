@@ -274,7 +274,7 @@ def test_human_driver_no_auto_pit_on_weather_change():
     setup_event = next(generator)
     teams = setup_event[1]
     human_team = [t for t in teams if t.user_id == 1][0]
-    ai_team = [t for t in teams if t.is_ai][0]
+    ai_team = [t for t in teams if t.is_ai and not t.dnf][0]
     
     # Lap 1: Sunny
     lap1_event = next(generator)
