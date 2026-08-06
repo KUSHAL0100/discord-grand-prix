@@ -2100,6 +2100,15 @@ def admin_set_user_stat(discord_id: int, guild_id: int, stat_name: str, value: i
         
         if stat_name in valid_garage:
             cursor.execute(f"UPDATE garage SET {stat_name} = ? WHERE user_id = ?", (value, uid))
+            
+            # If user has an equipped custom inventory part, update its level & bonus as well
+            cursor.execute("SELECT item_id, part_name, rarity FROM user_inventory WHERE user_id = ? AND category = ? AND is_equipped = 1", (uid, stat_name))
+            eq_item = cursor.fetchone()
+            if eq_item:
+                cursor.execute("UPDATE user_inventory SET level = ?, stat_bonus = ? WHERE item_id = ?", (value, value, eq_item['item_id']))
+                conn.commit()
+                return True, f"Successfully set **{eq_item['rarity']} {eq_item['part_name']}** (and Garage Baseline) to **Lvl {value}** for **{team}**!"
+                
             conn.commit()
             return True, f"Successfully set **{stat_name.capitalize()}** to **Lvl {value}** for **{team}**!"
         elif stat_name in valid_driver:

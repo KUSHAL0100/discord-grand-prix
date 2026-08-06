@@ -173,5 +173,33 @@ def test_equipped_part_level_reflected_in_power_and_card(tmp_path, monkeypatch):
     card_buf = utils.generate_profile_card(prof)
     assert card_buf is not None
 
+def test_admin_setstat_equipped_part(tmp_path, monkeypatch):
+    import database
+    import config
+    db_file = str(tmp_path / "test_admin_setstat.db")
+    monkeypatch.setattr(config, "DATABASE_PATH", db_file)
+    database.init_db()
+
+    success, msg = database.create_user(66666, 33333, "Setstat Team")
+    assert success
+    user = database.get_user_by_discord_id(66666, 33333)
+    uid = user['user_id']
+
+    # Add and equip an Uncommon Engine Level 4
+    success, msg, item_id = database.add_inventory_part(
+        uid, "engine", "Titanium Spec V8 Engine", "Uncommon", level=4, stat_bonus=4
+    )
+    assert success
+    database.equip_inventory_part(uid, item_id)
+
+    # Run admin setstat for Engine to Level 7
+    set_success, set_msg = database.admin_set_user_stat(66666, 33333, "engine", 7)
+    assert set_success
+
+    # Verify equipped part is now Level 7
+    equipped = database.get_equipped_inventory(uid)
+    assert equipped["engine"]["level"] == 7
+    assert equipped["engine"]["stat_bonus"] == 7
+
 
 
