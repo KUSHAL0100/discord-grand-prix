@@ -35,7 +35,7 @@ def calculate_car_power(garage: Dict[str, Any], equipped: Dict[str, Dict[str, An
         base_lvl = garage.get(cat, 1)
         item = equipped.get(cat) if equipped else None
         if item:
-            return max(base_lvl, item.get('level', 1))
+            return item.get('level', 1)
         return base_lvl
 
     return (
@@ -274,7 +274,7 @@ def generate_profile_card(prof: Dict[str, Any]) -> io.BytesIO:
         y = y0 + idx * 52
         item = equipped.get(category)
         base_lvl = prof.get(category, 1)
-        lvl = max(base_lvl, item.get('level', 1)) if item else base_lvl
+        lvl = item.get('level', 1) if item else base_lvl
         rarity_str = item.get('rarity', 'Common') if item else 'Common'
         tag_color = get_rarity_color(rarity_str)
         

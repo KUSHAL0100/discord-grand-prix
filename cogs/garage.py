@@ -382,7 +382,7 @@ class GarageCog(commands.Cog):
             base_lvl = prof.get(key, 1)
             item = equipped.get(key)
             if item:
-                lvl = max(base_lvl, item.get('level', 1))
+                lvl = item.get('level', 1)
                 rarity = item.get('rarity', 'Common')
                 name = item.get('part_name', 'Stock Block')
                 parts_list.append(f"• **{cat_label}:** Lvl `{lvl}` | **{rarity}** (*{name}*)")
@@ -454,7 +454,7 @@ class GarageCog(commands.Cog):
             base_lvl = prof.get(cat_key, 1)
             item = equipped.get(cat_key)
             if item:
-                item_lvl = max(base_lvl, item.get('level', 1))
+                item_lvl = item.get('level', 1)
                 rarity = item.get('rarity', 'Common')
                 return f"  • **{label}:** Level `{item_lvl}`/{config.MAX_STAT_LEVEL} (*{rarity}*)"
             return f"  • **{label}:** Level `{base_lvl}`/{config.MAX_STAT_LEVEL} (*Stock*)"
@@ -495,7 +495,7 @@ class GarageCog(commands.Cog):
             base_level = prof.get(part, 1)
             eq_item = equipped.get(part)
             if eq_item:
-                curr_level = max(base_level, eq_item.get('level', 1))
+                curr_level = eq_item.get('level', 1)
                 rarity = eq_item.get('rarity', 'Common')
             else:
                 curr_level = base_level
