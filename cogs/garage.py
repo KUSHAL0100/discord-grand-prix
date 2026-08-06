@@ -363,11 +363,10 @@ class GarageCog(commands.Cog):
         card_buf = utils.generate_profile_card(prof)
         file = discord.File(card_buf, filename="profile_card.png")
         
-        overall_power = utils.calculate_overall_power(prof, prof["pace"])
-        country_prefix = f"{prof['country']} " if prof.get('country') else ""
-        
         # Fetch equipped inventory parts
         equipped = database.get_equipped_inventory(prof['user_id'])
+        overall_power = utils.calculate_overall_power(prof, prof["pace"], equipped)
+        country_prefix = f"{prof['country']} " if prof.get('country') else ""
         overall_rarity = utils.get_team_category(equipped)
 
         # Build detailed equipped parts description
@@ -380,14 +379,15 @@ class GarageCog(commands.Cog):
             ("Reliability", "reliability"),
             ("Pit Crew", "pit_crew")
         ]:
-            lvl = prof.get(key, 1)
+            base_lvl = prof.get(key, 1)
             item = equipped.get(key)
             if item:
+                lvl = max(base_lvl, item.get('level', 1))
                 rarity = item.get('rarity', 'Common')
                 name = item.get('part_name', 'Stock Block')
                 parts_list.append(f"• **{cat_label}:** Lvl `{lvl}` | **{rarity}** (*{name}*)")
             else:
-                parts_list.append(f"• **{cat_label}:** Lvl `{lvl}` | **Common** (*Stock*)")
+                parts_list.append(f"• **{cat_label}:** Lvl `{base_lvl}` | **Common** (*Stock*)")
         
         parts_desc = "\n".join(parts_list)
 
@@ -444,25 +444,39 @@ class GarageCog(commands.Cog):
             await interaction.response.send_message("❌ You do not have a profile yet. Use `/start` to create one!", ephemeral=True)
             return
 
-        overall_power = utils.calculate_overall_power(prof, prof["pace"])
+        equipped = database.get_equipped_inventory(prof['user_id'])
+        overall_power = utils.calculate_overall_power(prof, prof["pace"], equipped)
         engine_bar = utils.make_progress_bar(prof['damage_engine'])
         tyres_bar = utils.make_progress_bar(prof['damage_tyres'])
         total_bar = utils.make_progress_bar(prof['damage_total'])
 
+        def format_garage_part(label: str, cat_key: str) -> str:
+            base_lvl = prof.get(cat_key, 1)
+            item = equipped.get(cat_key)
+            if item:
+                item_lvl = max(base_lvl, item.get('level', 1))
+                rarity = item.get('rarity', 'Common')
+                return f"  • **{label}:** Level `{item_lvl}`/{config.MAX_STAT_LEVEL} (*{rarity}*)"
+            return f"  • **{label}:** Level `{base_lvl}`/{config.MAX_STAT_LEVEL} (*Stock*)"
+
+        cost_engine = int(prof['damage_engine'] * config.REPAIR_COST_PER_PCT)
+        cost_tyres = int(prof['damage_tyres'] * config.REPAIR_COST_PER_PCT)
+        cost_total = cost_engine + cost_tyres
+
         desc = (
             f"🏎️ **Overall Power Rating:** `{overall_power:.1f}`\n\n"
             f"⚙️ **Component Levels:**\n"
-            f"  • **Engine:** Level `{prof['engine']}`/{config.MAX_STAT_LEVEL}\n"
-            f"  • **Aerodynamics:** Level `{prof['aerodynamics']}`/{config.MAX_STAT_LEVEL}\n"
-            f"  • **Tyres:** Level `{prof['tyres']}`/{config.MAX_STAT_LEVEL}\n"
-            f"  • **ERS System:** Level `{prof['ers']}`/{config.MAX_STAT_LEVEL}\n"
-            f"  • **Reliability:** Level `{prof['reliability']}`/{config.MAX_STAT_LEVEL}\n"
-            f"  • **Pit Crew:** Level `{prof['pit_crew']}`/{config.MAX_STAT_LEVEL}\n\n"
-            f"🔧 **Component Wear & Damage:**\n"
-            f"  • Engine Wear: {engine_bar} ({prof['damage_engine']:.1f}%)\n"
-            f"  • Body Wear: {tyres_bar} ({prof['damage_tyres']:.1f}%)\n"
-            f"  • Overall Damage: {total_bar} ({prof['damage_total']:.1f}%)\n\n"
-            f"*Use `/upgrade` to research parts or `/repairs` to service your car!*"
+            f"{format_garage_part('Engine', 'engine')}\n"
+            f"{format_garage_part('Aerodynamics', 'aerodynamics')}\n"
+            f"{format_garage_part('Tyres', 'tyres')}\n"
+            f"{format_garage_part('ERS System', 'ers')}\n"
+            f"{format_garage_part('Reliability', 'reliability')}\n"
+            f"{format_garage_part('Pit Crew', 'pit_crew')}\n\n"
+            f"🔧 **Component Wear & Repair Costs:**\n"
+            f"  • Engine Wear: {engine_bar} ({prof['damage_engine']:.1f}%) — Cost: `{cost_engine:,}¢`\n"
+            f"  • Body Wear: {tyres_bar} ({prof['damage_tyres']:.1f}%) — Cost: `{cost_tyres:,}¢`\n"
+            f"  • Total Overhaul Damage: {total_bar} ({prof['damage_total']:.1f}%) — Total Cost: `{cost_total:,}¢`\n\n"
+            f"*Use `/upgrade` to research parts or `/repair <component>` to service your car!*"
         )
         embed = utils.create_embed(title="🛠️ Team Garage", description=desc, color=utils.COLOR_INFO)
         await interaction.response.send_message(embed=embed)
@@ -478,18 +492,23 @@ class GarageCog(commands.Cog):
         equipped = database.get_equipped_inventory(prof['user_id'])
         desc = "**Current Part Levels and Upgrade Costs:**\n\n"
         for part, mult in config.PART_MULTIPLIERS.items():
-            curr_level = prof.get(part, 1)
+            base_level = prof.get(part, 1)
             eq_item = equipped.get(part)
-            rarity = eq_item.get('rarity', 'Common') if eq_item else 'Common'
+            if eq_item:
+                curr_level = max(base_level, eq_item.get('level', 1))
+                rarity = eq_item.get('rarity', 'Common')
+            else:
+                curr_level = base_level
+                rarity = 'Common'
             r_emoji = crates.RARITY_EMOJIS.get(rarity, '⚪')
             
-            if curr_level >= config.MAX_STAT_LEVEL:
-                cost_str = "MAX LEVEL"
+            if base_level >= config.MAX_STAT_LEVEL:
+                cost_str = "MAX BASE LEVEL"
             else:
-                cost = config.get_upgrade_cost(part, curr_level + 1, rarity)
+                cost = config.get_upgrade_cost(part, base_level + 1, rarity)
                 cost_str = f"{cost:,}¢"
                 
-            desc += f"• **{part.capitalize()}:** Level {curr_level} → Level {curr_level + 1 if curr_level < config.MAX_STAT_LEVEL else config.MAX_STAT_LEVEL} ({r_emoji} {rarity} | Cost: {cost_str})\n"
+            desc += f"• **{part.capitalize()}:** Level `{curr_level}` ({r_emoji} {rarity}) → Upgrade Base: Level `{base_level + 1 if base_level < config.MAX_STAT_LEVEL else config.MAX_STAT_LEVEL}` (Cost: {cost_str})\n"
             
         embed = utils.create_embed(
             title="🛒 The Performance Shop",
@@ -567,28 +586,7 @@ class GarageCog(commands.Cog):
 
 
 
-    @app_commands.command(name="repairs", description="View damaged components and repair costs.")
-    @app_commands.guild_only()
-    async def repairs_cmd(self, interaction: discord.Interaction):
-        prof = database.get_full_team_profile(interaction.user.id, interaction.guild_id)
-        if not prof:
-            await interaction.response.send_message("❌ You do not have a profile. Use `/start`.", ephemeral=True)
-            return
 
-        cost_engine = int(prof['damage_engine'] * config.REPAIR_COST_PER_PCT)
-        cost_tyres = int(prof['damage_tyres'] * config.REPAIR_COST_PER_PCT)
-        cost_total = cost_engine + cost_tyres
-
-        desc = (
-            f"🔧 **Repair Assessment & Costs:**\n\n"
-            f"  • **Engine Damage:** `{prof['damage_engine']:.1f}%` (Cost: `{cost_engine:,}¢`)\n"
-            f"  • **Body Damage:** `{prof['damage_tyres']:.1f}%` (Cost: `{cost_tyres:,}¢`)\n\n"
-            f"💰 **Total Overhaul Cost:** `{cost_total:,} credits`\n"
-            f"💳 **Your Balance:** `{prof['money']:,} credits`\n\n"
-            f"*Use `/repair component:<engine/tyres/full>` to service your car!*"
-        )
-        embed = utils.create_embed(title="🔧 Pit Crew Repair Shop", description=desc, color=utils.COLOR_INFO)
-        await interaction.response.send_message(embed=embed)
 
     @app_commands.command(name="repair", description="Pay credits to repair a damaged component.")
     @app_commands.describe(component="Component to repair (engine, body wear, or full overhaul)")

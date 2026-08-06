@@ -139,5 +139,39 @@ def test_custom_part_level_preservation_on_equip(tmp_path, monkeypatch):
     assert equipped["aerodynamics"]["level"] == 2
     assert equipped["aerodynamics"]["part_name"] == "Winglet Alpha"
 
+def test_equipped_part_level_reflected_in_power_and_card(tmp_path, monkeypatch):
+    import database
+    import config
+    import utils
+    db_file = str(tmp_path / "test_equipped_power.db")
+    monkeypatch.setattr(config, "DATABASE_PATH", db_file)
+    database.init_db()
+
+    success, msg = database.create_user(55555, 44444, "Equipped Power Team")
+    assert success
+    user = database.get_user_by_discord_id(55555, 44444)
+    uid = user['user_id']
+
+    # Unbox/Add Rare Reliability part Level 5 when garage base is Level 1
+    success, msg, item_id = database.add_inventory_part(
+        uid, "reliability", "Reinforced Wishbone Suspension", "Rare", level=5, stat_bonus=5
+    )
+    assert success
+
+    # Equip part
+    database.equip_inventory_part(uid, item_id)
+
+    prof = database.get_full_team_profile(55555, 44444)
+    equipped = database.get_equipped_inventory(uid)
+
+    # Base car power with all level 1s = (1*3 + 1*2 + 1*2 + 1*2 + 1*1) = 10
+    # With Reliability at Level 5 = (1*3 + 1*2 + 1*2 + 1*2 + 5*1) = 14
+    car_power = utils.calculate_car_power(prof, equipped)
+    assert car_power == 14
+
+    # Profile card generation shouldn't raise errors and should evaluate effective level 5
+    card_buf = utils.generate_profile_card(prof)
+    assert card_buf is not None
+
 
 

@@ -15,25 +15,43 @@ COLOR_QUALIFYING = 0xFF6F00
 COLOR_RACE_RESULTS = 0x00AAFF
 COLOR_GOLD = 0xFFD700
 
-def calculate_car_power(garage: Dict[str, Any]) -> int:
+def calculate_car_power(garage: Dict[str, Any], equipped: Dict[str, Dict[str, Any]] = None) -> int:
     """
     Calculate base car power using weighted sum:
     (Engine*3 + Aero*2 + Tyres*2 + ERS*2 + Reliability*1)
+    Takes into account equipped inventory part levels if present.
     """
+    if equipped is None:
+        uid = garage.get("user_id") or garage.get("discord_id")
+        if uid:
+            try:
+                equipped = database.get_equipped_inventory(uid)
+            except Exception:
+                equipped = {}
+        else:
+            equipped = {}
+
+    def get_effective_lvl(cat: str) -> int:
+        base_lvl = garage.get(cat, 1)
+        item = equipped.get(cat) if equipped else None
+        if item:
+            return max(base_lvl, item.get('level', 1))
+        return base_lvl
+
     return (
-        garage.get("engine", 1) * 3 +
-        garage.get("aerodynamics", 1) * 2 +
-        garage.get("tyres", 1) * 2 +
-        garage.get("ers", 1) * 2 +
-        garage.get("reliability", 1) * 1
+        get_effective_lvl("engine") * 3 +
+        get_effective_lvl("aerodynamics") * 2 +
+        get_effective_lvl("tyres") * 2 +
+        get_effective_lvl("ers") * 2 +
+        get_effective_lvl("reliability") * 1
     )
 
-def calculate_overall_power(garage: Dict[str, Any], driver_pace: int) -> int:
+def calculate_overall_power(garage: Dict[str, Any], driver_pace: int, equipped: Dict[str, Dict[str, Any]] = None) -> int:
     """
     Calculate overall team power:
     car_power + driver_pace / 3
     """
-    car_power = calculate_car_power(garage)
+    car_power = calculate_car_power(garage, equipped)
     driver_bonus = driver_pace / 3.0
     return round(car_power + driver_bonus)
 
@@ -244,17 +262,19 @@ def generate_profile_card(prof: Dict[str, Any]) -> io.BytesIO:
 
     # --- Right Column: Garage Components ---
     parts = [
-        ("Engine", prof.get("engine", 1), "engine"),
-        ("Aerodynamics", prof.get("aerodynamics", 1), "aerodynamics"),
-        ("Tyres", prof.get("tyres", 1), "tyres"),
-        ("ERS System", prof.get("ers", 1), "ers"),
-        ("Reliability", prof.get("reliability", 1), "reliability"),
-        ("Pit Crew", prof.get("pit_crew", 1), "pit_crew"),
+        ("Engine", "engine"),
+        ("Aerodynamics", "aerodynamics"),
+        ("Tyres", "tyres"),
+        ("ERS System", "ers"),
+        ("Reliability", "reliability"),
+        ("Pit Crew", "pit_crew"),
     ]
 
-    for idx, (name, lvl, category) in enumerate(parts):
+    for idx, (name, category) in enumerate(parts):
         y = y0 + idx * 52
         item = equipped.get(category)
+        base_lvl = prof.get(category, 1)
+        lvl = max(base_lvl, item.get('level', 1)) if item else base_lvl
         rarity_str = item.get('rarity', 'Common') if item else 'Common'
         tag_color = get_rarity_color(rarity_str)
         
