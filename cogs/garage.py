@@ -535,21 +535,29 @@ class GarageCog(commands.Cog):
             await interaction.response.send_message("❌ You do not have a profile. Use `/start`.", ephemeral=True)
             return
 
-        curr_level = prof.get(part_name, 1)
-        if curr_level >= config.MAX_STAT_LEVEL:
-            await interaction.response.send_message(f"❌ Your **{part_name.capitalize()}** is already at maximum level ({config.MAX_STAT_LEVEL})!", ephemeral=True)
-            return
-
         equipped = database.get_equipped_inventory(prof['user_id'])
         eq_item = equipped.get(part_name)
-        rarity = eq_item.get('rarity', 'Common') if eq_item else 'Common'
-        r_emoji = crates.RARITY_EMOJIS.get(rarity, '⚪')
 
+        if eq_item:
+            curr_level = eq_item.get('level', 1)
+            rarity = eq_item.get('rarity', 'Common')
+            part_display = f"{rarity} {eq_item.get('part_name', part_name.capitalize())}"
+        else:
+            curr_level = prof.get(part_name, 1)
+            rarity = 'Common'
+            part_display = f"Stock {part_name.capitalize()}"
+
+        if curr_level >= config.MAX_STAT_LEVEL:
+            await interaction.response.send_message(f"❌ Your **{part_display}** is already at maximum level ({config.MAX_STAT_LEVEL})!", ephemeral=True)
+            return
+
+        r_emoji = crates.RARITY_EMOJIS.get(rarity, '⚪')
         next_level = curr_level + 1
         cost = config.get_upgrade_cost(part_name, next_level, rarity)
+
         if prof['money'] < cost:
             await interaction.response.send_message(
-                f"❌ Insufficient funds! Upgrading your {r_emoji} **{rarity} {part_name.capitalize()}** to Level {next_level} costs **{cost:,} credits**, but you have **{prof['money']:,} credits**.",
+                f"❌ Insufficient funds! Upgrading your {r_emoji} **{part_display}** to Level {next_level} costs **{cost:,} credits**, but you have **{prof['money']:,} credits**.",
                 ephemeral=True
             )
             return

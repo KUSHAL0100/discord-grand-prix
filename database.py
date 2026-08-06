@@ -777,7 +777,7 @@ def award_daily_activity_credits(user_id: int, amount: int, credit_type: str) ->
 
 def upgrade_part(user_id: int, part_name: str, cost: int = 0) -> Tuple[bool, str]:
     """
-    Upgrade a car part by one level.
+    Upgrade a car part by one level (either equipped inventory item or stock baseline).
     Deducts the cost and checks limits.
     Returns (success: bool, status_message: str)
     """
@@ -795,31 +795,47 @@ def upgrade_part(user_id: int, part_name: str, cost: int = 0) -> Tuple[bool, str
         
         current_money = user_row['money']
         
-        # Get current part level
-        cursor.execute(f"SELECT {part_name} FROM garage WHERE user_id = ?", (user_id,))
-        garage_row = cursor.fetchone()
-        if not garage_row:
-            return False, "Garage record not found."
+        # Check if an inventory item is equipped in this category
+        cursor.execute("SELECT * FROM user_inventory WHERE user_id = ? AND category = ? AND is_equipped = 1", (user_id, part_name))
+        eq_item = cursor.fetchone()
+        
+        if eq_item:
+            eq_dict = dict(eq_item)
+            current_level = eq_dict['level']
+            rarity = eq_dict['rarity']
+            part_display_name = f"{rarity} {eq_dict['part_name']}"
+            item_id = eq_dict['item_id']
+        else:
+            cursor.execute(f"SELECT {part_name} FROM garage WHERE user_id = ?", (user_id,))
+            garage_row = cursor.fetchone()
+            if not garage_row:
+                return False, "Garage record not found."
+            current_level = garage_row[part_name]
+            rarity = "Common"
+            part_display_name = f"Stock {part_name.capitalize()}"
+            item_id = None
             
-        current_level = garage_row[part_name]
         if current_level >= config.MAX_STAT_LEVEL:
-            return False, f"Your {part_name.capitalize()} is already at max level ({config.MAX_STAT_LEVEL})."
+            return False, f"Your **{part_display_name}** is already at max level ({config.MAX_STAT_LEVEL})."
             
         target_level = current_level + 1
         if cost is None or cost <= 0:
-            cost = config.get_upgrade_cost(part_name, target_level)
+            cost = config.get_upgrade_cost(part_name, target_level, rarity)
         
         if current_money < cost:
-            return False, f"Insufficient credits! Upgrading {part_name.capitalize()} to Level {target_level} costs {cost:,}¢ (You have {current_money:,}¢)."
+            return False, f"Insufficient credits! Upgrading **{part_display_name}** to Level {target_level} costs {cost:,}¢ (You have {current_money:,}¢)."
             
         remaining_money = current_money - cost
 
-        # Deduct money and update garage level
+        # Deduct money and update part level
         cursor.execute("UPDATE users SET money = money - ? WHERE user_id = ?", (cost, user_id))
-        cursor.execute(f"UPDATE garage SET {part_name} = ? WHERE user_id = ?", (target_level, user_id))
+        if item_id:
+            cursor.execute("UPDATE user_inventory SET level = ?, stat_bonus = ? WHERE item_id = ?", (target_level, target_level, item_id))
+        else:
+            cursor.execute(f"UPDATE garage SET {part_name} = ? WHERE user_id = ?", (target_level, user_id))
         
         conn.commit()
-        return True, f"Successfully upgraded **{part_name.capitalize()}** to Level **{target_level}** for **{cost:,} credits**!\n💰 **Remaining Balance:** `{remaining_money:,} credits`"
+        return True, f"Successfully upgraded **{part_display_name}** to Level **{target_level}** for **{cost:,} credits**!\n💰 **Remaining Balance:** `{remaining_money:,} credits`"
     except sqlite3.Error as e:
         conn.rollback()
         return False, f"Database error: {str(e)}"
