@@ -494,7 +494,7 @@ class RaceChallengeView(discord.ui.View):
         self.opponent_prof = opponent_prof
         self.guild_id = guild_id
         self.wager = max(0, wager)
-        self.laps = max(5, min(20, laps))
+        self.laps = max(3, min(50, laps))
         self.track_name = track_name
 
     async def on_timeout(self):
@@ -1969,8 +1969,8 @@ class RacingCog(commands.Cog):
         if wager < 0:
             wager = 0
 
-        if laps < 5 or laps > 20:
-            await interaction.response.send_message("❌ Race distance must be between 5 and 20 laps.", ephemeral=True)
+        if laps < 3 or laps > 50:
+            await interaction.response.send_message("❌ Race distance must be between 3 and 50 laps.", ephemeral=True)
             return
 
         if track and track not in race.TRACK_PROFILES:
@@ -2108,7 +2108,7 @@ class RacingCog(commands.Cog):
 
     @app_commands.command(name="duel", description="Race 1v1 against a competitive AI driver for credits & XP (Free entry)!")
     @app_commands.describe(
-        laps="Race distance in laps (5 to 20 laps, default 5 laps)",
+        laps="Race distance in laps (3 to 50 laps, default 5 laps)",
         track="Select official F1 track (e.g. Monza, Monaco, Silverstone, Spa)"
     )
     @app_commands.autocomplete(track=track_autocomplete)
@@ -2120,7 +2120,7 @@ class RacingCog(commands.Cog):
     @app_commands.describe(
         opponent="The real driver to challenge to a 1v1 race",
         wager="Optional credit wager amount (default 0 for free entry)",
-        laps="Race distance in laps (5 to 20 laps, default 5 laps)",
+        laps="Race distance in laps (3 to 50 laps, default 5 laps)",
         track="Select official F1 track (e.g. Monza, Monaco, Silverstone, Spa)"
     )
     @app_commands.autocomplete(track=track_autocomplete)

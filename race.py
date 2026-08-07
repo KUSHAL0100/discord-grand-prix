@@ -424,6 +424,7 @@ class SimTeam:
         self.current_position = 0
         self.laps_completed = 0
         self.fastest_lap_time = 999.9
+        self.out_lap_warmup = 0
         
     def calculate_base_car_power(self, track_name: str) -> float:
         """Calculate car power adjusted for rarity base level offsets, tier scaling, track profiles and damage."""
@@ -558,12 +559,21 @@ def simulate_duel_generator(team1_data: Dict[str, Any], team2_data: Dict[str, An
                 t.pit_next_lap = False
                 t.pit_stops_completed += 1
                 
-                pit_duration = 3.5 - (t.pit_crew * 0.15)
-                if t == leader:
-                    gap -= pit_duration
+                if t.tyre_type == "Hard":
+                    t.out_lap_warmup = 2
+                elif t.tyre_type in ["Medium", "Intermediates"]:
+                    t.out_lap_warmup = 1
                 else:
-                    gap += pit_duration
-                current_lap_events.append(f"🔧 **Lap {lap}:** {t.team_name} pits for fresh **{t.tyre_type}** tyres (time: {pit_duration:.2f}s)!")
+                    t.out_lap_warmup = 0
+                
+                stationary_time = max(1.8, round(3.5 - (t.pit_crew * 0.10), 2))
+                pit_lane_loss = 10.0
+                total_pit_loss = stationary_time + pit_lane_loss
+                if t == leader:
+                    gap -= total_pit_loss
+                else:
+                    gap += total_pit_loss
+                current_lap_events.append(f"🔧 **Lap {lap}:** {t.team_name} pits for fresh **{t.tyre_type}** tyres (stationary stop: {stationary_time:.2f}s, total pit time lost: {total_pit_loss:.2f}s)!")
                 
         # Check DNF for both active drivers
         for t in [leader, trailer]:
@@ -625,41 +635,62 @@ def simulate_duel_generator(team1_data: Dict[str, Any], team2_data: Dict[str, An
             if t.dnf:
                 continue
             if t.is_ai and total_laps > 3 and (t.tyre_health <= 60.0 or (getattr(t, 'pit_laps', None) and lap in t.pit_laps and t.tyre_health < 75.0)):
-                pit_duration = 3.5 - (t.pit_crew * 0.15)
-                if t == leader:
-                    gap -= pit_duration
-                else:
-                    gap += pit_duration
-                    
+                stationary_time = max(1.8, round(3.5 - (t.pit_crew * 0.10), 2))
+                pit_lane_loss = 10.0
+                total_pit_loss = stationary_time + pit_lane_loss
+                
                 t.tyre_health = 100.0
                 t.engine_temp = 85.0
                 t.pit_stops_completed += 1
-                current_lap_events.append(f"🔧 **Lap {lap}:** {t.team_name} pits for fresh {t.tyre_type} tyres (time: {pit_duration:.2f}s)!")
                 
-        # Calculate tyre wear based on compound choice
+                if t.tyre_type == "Hard":
+                    t.out_lap_warmup = 2
+                elif t.tyre_type in ["Medium", "Intermediates"]:
+                    t.out_lap_warmup = 1
+                else:
+                    t.out_lap_warmup = 0
+                    
+                if t == leader:
+                    gap -= total_pit_loss
+                else:
+                    gap += total_pit_loss
+                current_lap_events.append(f"🔧 **Lap {lap}:** {t.team_name} pits for fresh **{t.tyre_type}** tyres (stationary stop: {stationary_time:.2f}s, total pit time lost: {total_pit_loss:.2f}s)!")
+                
+        # Calculate tyre wear based on compound choice (Balanced target: Soft L12, Medium L17, Hard L22 at 20% health)
         for t in [leader, trailer]:
             if t.tyre_type == "Soft":
-                base_wear = 10.0
+                base_wear = 6.67
             elif t.tyre_type == "Hard":
-                base_wear = 4.0
-            else: # Medium
-                base_wear = 7.0
+                base_wear = 3.64
+            else: # Medium or Intermediates
+                base_wear = 4.71
                 
-            if t.strategy == "Aggressive":
-                wear = base_wear * 1.3
-            elif t.strategy == "Conservative":
-                wear = base_wear * 0.7
+            if t.strategy in ["Aggressive", "Push"]:
+                wear = base_wear * 1.35
+            elif t.strategy in ["Conservative", "Save"]:
+                wear = base_wear * 0.72
             else:
                 wear = base_wear
                 
-            t.tyre_health -= random.uniform(wear - 1, wear + 1)
+            t.tyre_health -= random.uniform(wear * 0.95, wear * 1.05)
             t.tyre_health = max(0.0, t.tyre_health)
             
         T_base = TRACK_BASE_LAP_TIMES.get(track, 45.0)
 
         # Calculate performance for this lap
-        l_tyre_bonus = 2.5 if leader.tyre_type == "Soft" else (0.0 if leader.tyre_type == "Hard" else 1.25)
-        t_tyre_bonus = 2.5 if trailer.tyre_type == "Soft" else (0.0 if trailer.tyre_type == "Hard" else 1.25)
+        l_tyre_bonus = 2.8 if leader.tyre_type == "Soft" else (0.0 if leader.tyre_type == "Hard" else 1.4)
+        t_tyre_bonus = 2.8 if trailer.tyre_type == "Soft" else (0.0 if trailer.tyre_type == "Hard" else 1.4)
+        
+        # Apply cold tyre out-lap warmup delay
+        if getattr(leader, 'out_lap_warmup', 0) > 0:
+            warmup_delay = 1.6 if leader.out_lap_warmup == 2 else 0.8
+            l_tyre_bonus -= warmup_delay
+            leader.out_lap_warmup -= 1
+            
+        if getattr(trailer, 'out_lap_warmup', 0) > 0:
+            warmup_delay = 1.6 if trailer.out_lap_warmup == 2 else 0.8
+            t_tyre_bonus -= warmup_delay
+            trailer.out_lap_warmup -= 1
         
         l_perf = leader.calculate_base_car_power(track) + (leader.driver_pace / 20.0) + l_tyre_bonus + random.uniform(-0.5, 0.5)
         t_perf = trailer.calculate_base_car_power(track) + (trailer.driver_pace / 20.0) + t_tyre_bonus + random.uniform(-0.5, 0.5)
@@ -675,11 +706,22 @@ def simulate_duel_generator(team1_data: Dict[str, Any], team2_data: Dict[str, An
         elif trailer.strategy in ["Conservative", "Save"]:
             t_perf -= 0.5
             
-        # Tyre penalty (starts below 40% health as tyres degrade)
-        if leader.tyre_health < 40.0:
-            l_perf -= ((40.0 - leader.tyre_health) ** 1.5) * 0.08
-        if trailer.tyre_health < 40.0:
-            t_perf -= ((40.0 - trailer.tyre_health) ** 1.5) * 0.08
+        # Tyre degradation performance penalties (mild below 50%, cliff below 20%)
+        for d_team in [leader, trailer]:
+            h = d_team.tyre_health
+            deg_pen = 0.0
+            if h < 50.0:
+                deg_pen += (50.0 - h) * 0.02
+            if h < 20.0:
+                deg_pen += ((20.0 - h) ** 1.4) * 0.08
+            if h == 0.0:
+                deg_pen += 4.0
+                
+            if d_team == leader:
+                l_perf -= deg_pen
+            else:
+                t_perf -= deg_pen
+
             
         # Calculate dynamic lap times for telemetry chart (seconds)
         l_var = random.uniform(-0.35, 0.35)
@@ -932,18 +974,24 @@ def simulate_gp_generator(entries_data: List[Dict[str, Any]], track_name: str, t
             driver_bonus = (t.driver_pace / 100.0) * 2.0
             lap_time -= driver_bonus
             
-            # Tyre wear rate & compound pace bonus simulation
+            # Tyre wear rate & compound pace bonus simulation (Balanced targets: Soft L12, Medium L17, Hard L22 at 20% health)
             if t.tyre_type == "Soft":
-                base_wear = 10.0
-                compound_pace_bonus = 0.8
+                base_wear = 6.67
+                compound_pace_bonus = 0.85
             elif t.tyre_type == "Hard":
-                base_wear = 4.0
-                compound_pace_bonus = 0.0
+                base_wear = 3.64
+                compound_pace_bonus = 0.00
             else: # Medium or Intermediates
-                base_wear = 7.0
-                compound_pace_bonus = 0.4
+                base_wear = 4.71
+                compound_pace_bonus = 0.45
                 
             lap_time -= compound_pace_bonus
+            
+            # Apply cold tyre out-lap warmup delay
+            if getattr(t, 'out_lap_warmup', 0) > 0:
+                warmup_delay = 0.80 if t.out_lap_warmup == 2 else 0.30
+                lap_time += warmup_delay
+                t.out_lap_warmup -= 1
                 
             # Pace strategy multipliers
             strategy_wear_mult = 1.0
@@ -957,20 +1005,20 @@ def simulate_gp_generator(entries_data: List[Dict[str, Any]], track_name: str, t
                 lap_time = T_base * 1.3 + random.uniform(-0.15, 0.15)
                 strategy_wear_mult = 0.3
             else:
-                if t.strategy == "Aggressive":
-                    strategy_wear_mult = 1.3
-                    strategy_lap_delta = -0.6
-                elif t.strategy == "Conservative":
-                    strategy_wear_mult = 0.7
-                    strategy_lap_delta = 0.5
+                if t.strategy in ["Aggressive", "Push"]:
+                    strategy_wear_mult = 1.35
+                    strategy_lap_delta = -0.65
+                elif t.strategy in ["Conservative", "Save"]:
+                    strategy_wear_mult = 0.72
+                    strategy_lap_delta = 0.50
                     
                 lap_time += strategy_lap_delta
                 
                 # Engine Thermal tracking & Radio Alerts (scaled by track heat_mod)
                 heat_multiplier = track_profile.get("heat_mod", 1.0)
-                if t.strategy == "Aggressive":
+                if t.strategy in ["Aggressive", "Push"]:
                     t.engine_temp += random.uniform(4.0, 6.0) * heat_multiplier
-                elif t.strategy == "Conservative":
+                elif t.strategy in ["Conservative", "Save"]:
                     t.engine_temp = max(85.0, t.engine_temp - random.uniform(6.0, 9.0))
                 else: # Balanced
                     t.engine_temp = max(85.0, t.engine_temp - random.uniform(3.0, 5.0))
@@ -994,16 +1042,21 @@ def simulate_gp_generator(entries_data: List[Dict[str, Any]], track_name: str, t
                 
             # Visual progression driver aggression wear scaling
             aggression_wear_mult = 1.0 + (t.driver_aggression - 50.0) / 250.0
-            t.tyre_health -= random.uniform(base_wear - 1.5, base_wear + 1.5) * strategy_wear_mult * aggression_wear_mult
+            t.tyre_health -= random.uniform(base_wear * 0.95, base_wear * 1.05) * strategy_wear_mult * aggression_wear_mult
             t.tyre_health = max(0.0, t.tyre_health)
             
-            # Tyre wear penalty (slower as tyres degrade below 40% health)
+            # Tyre wear degradation penalties (mild below 50%, cliff below 20%)
             wear_penalty = 0.0
-            if t.tyre_health < 40.0 and safety_car_laps_left == 0 and vsc_laps_left == 0:
-                wear_penalty = ((40.0 - t.tyre_health) ** 1.5) * 0.015
+            if safety_car_laps_left == 0 and vsc_laps_left == 0:
+                if t.tyre_health < 50.0:
+                    wear_penalty += (50.0 - t.tyre_health) * 0.015
+                if t.tyre_health < 20.0:
+                    wear_penalty += ((20.0 - t.tyre_health) ** 1.4) * 0.08
+                if t.tyre_health == 0.0:
+                    wear_penalty += 4.0
             lap_time += wear_penalty
             
-            if t.tyre_health < 40.0 and random.random() < 0.2:
+            if t.tyre_health < 20.0 and random.random() < 0.25:
                 tyre_msg = random.choice(DEAD_TYRES_RADIOS).format(team=t.team_name)
                 lap_logs.append(tyre_msg)
                 
@@ -1045,20 +1098,22 @@ def simulate_gp_generator(entries_data: List[Dict[str, Any]], track_name: str, t
                     t.pit_next_lap = False  # Reset scheduled flag
                 
             if wants_pit:
-                # Scaled pit stop cost (8s base + crew time for 45s laps)
+                # Scaled pit stop cost (stationary stop + pit lane drive-through loss)
                 pit_crew_val = getattr(t, "pit_crew", 1)
-                pit_duration = 3.5 - (pit_crew_val * 0.15)
+                stationary_time = max(1.8, round(3.5 - (pit_crew_val * 0.10), 2))
                 
                 if safety_car_laps_left > 0 or vsc_laps_left > 0:
-                    pit_loss = 3.0 + pit_duration
-                    t.last_lap_time += pit_loss
-                    lap_logs.append(f"🔧 **Lap {lap}:** {t.team_name} pits under **Safety Car** (switched to {needed_tyre}, pit duration: {pit_duration:.2f}s).")
+                    pit_lane_loss = 3.0
+                    total_pit_loss = stationary_time + pit_lane_loss
+                    t.last_lap_time += total_pit_loss
+                    lap_logs.append(f"🔧 **Lap {lap}:** {t.team_name} pits under **Safety Car** (switched to {needed_tyre}, stationary stop: {stationary_time:.2f}s, total pit time lost: {total_pit_loss:.2f}s).")
                     sc_radio = random.choice(SC_PIT_CALL_RADIOS).format(team=t.team_name, tyre=needed_tyre)
                     lap_logs.append(sc_radio)
                 else:
-                    pit_loss = 8.0 + pit_duration
-                    t.last_lap_time += pit_loss
-                    lap_logs.append(f"🔧 **Lap {lap}:** {t.team_name} pits (switched to {needed_tyre}, pit duration: {pit_duration:.2f}s).")
+                    pit_lane_loss = 10.0
+                    total_pit_loss = stationary_time + pit_lane_loss
+                    t.last_lap_time += total_pit_loss
+                    lap_logs.append(f"🔧 **Lap {lap}:** {t.team_name} pits (switched to {needed_tyre}, stationary stop: {stationary_time:.2f}s, total pit time lost: {total_pit_loss:.2f}s).")
                     pit_radio = random.choice(PIT_CALL_RADIOS).format(team=t.team_name, tyre=needed_tyre)
                     lap_logs.append(pit_radio)
                 
@@ -1066,6 +1121,14 @@ def simulate_gp_generator(entries_data: List[Dict[str, Any]], track_name: str, t
                 t.engine_temp = 85.0
                 t.tyre_type = needed_tyre
                 t.pit_stops_completed += 1
+                
+                if t.tyre_type == "Hard":
+                    t.out_lap_warmup = 2
+                elif t.tyre_type in ["Medium", "Intermediates"]:
+                    t.out_lap_warmup = 1
+                else:
+                    t.out_lap_warmup = 0
+
 
         # D. Reliability & DNF Checks (Disabled behind Safety Car)
         if safety_car_laps_left == 0 and vsc_laps_left == 0:
