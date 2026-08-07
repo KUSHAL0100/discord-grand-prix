@@ -639,7 +639,7 @@ def simulate_duel_generator(team1_data: Dict[str, Any], team2_data: Dict[str, An
         # Calculate tyre wear based on compound choice
         for t in [leader, trailer]:
             if t.tyre_type == "Soft":
-                base_wear = 12.0
+                base_wear = 10.0
             elif t.tyre_type == "Hard":
                 base_wear = 4.0
             else: # Medium
@@ -658,8 +658,8 @@ def simulate_duel_generator(team1_data: Dict[str, Any], team2_data: Dict[str, An
         T_base = TRACK_BASE_LAP_TIMES.get(track, 45.0)
 
         # Calculate performance for this lap
-        l_tyre_bonus = 1.0 if leader.tyre_type == "Soft" else (0.0 if leader.tyre_type == "Hard" else 0.5)
-        t_tyre_bonus = 1.0 if trailer.tyre_type == "Soft" else (0.0 if trailer.tyre_type == "Hard" else 0.5)
+        l_tyre_bonus = 2.5 if leader.tyre_type == "Soft" else (0.0 if leader.tyre_type == "Hard" else 1.25)
+        t_tyre_bonus = 2.5 if trailer.tyre_type == "Soft" else (0.0 if trailer.tyre_type == "Hard" else 1.25)
         
         l_perf = leader.calculate_base_car_power(track) + (leader.driver_pace / 20.0) + l_tyre_bonus + random.uniform(-0.5, 0.5)
         t_perf = trailer.calculate_base_car_power(track) + (trailer.driver_pace / 20.0) + t_tyre_bonus + random.uniform(-0.5, 0.5)
@@ -675,11 +675,11 @@ def simulate_duel_generator(team1_data: Dict[str, Any], team2_data: Dict[str, An
         elif trailer.strategy in ["Conservative", "Save"]:
             t_perf -= 0.5
             
-        # Tyre penalty
+        # Tyre penalty (starts below 40% health as tyres degrade)
         if leader.tyre_health < 40.0:
-            l_perf -= (40.0 - leader.tyre_health) * 0.1
+            l_perf -= ((40.0 - leader.tyre_health) ** 1.5) * 0.08
         if trailer.tyre_health < 40.0:
-            t_perf -= (40.0 - trailer.tyre_health) * 0.1
+            t_perf -= ((40.0 - trailer.tyre_health) ** 1.5) * 0.08
             
         # Calculate dynamic lap times for telemetry chart (seconds)
         l_var = random.uniform(-0.35, 0.35)
@@ -932,13 +932,18 @@ def simulate_gp_generator(entries_data: List[Dict[str, Any]], track_name: str, t
             driver_bonus = (t.driver_pace / 100.0) * 2.0
             lap_time -= driver_bonus
             
-            # Tyre wear rate & simulation
+            # Tyre wear rate & compound pace bonus simulation
             if t.tyre_type == "Soft":
-                base_wear = 12.0
+                base_wear = 10.0
+                compound_pace_bonus = 0.8
             elif t.tyre_type == "Hard":
                 base_wear = 4.0
+                compound_pace_bonus = 0.0
             else: # Medium or Intermediates
                 base_wear = 7.0
+                compound_pace_bonus = 0.4
+                
+            lap_time -= compound_pace_bonus
                 
             # Pace strategy multipliers
             strategy_wear_mult = 1.0
@@ -992,10 +997,10 @@ def simulate_gp_generator(entries_data: List[Dict[str, Any]], track_name: str, t
             t.tyre_health -= random.uniform(base_wear - 1.5, base_wear + 1.5) * strategy_wear_mult * aggression_wear_mult
             t.tyre_health = max(0.0, t.tyre_health)
             
-            # Tyre wear penalty (slower as tyres degrade, bypassed during SC/VSC speed limit)
+            # Tyre wear penalty (slower as tyres degrade below 40% health)
             wear_penalty = 0.0
-            if t.tyre_health < 80.0 and safety_car_laps_left == 0 and vsc_laps_left == 0:
-                wear_penalty = ((80.0 - t.tyre_health) ** 1.5) * 0.005
+            if t.tyre_health < 40.0 and safety_car_laps_left == 0 and vsc_laps_left == 0:
+                wear_penalty = ((40.0 - t.tyre_health) ** 1.5) * 0.015
             lap_time += wear_penalty
             
             if t.tyre_health < 40.0 and random.random() < 0.2:

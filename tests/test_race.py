@@ -334,5 +334,31 @@ def test_simulate_duel_generator_lap_telemetry():
         assert "Team A" in lap_telemetry_history[0]["drivers"]
         assert "Team B" in lap_telemetry_history[0]["drivers"]
 
+def test_soft_tyre_pace_reward():
+    entry_soft = {
+        "user_id": 1, "team_name": "Soft Team", "discord_id": 1001,
+        "engine": 10, "aerodynamics": 10, "tyres": 10, "ers": 10, "reliability": 10,
+        "pace": 90, "qual": 90, "wet_skill": 90, "consistency": 90, "aggression": 90, "overtaking": 90,
+        "pref_tyres": "Soft"
+    }
+    entry_med = {
+        "user_id": 2, "team_name": "Med Team", "discord_id": 1002,
+        "engine": 10, "aerodynamics": 10, "tyres": 10, "ers": 10, "reliability": 10,
+        "pace": 90, "qual": 90, "wet_skill": 90, "consistency": 90, "aggression": 90, "overtaking": 90,
+        "pref_tyres": "Medium"
+    }
+    
+    gen = race.simulate_gp_generator([entry_soft, entry_med], "Monza", total_laps=1, weather_timeline=["Sunny"])
+    setup = next(gen)
+    teams = setup[1]
+    lap1 = next(gen)
+    
+    t_soft = [t for t in teams if t.team_name == "Soft Team"][0]
+    t_med = [t for t in teams if t.team_name == "Med Team"][0]
+    
+    # On lap 1 when tyres are fresh, Soft team should have faster lap time than Medium team by ~0.4s
+    assert t_soft.last_lap_time < t_med.last_lap_time, f"Soft ({t_soft.last_lap_time}) should be faster than Medium ({t_med.last_lap_time}) on fresh tyres"
+
+
 
 
