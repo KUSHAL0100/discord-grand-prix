@@ -992,15 +992,9 @@ class RaceChallengeView(discord.ui.View):
 
 def is_admin():
     async def predicate(interaction: discord.Interaction) -> bool:
-        if interaction.user.guild_permissions.administrator:
-            return True
-        if hasattr(interaction.user, 'roles'):
-            import config
-            role = discord.utils.get(interaction.user.roles, name=config.ADMIN_ROLE_NAME)
-            if role is not None:
-                return True
-        return False
+        return utils.is_admin_user(interaction)
     return app_commands.check(predicate)
+
 
 
 class StrategyPaceSelect(discord.ui.Select):
@@ -1138,6 +1132,9 @@ class GPTrackSelect(discord.ui.Select):
         self.is_sprint = is_sprint
 
     async def callback(self, interaction: discord.Interaction):
+        if not utils.is_admin_user(interaction):
+            await interaction.response.send_message("❌ Only bot administrators can interact with the Grand Prix control panel.", ephemeral=True)
+            return
         track_choice = self.values[0]
         event_type = "Sprint Race" if self.is_sprint else "Grand Prix"
         gp_name = f"{track_choice} {event_type}"
@@ -1177,6 +1174,9 @@ class GPStartQualiButton(discord.ui.Button):
         self.session_key = session_key
 
     async def callback(self, interaction: discord.Interaction):
+        if not utils.is_admin_user(interaction):
+            await interaction.response.send_message("❌ Only bot administrators can interact with the Grand Prix control panel.", ephemeral=True)
+            return
         await interaction.response.defer()
         active_gp = database.get_active_gp_race(interaction.guild_id)
         if not active_gp:
@@ -1652,6 +1652,9 @@ class GPStartRaceButton(discord.ui.Button):
         super().__init__(label="🏎️ Start Main GP", style=discord.ButtonStyle.blurple, custom_id="gp_start_race")
 
     async def callback(self, interaction: discord.Interaction):
+        if not utils.is_admin_user(interaction):
+            await interaction.response.send_message("❌ Only bot administrators can interact with the Grand Prix control panel.", ephemeral=True)
+            return
         await interaction.response.defer()
         active_gp = database.get_active_gp_race(interaction.guild_id)
         if not active_gp:
@@ -1832,6 +1835,9 @@ class GPCancelButton(discord.ui.Button):
         super().__init__(label="Cancel GP", style=discord.ButtonStyle.red, custom_id="gp_cancel")
 
     async def callback(self, interaction: discord.Interaction):
+        if not utils.is_admin_user(interaction):
+            await interaction.response.send_message("❌ Only bot administrators can interact with the Grand Prix control panel.", ephemeral=True)
+            return
         success, msg = database.cancel_active_gp(interaction.guild_id)
         if success:
             view = GPAdminView(interaction.guild_id)
@@ -1851,6 +1857,9 @@ class GPPromptDMsButton(discord.ui.Button):
         super().__init__(label="📩 Send DM Tyre Prompts", style=discord.ButtonStyle.secondary, custom_id="gp_prompt_dms")
 
     async def callback(self, interaction: discord.Interaction):
+        if not utils.is_admin_user(interaction):
+            await interaction.response.send_message("❌ Only bot administrators can interact with the Grand Prix control panel.", ephemeral=True)
+            return
         await interaction.response.defer(ephemeral=True)
         active_gp = database.get_active_gp_race(interaction.guild_id)
         if not active_gp:
@@ -1930,6 +1939,13 @@ class GPAdminView(discord.ui.View):
                 self.add_item(GPStartRaceButton())
                 
             self.add_item(GPCancelButton())
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if utils.is_admin_user(interaction):
+            return True
+        await interaction.response.send_message("❌ Only bot administrators can interact with the Grand Prix control panel.", ephemeral=True)
+        return False
+
 
 
 

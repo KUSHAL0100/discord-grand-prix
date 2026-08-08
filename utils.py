@@ -351,3 +351,21 @@ def generate_race_telemetry_graph(lap_history: List[Any]) -> io.BytesIO:
     buf.seek(0)
     return buf
 
+
+def is_admin_user(interaction: discord.Interaction) -> bool:
+    """Check if the interaction user has administrative privileges for the bot/guild."""
+    if not interaction.guild:
+        return False
+    if interaction.user.id == interaction.guild.owner_id:
+        return True
+    if hasattr(interaction.user, 'guild_permissions') and interaction.user.guild_permissions.administrator:
+        return True
+    if hasattr(interaction.user, 'roles'):
+        for role in interaction.user.roles:
+            if role.name.lower() == config.ADMIN_ROLE_NAME.lower():
+                return True
+    if database.is_bot_admin(interaction.user.id, interaction.guild.id):
+        return True
+    return False
+
+

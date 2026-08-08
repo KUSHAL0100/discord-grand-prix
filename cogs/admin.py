@@ -5,6 +5,7 @@ from typing import List, Dict, Optional, Tuple, Any
 import shutil
 import os
 from datetime import datetime
+import math
 
 import config
 import database
@@ -13,20 +14,7 @@ import utils
 def is_admin():
     """Check if the user is an admin, server owner, has the configured Admin role, or is a game admin."""
     async def predicate(interaction: discord.Interaction) -> bool:
-        # Server owner always has admin access
-        if interaction.user.id == interaction.guild.owner_id:
-            return True
-        if interaction.user.guild_permissions.administrator:
-            return True
-        # Check configured admin role (case-insensitive)
-        if hasattr(interaction.user, 'roles'):
-            for role in interaction.user.roles:
-                if role.name.lower() == config.ADMIN_ROLE_NAME.lower():
-                    return True
-        # Check database game admin list
-        if database.is_bot_admin(interaction.user.id, interaction.guild_id):
-            return True
-        return False
+        return utils.is_admin_user(interaction)
     return app_commands.check(predicate)
 
 def is_owner_or_mod():
@@ -405,7 +393,8 @@ class AdminCog(commands.Cog):
             await interaction.response.send_message("❌ Database file does not exist yet.", ephemeral=True)
             return
             
-        backup_filename = f"backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{config.DATABASE_PATH}"
+        db_filename = os.path.basename(config.DATABASE_PATH)
+        backup_filename = f"backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{db_filename}"
         try:
             shutil.copy2(config.DATABASE_PATH, backup_filename)
             await interaction.response.send_message(
@@ -503,18 +492,11 @@ class SeasonCalendarAdminView(discord.ui.View):
         self.active_season = active_season
         self.calendar = calendar
         self.selected_index = None
+        self.page = 0
         self.update_components()
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
-        if interaction.user.id == interaction.guild.owner_id:
-            return True
-        if interaction.user.guild_permissions.administrator:
-            return True
-        if hasattr(interaction.user, 'roles'):
-            for role in interaction.user.roles:
-                if role.name.lower() == config.ADMIN_ROLE_NAME.lower():
-                    return True
-        if database.is_bot_admin(interaction.user.id, interaction.guild_id):
+        if utils.is_admin_user(interaction):
             return True
         await interaction.response.send_message("❌ Only server administrators can manage the WDC Season Calendar.", ephemeral=True)
         return False
@@ -551,18 +533,18 @@ class SeasonCalendarAdminView(discord.ui.View):
         self.clear_items()
         
         if self.calendar:
-            options = []
-            max_options = 25
             total_items = len(self.calendar)
+            max_options = 25
+            total_pages = max(1, math.ceil(total_items / max_options))
             
-            # Sliding window centered around selected_index to enforce Discord API 25-option max limit
-            start_idx = 0
-            if self.selected_index is not None and self.selected_index >= max_options:
-                start_idx = min(self.selected_index - 12, total_items - max_options)
-                start_idx = max(0, start_idx)
+            if self.selected_index is not None:
+                self.page = self.selected_index // max_options
             
+            self.page = max(0, min(self.page, total_pages - 1))
+            start_idx = self.page * max_options
             end_idx = min(start_idx + max_options, total_items)
             
+            options = []
             for idx in range(start_idx, end_idx):
                 item = self.calendar[idx]
                 race_type = "Sprint" if item['is_sprint'] else "GP"
@@ -572,13 +554,25 @@ class SeasonCalendarAdminView(discord.ui.View):
                     default=(self.selected_index == idx)
                 ))
             
-            placeholder = "Select a Round to Manage..."
-            if total_items > max_options:
-                placeholder = f"Select Round {start_idx+1}-{end_idx} of {total_items}..."
+            placeholder = f"Select Round {start_idx+1}-{end_idx} of {total_items}..."
+            if total_pages > 1:
+                placeholder = f"Page {self.page+1}/{total_pages}: Select Round {start_idx+1}-{end_idx} of {total_items}..."
                 
             select = discord.ui.Select(placeholder=placeholder, options=options, custom_id="season_cal_select")
             select.callback = self.select_callback
             self.add_item(select)
+            
+            if total_pages > 1:
+                prev_page_btn = discord.ui.Button(label="◀️ Prev 25", style=discord.ButtonStyle.primary, disabled=(self.page == 0), custom_id="cal_prev_page")
+                prev_page_btn.callback = self.prev_page_callback
+                self.add_item(prev_page_btn)
+                
+                page_info_btn = discord.ui.Button(label=f"Page {self.page+1}/{total_pages}", style=discord.ButtonStyle.secondary, disabled=True, custom_id="cal_page_info")
+                self.add_item(page_info_btn)
+                
+                next_page_btn = discord.ui.Button(label="▶️ Next 25", style=discord.ButtonStyle.primary, disabled=(self.page >= total_pages - 1), custom_id="cal_next_page")
+                next_page_btn.callback = self.next_page_callback
+                self.add_item(next_page_btn)
             
             if self.selected_index is not None:
                 up_btn = discord.ui.Button(label="Move Up", style=discord.ButtonStyle.secondary, emoji="⬆️", disabled=(self.selected_index == 0))
@@ -602,6 +596,20 @@ class SeasonCalendarAdminView(discord.ui.View):
         start_btn = discord.ui.Button(label="Start Next Round", style=discord.ButtonStyle.success, emoji="🏁", disabled=(next_race is None))
         start_btn.callback = self.start_next_round_callback
         self.add_item(start_btn)
+
+    async def prev_page_callback(self, interaction: discord.Interaction):
+        if self.page > 0:
+            self.page -= 1
+        self.update_components()
+        await interaction.response.edit_message(embed=self.build_embed(), view=self)
+
+    async def next_page_callback(self, interaction: discord.Interaction):
+        total_pages = math.ceil(len(self.calendar) / 25)
+        if self.page < total_pages - 1:
+            self.page += 1
+        self.update_components()
+        await interaction.response.edit_message(embed=self.build_embed(), view=self)
+
 
 
     async def select_callback(self, interaction: discord.Interaction):

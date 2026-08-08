@@ -7,6 +7,9 @@ import config
 
 def get_db_connection():
     """Establish a connection to the SQLite database and return it."""
+    db_dir = os.path.dirname(config.DATABASE_PATH)
+    if db_dir and not os.path.exists(db_dir):
+        os.makedirs(db_dir, exist_ok=True)
     conn = sqlite3.connect(config.DATABASE_PATH)
     conn.row_factory = sqlite3.Row
     # Enable foreign keys
@@ -2303,4 +2306,5 @@ def get_head_to_head_record(user1_id: int, user2_id: int) -> Tuple[int, int]:
         return (0, 0)
     finally:
         conn.close()
+
 
