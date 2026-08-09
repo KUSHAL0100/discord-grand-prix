@@ -128,10 +128,10 @@ SPRINT_POINTS_DISTRIBUTION = [8, 7, 6, 5, 4, 3, 2, 1]          # Top 8 Sprint po
 # Rarity price multipliers (scales upgrade cost proportional to efficiency bonus)
 RARITY_PRICE_MULTIPLIERS = {
     "Common": 1.00,       # Base cost (+0%)
-    "Uncommon": 1.06,     # +6% price multiplier (+5% stat efficiency)
-    "Rare": 1.15,         # +15% price multiplier (+12% stat efficiency)
-    "Epic": 1.25,         # +25% price multiplier (+22% stat efficiency)
-    "Legendary": 1.40     # +40% price multiplier (+35% stat efficiency)
+    "Uncommon": 1.10,     # +10% price multiplier (+5% stat efficiency)
+    "Rare": 1.20,         # +20% price multiplier (+12% stat efficiency)
+    "Epic": 1.30,         # +30% price multiplier (+17% stat efficiency)
+    "Legendary": 1.40     # +40% price multiplier (+25% stat efficiency)
 }
 
 def get_upgrade_cost(part_name: str, target_level: int, rarity: str = "Common") -> int:

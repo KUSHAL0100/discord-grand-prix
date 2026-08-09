@@ -252,6 +252,12 @@ def init_db():
         cursor.execute("ALTER TABLE users ADD COLUMN daily_free_duels INTEGER NOT NULL DEFAULT 0")
     if "daily_free_races" not in users_cols:
         cursor.execute("ALTER TABLE users ADD COLUMN daily_free_races INTEGER NOT NULL DEFAULT 0")
+    if "crate_rookie_pity" not in users_cols:
+        cursor.execute("ALTER TABLE users ADD COLUMN crate_rookie_pity INTEGER NOT NULL DEFAULT 0")
+    if "crate_pro_pity" not in users_cols:
+        cursor.execute("ALTER TABLE users ADD COLUMN crate_pro_pity INTEGER NOT NULL DEFAULT 0")
+    if "crate_champion_pity" not in users_cols:
+        cursor.execute("ALTER TABLE users ADD COLUMN crate_champion_pity INTEGER NOT NULL DEFAULT 0")
 
     # Race Entries table migrations
     re_cols = get_existing_columns("race_entries")
@@ -425,6 +431,51 @@ def get_user_by_id(user_id: int) -> Optional[Dict[str, Any]]:
     row = cursor.fetchone()
     conn.close()
     return dict(row) if row else None
+
+def get_crate_pity(user_id: int) -> Dict[str, int]:
+    """Get current crate pity counters for a user."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT crate_rookie_pity, crate_pro_pity, crate_champion_pity FROM users WHERE user_id = ?", (user_id,))
+    row = cursor.fetchone()
+    conn.close()
+    if row:
+        return {
+            "rookie": row["crate_rookie_pity"] or 0,
+            "pro": row["crate_pro_pity"] or 0,
+            "champion": row["crate_champion_pity"] or 0
+        }
+    return {"rookie": 0, "pro": 0, "champion": 0}
+
+def update_crate_pity(user_id: int, crate_tier: str, reset: bool = False) -> int:
+    """
+    Updates crate pity counter for user.
+    If reset is True, sets counter to 0. Otherwise increments counter by 1.
+    Returns the new counter value.
+    """
+    col_map = {
+        "rookie": "crate_rookie_pity",
+        "pro": "crate_pro_pity",
+        "champion": "crate_champion_pity"
+    }
+    tier_key = crate_tier.lower()
+    if tier_key not in col_map:
+        return 0
+    col = col_map[tier_key]
+    
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    if reset:
+        cursor.execute(f"UPDATE users SET {col} = 0 WHERE user_id = ?", (user_id,))
+        new_val = 0
+    else:
+        cursor.execute(f"UPDATE users SET {col} = COALESCE({col}, 0) + 1 WHERE user_id = ?", (user_id,))
+        cursor.execute(f"SELECT {col} FROM users WHERE user_id = ?", (user_id,))
+        row = cursor.fetchone()
+        new_val = row[col] if row else 0
+    conn.commit()
+    conn.close()
+    return new_val
 
 def get_full_team_profile(discord_id: int, guild_id: int) -> Optional[Dict[str, Any]]:
     """Retrieve user, driver, strategist, and garage details as a single dictionary."""

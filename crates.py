@@ -16,16 +16,16 @@ RARITY_BONUS_MULTIPLIERS = {
     "Common": 1.00,
     "Uncommon": 1.05,
     "Rare": 1.12,
-    "Epic": 1.22,
-    "Legendary": 1.35
+    "Epic": 1.17,        # +17% stat efficiency
+    "Legendary": 1.25   # +25% stat efficiency
 }
 
 # Rarity price multipliers (scales upgrade cost proportional to efficiency bonus)
 RARITY_PRICE_MULTIPLIERS = {
     "Common": 1.00,       # Base cost (+0%)
-    "Uncommon": 1.06,     # +6% price multiplier
-    "Rare": 1.15,         # +15% price multiplier
-    "Epic": 1.25,         # +25% price multiplier
+    "Uncommon": 1.10,     # +10% price multiplier
+    "Rare": 1.20,         # +20% price multiplier
+    "Epic": 1.30,         # +30% price multiplier
     "Legendary": 1.40     # +40% price multiplier
 }
 
@@ -45,7 +45,7 @@ CRATE_CONFIGS = {
         "price": 500,
         "gold_min": 25,
         "gold_max": 125,  # 25% max return
-        "part_chance": 0.60, # 60% chance to drop part
+        "part_chance": 0.60, # 60% chance to drop part on normal rolls
         "rarities": ["Common", "Uncommon", "Rare"],
         "weights": [70, 25, 5]
     },
@@ -54,7 +54,7 @@ CRATE_CONFIGS = {
         "price": 2500,
         "gold_min": 125,
         "gold_max": 625,  # 25% max return
-        "part_chance": 0.85, # 85% chance to drop part
+        "part_chance": 0.85, # 85% chance to drop part on normal rolls
         "rarities": ["Uncommon", "Rare", "Epic", "Legendary"],
         "weights": [40, 45, 12, 3]
     },
@@ -83,7 +83,10 @@ def unbox_crate(user_id: int, crate_tier: str) -> Tuple[bool, str, Dict[str, Any
     Unboxes a crate for the user:
     1. Deducts price from user money balance.
     2. Rolls Gold / Credits reward (range specified per crate tier).
-    3. Rolls Part Drop Chance and Rarity.
+    3. Checks and updates bad luck protection (pity counter):
+       - Rookie: 60% base drop rate. After 3 openings without Uncommon+, 4th crate guarantees 100% part drop & Uncommon+ part.
+       - Pro: 85% base drop rate. After 3 openings without Rare+, 4th crate guarantees 100% part drop & Rare+ part.
+       - Champion: 100% base drop rate. After 3 openings without Epic+, 4th crate guarantees 100% part drop & Epic+ part.
     4. Adds part into user inventory if dropped.
     """
     tier_key = crate_tier.lower()
@@ -113,10 +116,42 @@ def unbox_crate(user_id: int, crate_tier: str) -> Tuple[bool, str, Dict[str, Any
     gold_reward = random.randint(cfg["gold_min"], cfg["gold_max"])
     database.update_user_balance(user_id, gold_reward)
     
-    # 2. Roll Part Drop
-    part_dropped = None
-    if random.random() <= cfg["part_chance"]:
+    # 2. Get pity status & determine drop chances
+    pity_dict = database.get_crate_pity(user_id)
+    current_pity = pity_dict.get(tier_key, 0)
+    
+    pity_triggered = False
+    part_drop_chance = cfg["part_chance"]
+    
+    if tier_key == "rookie":
+        if current_pity >= 3:
+            pity_triggered = True
+            part_drop_chance = 1.00  # Pity guarantees 100% part drop
+            rarity = random.choices(["Uncommon", "Rare"], weights=[80, 20], k=1)[0]
+        else:
+            rarity = random.choices(cfg["rarities"], weights=cfg["weights"], k=1)[0]
+                
+    elif tier_key == "pro":
+        if current_pity >= 3:
+            pity_triggered = True
+            part_drop_chance = 1.00  # Pity guarantees 100% part drop
+            rarity = random.choices(["Rare", "Epic", "Legendary"], weights=[65, 30, 5], k=1)[0]
+        else:
+            rarity = random.choices(cfg["rarities"], weights=cfg["weights"], k=1)[0]
+                
+    elif tier_key == "champion":
+        if current_pity >= 3:
+            pity_triggered = True
+            part_drop_chance = 1.00  # Pity guarantees 100% part drop
+            rarity = random.choices(["Epic", "Legendary"], weights=[80, 20], k=1)[0]
+        else:
+            rarity = random.choices(cfg["rarities"], weights=cfg["weights"], k=1)[0]
+    else:
         rarity = random.choices(cfg["rarities"], weights=cfg["weights"], k=1)[0]
+        
+    # 3. Roll Part Drop
+    part_dropped = None
+    if random.random() <= part_drop_chance:
         category = random.choice(["engine", "aerodynamics", "tyres", "ers", "reliability", "pit_crew"])
         part_title = random.choice(PART_NAMES[category])
         
@@ -144,13 +179,34 @@ def unbox_crate(user_id: int, crate_tier: str) -> Tuple[bool, str, Dict[str, Any
                 "stat_bonus": stat_bonus,
                 "efficiency_bonus": f"+{(RARITY_BONUS_MULTIPLIERS.get(rarity, 1.0) - 1.0)*100:.0f}%"
             }
+
+    # 4. Update Pity counter in database
+    if pity_triggered:
+        new_pity = database.update_crate_pity(user_id, tier_key, reset=True)
+    else:
+        hit_target = False
+        if part_dropped:
+            r = part_dropped["rarity"]
+            if tier_key == "rookie" and r in ["Uncommon", "Rare", "Epic", "Legendary"]:
+                hit_target = True
+            elif tier_key == "pro" and r in ["Rare", "Epic", "Legendary"]:
+                hit_target = True
+            elif tier_key == "champion" and r in ["Epic", "Legendary"]:
+                hit_target = True
+                
+        if hit_target:
+            new_pity = database.update_crate_pity(user_id, tier_key, reset=True)
+        else:
+            new_pity = database.update_crate_pity(user_id, tier_key, reset=False)
             
     summary = {
         "crate_name": cfg["name"],
         "cost": price,
         "gold_reward": gold_reward,
         "net_cost": price - gold_reward,
-        "part_dropped": part_dropped
+        "part_dropped": part_dropped,
+        "pity_triggered": pity_triggered,
+        "pity_counter": new_pity
     }
     
     return True, "Crate unboxed successfully!", summary

@@ -135,9 +135,9 @@ def test_rarity_upgrade_costs():
     cost_legendary = config.get_upgrade_cost("engine", 2, "Legendary")
     
     assert cost_common == int(200 * 1.0 * 1.00)     # 200
-    assert cost_uncommon == int(200 * 1.0 * 1.06)   # 212
-    assert cost_rare == int(200 * 1.0 * 1.15)       # 230
-    assert cost_epic == int(200 * 1.0 * 1.25)       # 250
+    assert cost_uncommon == int(200 * 1.0 * 1.10)   # 220
+    assert cost_rare == int(200 * 1.0 * 1.20)       # 240
+    assert cost_epic == int(200 * 1.0 * 1.30)       # 260
     assert cost_legendary == int(200 * 1.0 * 1.40)  # 280
 
     # Ensure strictly increasing cost by rarity

@@ -133,14 +133,17 @@ class EconomyCog(commands.Cog):
             "📦 **Rookie Crate — 500¢**\n"
             "  • **Guaranteed Gold:** `25¢ – 125¢` refund (Max 25% return)\n"
             "  • **Part Drop Chance:** `60%` (⚪ Common 70% | 🟢 Uncommon 25% | 🔵 Rare 5%)\n"
+            "  • **Bad Luck Protection:** 3 openings without Uncommon+ guarantees **100% Drop & Uncommon+ part** on your 4th crate!\n"
             "  • Command: `/open crate_tier:rookie`\n\n"
             "💼 **Pro Crate — 2,500¢**\n"
             "  • **Guaranteed Gold:** `125¢ – 625¢` refund (Max 25% return)\n"
             "  • **Part Drop Chance:** `85%` (🟢 Uncommon 40% | 🔵 Rare 45% | 🟣 Epic 12% | 🟡 Legendary 3%)\n"
+            "  • **Bad Luck Protection:** 3 openings without Rare+ guarantees **100% Drop & Rare+ part** on your 4th crate!\n"
             "  • Command: `/open crate_tier:pro`\n\n"
             "🏆 **Champion Crate — 6,000¢**\n"
             "  • **Guaranteed Gold:** `300¢ – 1,500¢` refund (Max 25% return)\n"
             "  • **Part Drop Chance:** `100% Guaranteed` (🔵 Rare 35% | 🟣 Epic 50% | 🟡 Legendary 15%)\n"
+            "  • **Bad Luck Protection:** 3 openings without Epic+ guarantees **100% Drop & Epic+ part** on your 4th crate!\n"
             "  • Command: `/open crate_tier:champion`"
         )
         embed = utils.create_embed(title="🎁 Loot Crates & Unboxing Store", description=desc, color=utils.COLOR_QUALIFYING)
@@ -166,22 +169,27 @@ class EconomyCog(commands.Cog):
             return
             
         part = summary["part_dropped"]
-        part_desc = ""
-        if part:
-            part_desc = (
-                f"\n\n✨ **NEW CAR PART UNBOXED!**\n"
-                f"{part['emoji']} **{part['rarity']} {part['part_name']}**\n"
-                f"⚙️ **Category:** `{part['category'].upper()}` | **Level:** `{part['level']}`\n"
-                f"⚡ **Efficiency Bonus:** `{part['efficiency_bonus']}` tuning boost!\n"
-                f"*Equip it in `/inventory` to install it onto your car!*"
-            )
+        pity_triggered = summary.get("pity_triggered", False)
+        pity_counter = summary.get("pity_counter", 0)
+        
+        if pity_triggered:
+            pity_info = "\n🛡️ **BAD LUCK PROTECTION ACTIVATED!** Guaranteed higher tier drop!"
         else:
-            part_desc = "\n\n⚙️ *No car part dropped this time, better luck next crate!*"
+            pity_info = f"\n🛡️ **Pity Counter:** `{pity_counter}/3`"
+            
+        part_desc = (
+            f"\n\n✨ **NEW CAR PART UNBOXED!**\n"
+            f"{part['emoji']} **{part['rarity']} {part['part_name']}**\n"
+            f"⚙️ **Category:** `{part['category'].upper()}` | **Level:** `{part['level']}`\n"
+            f"⚡ **Efficiency Bonus:** `{part['efficiency_bonus']}` tuning boost!\n"
+            f"*Equip it in `/inventory` to install it onto your car!*"
+        ) if part else ""
             
         desc = (
             f"🎉 **{summary['crate_name']} Unboxed!**\n\n"
             f"💰 **Gold Returned:** `+{summary['gold_reward']:,}¢`\n"
-            f"📊 **Net Cost:** `{summary['net_cost']:,}¢`{part_desc}"
+            f"📊 **Net Cost:** `{summary['net_cost']:,}¢`"
+            f"{pity_info}{part_desc}"
         )
         
         embed = utils.create_embed(
