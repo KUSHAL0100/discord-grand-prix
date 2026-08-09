@@ -502,13 +502,16 @@ class GarageCog(commands.Cog):
                 rarity = 'Common'
             r_emoji = crates.RARITY_EMOJIS.get(rarity, '⚪')
             
-            if base_level >= config.MAX_STAT_LEVEL:
-                cost_str = "MAX BASE LEVEL"
+            if curr_level >= config.MAX_STAT_LEVEL:
+                cost_str = "MAX LEVEL"
+                next_level_str = f"Level `{config.MAX_STAT_LEVEL}`"
             else:
-                cost = config.get_upgrade_cost(part, base_level + 1, rarity)
+                next_level = curr_level + 1
+                cost = config.get_upgrade_cost(part, next_level, rarity)
                 cost_str = f"{cost:,}¢"
+                next_level_str = f"Level `{next_level}`"
                 
-            desc += f"• **{part.capitalize()}:** Level `{curr_level}` ({r_emoji} {rarity}) → Upgrade Base: Level `{base_level + 1 if base_level < config.MAX_STAT_LEVEL else config.MAX_STAT_LEVEL}` (Cost: {cost_str})\n"
+            desc += f"• **{part.capitalize()}:** Level `{curr_level}` ({r_emoji} {rarity}) → Next Level: {next_level_str} (Cost: {cost_str})\n"
             
         embed = utils.create_embed(
             title="🛒 The Performance Shop",
