@@ -112,6 +112,19 @@ class EconomyCog(commands.Cog):
         color = utils.COLOR_SUCCESS if success else utils.COLOR_WARNING
         await interaction.response.send_message(embed=utils.create_embed(title="🎁 Daily Reward", description=msg, color=color))
 
+    @app_commands.command(name="weekly", description="Claim your weekly credit login bonus (3,000 credits).")
+    @app_commands.guild_only()
+    async def weekly(self, interaction: discord.Interaction):
+        user = database.get_user_by_discord_id(interaction.user.id, interaction.guild_id)
+        if not user:
+            await interaction.response.send_message("❌ You do not have a profile yet. Use `/start` to create one!", ephemeral=True)
+            return
+
+        success, msg = database.claim_weekly_bonus(user['user_id'])
+        color = utils.COLOR_SUCCESS if success else utils.COLOR_WARNING
+        await interaction.response.send_message(embed=utils.create_embed(title="🎁 Weekly Reward", description=msg, color=color))
+
+
     @app_commands.command(name="work", description="Perform a daily odd-job for your racing team to earn credits.")
     @app_commands.guild_only()
     async def work(self, interaction: discord.Interaction):

@@ -42,6 +42,7 @@ def init_db():
         daily_free_races INTEGER NOT NULL DEFAULT 0,
         last_credits_reset TEXT DEFAULT (date('now')),
         last_daily_claim TEXT,
+        last_weekly_claim TEXT,
         last_work_claim TEXT,
         pref_strategy TEXT DEFAULT 'Balanced',
         pref_tyres TEXT DEFAULT 'Medium',
@@ -258,6 +259,8 @@ def init_db():
         cursor.execute("ALTER TABLE users ADD COLUMN crate_pro_pity INTEGER NOT NULL DEFAULT 0")
     if "crate_champion_pity" not in users_cols:
         cursor.execute("ALTER TABLE users ADD COLUMN crate_champion_pity INTEGER NOT NULL DEFAULT 0")
+    if "last_weekly_claim" not in users_cols:
+        cursor.execute("ALTER TABLE users ADD COLUMN last_weekly_claim TEXT")
 
     # Race Entries table migrations
     re_cols = get_existing_columns("race_entries")
@@ -1702,12 +1705,16 @@ def get_equipped_inventory(user_id_or_discord_id: int) -> Dict[str, Dict[str, An
     """Return dictionary of currently equipped parts per category."""
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT user_id FROM users WHERE user_id = ? OR discord_id = ?", (user_id_or_discord_id, user_id_or_discord_id))
-    rows = cursor.fetchall()
-    user_ids = [r['user_id'] for r in rows] if rows else [user_id_or_discord_id]
+    cursor.execute("SELECT user_id FROM users WHERE user_id = ?", (user_id_or_discord_id,))
+    row = cursor.fetchone()
+    if row:
+        target_uid = row['user_id']
+    else:
+        cursor.execute("SELECT user_id FROM users WHERE discord_id = ?", (user_id_or_discord_id,))
+        row2 = cursor.fetchone()
+        target_uid = row2['user_id'] if row2 else user_id_or_discord_id
     
-    placeholders = ",".join(["?"] * len(user_ids))
-    cursor.execute(f"SELECT * FROM user_inventory WHERE user_id IN ({placeholders}) AND is_equipped = 1", user_ids)
+    cursor.execute("SELECT * FROM user_inventory WHERE user_id = ? AND is_equipped = 1", (target_uid,))
     rows = cursor.fetchall()
     conn.close()
     res = {}
@@ -2190,6 +2197,30 @@ def get_daily_reset_cooldown_str() -> Tuple[str, int]:
     ts = int(tomorrow_midnight.timestamp())
     return f"**{hours}h {mins}m {secs}s** (<t:{ts}:R>)", ts
 
+def get_ist_week_str() -> str:
+    """Return current YYYY-Www ISO week string in Indian Standard Time (IST, UTC+5:30)."""
+    from datetime import datetime, timezone, timedelta
+    ist_tz = timezone(timedelta(hours=5, minutes=30))
+    now_ist = datetime.now(ist_tz)
+    year, week, _ = now_ist.isocalendar()
+    return f"{year}-W{week:02d}"
+
+def get_weekly_reset_cooldown_str() -> Tuple[str, int]:
+    """Returns formatted remaining time string (e.g. '4d 12h 15m 30s') and target Unix timestamp for next Monday 00:00 IST."""
+    from datetime import datetime, timezone, timedelta
+    ist_tz = timezone(timedelta(hours=5, minutes=30))
+    now_ist = datetime.now(ist_tz)
+    days_until_monday = 7 - now_ist.weekday()
+    next_monday = datetime.combine(now_ist.date() + timedelta(days=days_until_monday), datetime.min.time(), tzinfo=ist_tz)
+    rem_seconds = max(0, int((next_monday - now_ist).total_seconds()))
+    days = rem_seconds // 86400
+    hours = (rem_seconds % 86400) // 3600
+    mins = (rem_seconds % 3600) // 60
+    secs = rem_seconds % 60
+    ts = int(next_monday.timestamp())
+    time_fmt = f"{days}d {hours}h {mins}m {secs}s" if days > 0 else f"{hours}h {mins}m {secs}s"
+    return f"**{time_fmt}** (<t:{ts}:R>)", ts
+
 def claim_daily_bonus(user_id: int) -> Tuple[bool, str]:
     """Claim daily credit bonus (500 credits)."""
     conn = get_db_connection()
@@ -2207,6 +2238,29 @@ def claim_daily_bonus(user_id: int) -> Tuple[bool, str]:
         cursor.execute("UPDATE users SET money = money + ?, last_daily_claim = ? WHERE user_id = ?", (reward, today_str, user_id))
         conn.commit()
         return True, f"🎉 **Daily Bonus Claimed!** Received **+{reward:,} credits**!"
+    except sqlite3.Error as e:
+        conn.rollback()
+        return False, f"Database error: {e}"
+    finally:
+        conn.close()
+
+def claim_weekly_bonus(user_id: int) -> Tuple[bool, str]:
+    """Claim weekly credit bonus (3,000 credits)."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT last_weekly_claim FROM users WHERE user_id = ?", (user_id,))
+        row = cursor.fetchone()
+        current_week_str = get_ist_week_str()
+        
+        if row and row['last_weekly_claim'] == current_week_str:
+            cd_str, _ = get_weekly_reset_cooldown_str()
+            return False, f"⏳ You have already claimed your weekly bonus for this week! Cooldown: {cd_str}."
+            
+        reward = config.WEEKLY_BONUS
+        cursor.execute("UPDATE users SET money = money + ?, last_weekly_claim = ? WHERE user_id = ?", (reward, current_week_str, user_id))
+        conn.commit()
+        return True, f"🎁 **Weekly Bonus Claimed!** Received **+{reward:,} credits**!"
     except sqlite3.Error as e:
         conn.rollback()
         return False, f"Database error: {e}"

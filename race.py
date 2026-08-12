@@ -426,6 +426,30 @@ class SimTeam:
         self.fastest_lap_time = 999.9
         self.out_lap_warmup = 0
         
+    @property
+    def effective_pit_crew(self) -> float:
+        """Calculate effective pit crew stat including equipped item rarity offsets and multipliers."""
+        if getattr(self, 'is_ai', False):
+            return float(getattr(self, 'pit_crew', 1))
+        try:
+            user_id = getattr(self, 'user_id', None)
+            if not user_id:
+                return float(getattr(self, 'pit_crew', 1))
+            equipped = database.get_equipped_inventory(user_id)
+            item = equipped.get('pit_crew')
+            if item:
+                from crates import RARITY_BASE_OFFSETS, RARITY_BONUS_MULTIPLIERS
+                rarity = item.get('rarity', 'Common')
+                item_lvl = item.get('level', 1)
+                offset = RARITY_BASE_OFFSETS.get(rarity, 0)
+                base_lvl = getattr(self, 'pit_crew', 1)
+                effective_level = max(base_lvl, item_lvl + offset)
+                bonus_mult = RARITY_BONUS_MULTIPLIERS.get(rarity, 1.0)
+                return effective_level * bonus_mult
+        except Exception:
+            pass
+        return float(getattr(self, 'pit_crew', 1))
+
     def calculate_base_car_power(self, track_name: str) -> float:
         """Calculate car power adjusted for rarity base level offsets, tier scaling, track profiles and damage."""
         profile = TRACK_PROFILES.get(track_name, {"aero_mod": 1.0, "engine_mod": 1.0, "tyre_mod": 1.0})
@@ -566,7 +590,7 @@ def simulate_duel_generator(team1_data: Dict[str, Any], team2_data: Dict[str, An
                 else:
                     t.out_lap_warmup = 0
                 
-                stationary_time = max(1.8, round(3.5 - (t.pit_crew * 0.10), 2))
+                stationary_time = max(1.8, round(3.5 - (t.effective_pit_crew * 0.10), 2))
                 pit_lane_loss = 10.0
                 total_pit_loss = stationary_time + pit_lane_loss
                 if t == leader:
@@ -635,7 +659,7 @@ def simulate_duel_generator(team1_data: Dict[str, Any], team2_data: Dict[str, An
             if t.dnf:
                 continue
             if t.is_ai and total_laps > 3 and (t.tyre_health <= 60.0 or (getattr(t, 'pit_laps', None) and lap in t.pit_laps and t.tyre_health < 75.0)):
-                stationary_time = max(1.8, round(3.5 - (t.pit_crew * 0.10), 2))
+                stationary_time = max(1.8, round(3.5 - (t.effective_pit_crew * 0.10), 2))
                 pit_lane_loss = 10.0
                 total_pit_loss = stationary_time + pit_lane_loss
                 
@@ -1099,7 +1123,7 @@ def simulate_gp_generator(entries_data: List[Dict[str, Any]], track_name: str, t
                 
             if wants_pit:
                 # Scaled pit stop cost (stationary stop + pit lane drive-through loss)
-                pit_crew_val = getattr(t, "pit_crew", 1)
+                pit_crew_val = getattr(t, "effective_pit_crew", getattr(t, "pit_crew", 1))
                 stationary_time = max(1.8, round(3.5 - (pit_crew_val * 0.10), 2))
                 
                 if safety_car_laps_left > 0 or vsc_laps_left > 0:

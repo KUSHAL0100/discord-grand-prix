@@ -81,3 +81,8 @@ def perform_work(user_id: int) -> Tuple[bool, str]:
         return False, f"An error occurred: {str(e)}"
     finally:
         conn.close()
+
+def claim_weekly(user_id: int) -> Tuple[bool, str]:
+    """Claim weekly credit bonus (3000 credits)."""
+    return database.claim_weekly_bonus(user_id)
+

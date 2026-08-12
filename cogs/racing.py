@@ -595,7 +595,8 @@ class RaceChallengeView(discord.ui.View):
                 return utils.create_embed(
                     title=f"⏱️ Strategy Setup — Choose Your Race Pacing (Starting in {rem_seconds}s)!",
                     description=(
-                        f"**{self.challenger_prof['team_name']}** vs **{self.opponent_prof['team_name']}**\n\n"
+                        f"**{self.challenger_prof['team_name']}** vs **{self.opponent_prof['team_name']}**\n"
+                        f"📍 **Circuit:** `{self.track_name}` | 🏎️ **Race Distance:** `{self.laps} Laps`\n\n"
                         f"{h2h_text}"
                         f"⏱️ **Lights out in:** `{rem_seconds}s` (updates every 5s)\n"
                         f"• **{self.challenger_prof['team_name']}:** {p1_status}\n"
