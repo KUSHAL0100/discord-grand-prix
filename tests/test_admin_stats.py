@@ -22,16 +22,15 @@ def setup_test_db(tmp_path):
 
 def test_get_server_engagement_stats_empty():
     guild_id = 99999
-    stats = database.get_server_engagement_stats(guild_id)
+    stats = database.get_server_engagement_stats(guild_id, timeframe="today")
     assert stats["total_racers"] == 0
     assert stats["active_today"] == 0
     assert stats["total_wealth"] == 0
     assert stats["total_gps"] == 0
     assert stats["total_duels"] == 0
     assert stats["total_seasons"] == 0
-    assert stats["total_bets"] == 0
 
-def test_get_server_engagement_stats_with_data():
+def test_get_server_engagement_stats_timeframes():
     guild_id = 12345
     # Create test users
     success1, _ = database.create_user(1001, guild_id, "Apex Racing", "USA")
@@ -44,8 +43,8 @@ def test_get_server_engagement_stats_with_data():
     u2 = database.get_user_by_discord_id(1002, guild_id)
 
     # Award activity credits
-    database.award_daily_activity_credits(u1["user_id"], 30, "chat")
-    database.award_daily_activity_credits(u2["user_id"], 150, "voice")
+    database.award_daily_activity_credits(u1["user_id"], 50, "chat")
+    database.award_daily_activity_credits(u2["user_id"], 300, "voice")
 
     # Record duels
     database.record_duel_history(guild_id, u1["user_id"], u2["user_id"])
@@ -53,14 +52,16 @@ def test_get_server_engagement_stats_with_data():
     # Create Grand Prix
     database.create_gp_race(guild_id, "Monaco GP", "Monaco GP", 15)
 
-    stats = database.get_server_engagement_stats(guild_id)
-    assert stats["total_racers"] == 2
-    assert stats["active_today"] >= 1
-    assert stats["chat_credits_today"] == 30
-    assert stats["voice_credits_today"] == 150
-    assert stats["est_voice_minutes_today"] == 150 // config.VOICE_CREDITS_PER_MIN
-    assert stats["total_duels"] == 1
-    assert stats["total_gps"] == 1
+    for tf in ["today", "weekly", "monthly", "all"]:
+        stats = database.get_server_engagement_stats(guild_id, timeframe=tf)
+        assert stats["total_racers"] == 2
+        assert stats["active_today"] >= 1
+        assert stats["chat_credits_today"] == 50
+        assert stats["est_chat_messages_today"] == 50 // config.CHAT_CREDITS_PER_MSG
+        assert stats["voice_credits_today"] == 300
+        assert stats["est_voice_minutes_today"] == 300 // config.VOICE_CREDITS_PER_MIN
+        assert stats["total_duels"] == 1
+        assert stats["total_gps"] == 1
 
 @pytest.mark.asyncio
 async def test_admin_stats_command_execution():
@@ -86,5 +87,5 @@ async def test_admin_stats_command_execution():
     call_kwargs = interaction.response.send_message.call_args.kwargs
     assert "embed" in call_kwargs
     embed = call_kwargs["embed"]
-    assert "Server Engagement & Impact Analytics" in embed.title
+    assert "Server Activity Telemetry" in embed.title
     assert "Test Speed Guild" in embed.title

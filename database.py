@@ -313,6 +313,20 @@ def init_db():
     );
     """)
 
+    # Activity logs table for tracking daily/weekly/monthly text and voice engagement
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS activity_logs (
+        log_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        guild_id BIGINT NOT NULL,
+        user_id INTEGER NOT NULL,
+        activity_type TEXT NOT NULL,
+        amount INTEGER NOT NULL,
+        created_at TEXT DEFAULT (datetime('now')),
+        FOREIGN KEY (user_id) REFERENCES users (user_id) ON DELETE CASCADE
+    );
+    """)
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_activity_logs_guild_date ON activity_logs(guild_id, activity_type, created_at);")
+
     conn.commit()
     conn.close()
 
@@ -792,7 +806,7 @@ def award_daily_activity_credits(user_id: int, amount: int, credit_type: str) ->
     cursor = conn.cursor()
     try:
         cursor.execute("""
-            SELECT money, daily_chat_credits, daily_voice_credits 
+            SELECT guild_id, money, daily_chat_credits, daily_voice_credits 
             FROM users WHERE user_id = ?
         """, (user_id,))
         row = cursor.fetchone()
@@ -822,6 +836,12 @@ def award_daily_activity_credits(user_id: int, amount: int, credit_type: str) ->
                     WHERE user_id = ?
                 """, (credits_awarded, credits_awarded, user_id))
         
+        if credits_awarded > 0:
+            cursor.execute("""
+                INSERT INTO activity_logs (guild_id, user_id, activity_type, amount, created_at)
+                VALUES (?, ?, ?, ?, datetime('now'))
+            """, (row['guild_id'], user_id, credit_type, credits_awarded))
+
         conn.commit()
         return credits_awarded
     except sqlite3.Error:
@@ -2412,141 +2432,222 @@ def get_head_to_head_record(user1_id: int, user2_id: int) -> Tuple[int, int]:
     finally:
         conn.close()
 
-def get_server_engagement_stats(guild_id: int) -> Dict[str, Any]:
+def get_server_engagement_stats(guild_id: int, timeframe: str = 'today') -> Dict[str, Any]:
     """
     Retrieve comprehensive engagement & activity statistics for a Discord server (guild_id).
+    timeframe can be 'today', 'weekly' (7 days), 'monthly' (30 days), or 'all' (all-time).
     Returns a dictionary of metrics showing how much the bot has engaged server members.
     """
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
+        tf = (timeframe or 'today').lower()
+        if tf == 'today':
+            date_filter = "created_at >= datetime('now', '-1 day')"
+            race_date_filter = "datetime(date) >= datetime('now', '-1 day')"
+            duel_date_filter = "datetime(created_at) >= datetime('now', '-1 day')"
+            user_date_filter = "datetime(created_at) >= datetime('now', '-1 day')"
+        elif tf == 'weekly':
+            date_filter = "created_at >= datetime('now', '-7 days')"
+            race_date_filter = "datetime(date) >= datetime('now', '-7 days')"
+            duel_date_filter = "datetime(created_at) >= datetime('now', '-7 days')"
+            user_date_filter = "datetime(created_at) >= datetime('now', '-7 days')"
+        elif tf == 'monthly':
+            date_filter = "created_at >= datetime('now', '-30 days')"
+            race_date_filter = "datetime(date) >= datetime('now', '-30 days')"
+            duel_date_filter = "datetime(created_at) >= datetime('now', '-30 days')"
+            user_date_filter = "datetime(created_at) >= datetime('now', '-30 days')"
+        else: # 'all'
+            date_filter = None
+            race_date_filter = None
+            duel_date_filter = None
+            user_date_filter = None
+
         # 1. Users & Community Profile Stats
-        cursor.execute("""
-            SELECT 
-                COUNT(*) as total_racers,
-                COALESCE(SUM(money), 0) as total_wealth,
-                COALESCE(AVG(level), 1.0) as avg_level,
-                COALESCE(SUM(wins), 0) as total_wins,
-                COALESCE(SUM(wins + losses), 0) as total_duels_and_races_run,
-                COALESCE(SUM(daily_chat_credits), 0) as chat_credits_today,
-                COALESCE(SUM(daily_voice_credits), 0) as voice_credits_today
-            FROM users WHERE guild_id = ?
-        """, (guild_id,))
-        user_stats = dict(cursor.fetchone() or {})
+        cursor.execute("SELECT COUNT(*), COALESCE(SUM(money), 0), COALESCE(AVG(level), 1.0) FROM users WHERE guild_id = ?", (guild_id,))
+        u_row = cursor.fetchone()
+        total_racers = u_row[0] if u_row else 0
+        total_wealth = u_row[1] if u_row else 0
+        avg_level = round(u_row[2] if u_row else 1.0, 1)
 
-        # Active users today
-        cursor.execute("""
-            SELECT COUNT(*) FROM users 
-            WHERE guild_id = ? AND (
-                daily_chat_credits > 0 
-                OR daily_voice_credits > 0 
-                OR last_daily_claim = date('now')
-                OR last_work_claim IS NOT NULL
-            )
-        """, (guild_id,))
-        active_row = cursor.fetchone()
-        active_today = active_row[0] if active_row else 0
+        # New racers registered in timeframe
+        if user_date_filter:
+            cursor.execute(f"SELECT COUNT(*) FROM users WHERE guild_id = ? AND {user_date_filter}", (guild_id,))
+            new_row = cursor.fetchone()
+            new_racers = new_row[0] if new_row else 0
+        else:
+            new_racers = total_racers
 
-        # 2. Grand Prix & Race Events Stats
-        cursor.execute("""
-            SELECT 
-                COUNT(*) as total_gps,
-                SUM(CASE WHEN status = 'Finished' THEN 1 ELSE 0 END) as completed_gps,
-                COALESCE(SUM(laps), 0) as total_laps_scheduled
-            FROM races WHERE guild_id = ?
-        """, (guild_id,))
-        race_stats = dict(cursor.fetchone() or {})
+        # 2. Text Chat & Voice Channel Activity from activity_logs
+        chat_credits = 0
+        voice_credits = 0
+        active_chatters = 0
+        active_voice_members = 0
+        active_members_count = 0
 
-        cursor.execute("""
-            SELECT 
-                COUNT(*) as total_entries,
-                COALESCE(SUM(credits_won), 0) as total_gp_payouts
-            FROM race_entries re
-            JOIN races r ON re.race_id = r.race_id
-            WHERE r.guild_id = ?
-        """, (guild_id,))
-        entry_stats = dict(cursor.fetchone() or {})
+        if date_filter:
+            cursor.execute(f"""
+                SELECT activity_type, COALESCE(SUM(amount), 0)
+                FROM activity_logs
+                WHERE guild_id = ? AND {date_filter}
+                GROUP BY activity_type
+            """, (guild_id,))
+            for row in cursor.fetchall():
+                if row[0] == 'chat':
+                    chat_credits = row[1]
+                elif row[0] == 'voice':
+                    voice_credits = row[1]
 
-        # 3. Head-to-Head Duels
-        cursor.execute("SELECT COUNT(*) FROM duel_history WHERE guild_id = ?", (guild_id,))
-        duel_row = cursor.fetchone()
-        total_duels = duel_row[0] if duel_row else 0
+            cursor.execute(f"""
+                SELECT COUNT(DISTINCT user_id)
+                FROM activity_logs
+                WHERE guild_id = ? AND activity_type = 'chat' AND {date_filter}
+            """, (guild_id,))
+            ac_row = cursor.fetchone()
+            active_chatters = ac_row[0] if ac_row else 0
 
-        # 4. Championship Seasons & Rounds
-        cursor.execute("""
-            SELECT 
-                COUNT(*) as total_seasons,
-                SUM(CASE WHEN status = 'Finished' THEN 1 ELSE 0 END) as completed_seasons
-            FROM seasons WHERE guild_id = ?
-        """, (guild_id,))
-        season_stats = dict(cursor.fetchone() or {})
+            cursor.execute(f"""
+                SELECT COUNT(DISTINCT user_id)
+                FROM activity_logs
+                WHERE guild_id = ? AND activity_type = 'voice' AND {date_filter}
+            """, (guild_id,))
+            av_row = cursor.fetchone()
+            active_voice_members = av_row[0] if av_row else 0
 
-        cursor.execute("""
-            SELECT COUNT(*) 
-            FROM season_calendar sc 
-            JOIN seasons s ON sc.season_id = s.season_id 
-            WHERE s.guild_id = ? AND sc.status = 'Finished'
-        """, (guild_id,))
+            cursor.execute(f"""
+                SELECT COUNT(DISTINCT user_id)
+                FROM activity_logs
+                WHERE guild_id = ? AND {date_filter}
+            """, (guild_id,))
+            act_row = cursor.fetchone()
+            active_members_count = act_row[0] if act_row else 0
+        else:
+            cursor.execute("""
+                SELECT activity_type, COALESCE(SUM(amount), 0)
+                FROM activity_logs WHERE guild_id = ?
+                GROUP BY activity_type
+            """, (guild_id,))
+            for row in cursor.fetchall():
+                if row[0] == 'chat':
+                    chat_credits = row[1]
+                elif row[0] == 'voice':
+                    voice_credits = row[1]
+
+            cursor.execute("SELECT COUNT(DISTINCT user_id) FROM activity_logs WHERE guild_id = ?", (guild_id,))
+            act_row = cursor.fetchone()
+            active_members_count = act_row[0] if act_row else 0
+
+        # Fallback for 'today' if activity_logs is empty
+        if tf == 'today' and chat_credits == 0 and voice_credits == 0:
+            cursor.execute("""
+                SELECT 
+                    COALESCE(SUM(daily_chat_credits), 0),
+                    COALESCE(SUM(daily_voice_credits), 0),
+                    COUNT(CASE WHEN daily_chat_credits > 0 THEN 1 END),
+                    COUNT(CASE WHEN daily_voice_credits > 0 THEN 1 END),
+                    COUNT(CASE WHEN daily_chat_credits > 0 OR daily_voice_credits > 0 THEN 1 END)
+                FROM users WHERE guild_id = ?
+            """, (guild_id,))
+            fb_row = cursor.fetchone()
+            if fb_row:
+                chat_credits = fb_row[0]
+                voice_credits = fb_row[1]
+                active_chatters = fb_row[2]
+                active_voice_members = fb_row[3]
+                active_members_count = fb_row[4]
+
+        chat_per_msg = getattr(config, 'CHAT_CREDITS_PER_MSG', 25)
+        est_chat_messages = chat_credits // chat_per_msg if chat_per_msg > 0 else 0
+
+        vc_per_min = getattr(config, 'VOICE_CREDITS_PER_MIN', 15)
+        est_vc_minutes = voice_credits // vc_per_min if vc_per_min > 0 else 0
+
+        # 3. Grand Prix Events
+        if race_date_filter:
+            cursor.execute(f"SELECT COUNT(*), SUM(CASE WHEN status = 'Finished' THEN 1 ELSE 0 END) FROM races WHERE guild_id = ? AND {race_date_filter}", (guild_id,))
+        else:
+            cursor.execute("SELECT COUNT(*), SUM(CASE WHEN status = 'Finished' THEN 1 ELSE 0 END) FROM races WHERE guild_id = ?", (guild_id,))
+        r_row = cursor.fetchone()
+        total_gps = r_row[0] if r_row else 0
+        completed_gps = r_row[1] if (r_row and r_row[1]) else 0
+
+        if race_date_filter:
+            cursor.execute(f"""
+                SELECT COUNT(*), COALESCE(SUM(re.credits_won), 0)
+                FROM race_entries re
+                JOIN races r ON re.race_id = r.race_id
+                WHERE r.guild_id = ? AND {race_date_filter}
+            """, (guild_id,))
+        else:
+            cursor.execute("""
+                SELECT COUNT(*), COALESCE(SUM(re.credits_won), 0)
+                FROM race_entries re
+                JOIN races r ON re.race_id = r.race_id
+                WHERE r.guild_id = ?
+            """, (guild_id,))
+        re_row = cursor.fetchone()
+        total_entries = re_row[0] if re_row else 0
+        total_gp_payouts = re_row[1] if re_row else 0
+
+        # 4. Head-to-Head Duels
+        if duel_date_filter:
+            cursor.execute(f"SELECT COUNT(*) FROM duel_history WHERE guild_id = ? AND {duel_date_filter}", (guild_id,))
+        else:
+            cursor.execute("SELECT COUNT(*) FROM duel_history WHERE guild_id = ?", (guild_id,))
+        d_row = cursor.fetchone()
+        total_duels = d_row[0] if d_row else 0
+
+        # 5. Seasons & Rounds
+        cursor.execute("SELECT COUNT(*), SUM(CASE WHEN status = 'Finished' THEN 1 ELSE 0 END) FROM seasons WHERE guild_id = ?", (guild_id,))
+        s_row = cursor.fetchone()
+        total_seasons = s_row[0] if s_row else 0
+        completed_seasons = s_row[1] if (s_row and s_row[1]) else 0
+
+        cursor.execute("SELECT COUNT(*) FROM season_calendar sc JOIN seasons s ON sc.season_id = s.season_id WHERE s.guild_id = ? AND sc.status = 'Finished'", (guild_id,))
         sc_row = cursor.fetchone()
         completed_season_rounds = sc_row[0] if sc_row else 0
 
-        # 5. Betting Activity
+        # 6. Inventory Items
         cursor.execute("""
-            SELECT 
-                COUNT(*) as total_bets,
-                COALESCE(SUM(amount), 0) as total_bet_volume,
-                COALESCE(SUM(payout), 0) as total_bet_payouts
-            FROM bets b
-            JOIN races r ON b.race_id = r.race_id
-            WHERE r.guild_id = ?
+            SELECT COUNT(*), SUM(CASE WHEN is_equipped = 1 THEN 1 ELSE 0 END)
+            FROM user_inventory ui JOIN users u ON ui.user_id = u.user_id WHERE u.guild_id = ?
         """, (guild_id,))
-        bet_stats = dict(cursor.fetchone() or {})
-
-        # 6. Garage Upgrades & Progression
-        cursor.execute("""
-            SELECT 
-                COUNT(*) as total_inventory_items,
-                SUM(CASE WHEN is_equipped = 1 THEN 1 ELSE 0 END) as equipped_items
-            FROM user_inventory ui
-            JOIN users u ON ui.user_id = u.user_id
-            WHERE u.guild_id = ?
-        """, (guild_id,))
-        inv_stats = dict(cursor.fetchone() or {})
-
-        vc_credits = user_stats.get('voice_credits_today', 0)
-        vc_per_min = getattr(config, 'VOICE_CREDITS_PER_MIN', 15)
-        est_vc_minutes = vc_credits // vc_per_min if vc_per_min > 0 else 0
+        i_row = cursor.fetchone()
+        total_inventory_items = i_row[0] if i_row else 0
+        equipped_items = i_row[1] if (i_row and i_row[1]) else 0
 
         return {
-            "total_racers": user_stats.get('total_racers', 0),
-            "active_today": active_today,
-            "total_wealth": user_stats.get('total_wealth', 0),
-            "avg_level": round(user_stats.get('avg_level', 1.0), 1),
-            "chat_credits_today": user_stats.get('chat_credits_today', 0),
-            "voice_credits_today": vc_credits,
+            "timeframe": tf,
+            "total_racers": total_racers,
+            "new_racers": new_racers,
+            "active_today": active_members_count,
+            "active_chatters": active_chatters,
+            "active_voice_members": active_voice_members,
+            "total_wealth": total_wealth,
+            "avg_level": avg_level,
+            "chat_credits_today": chat_credits,
+            "est_chat_messages_today": est_chat_messages,
+            "voice_credits_today": voice_credits,
             "est_voice_minutes_today": est_vc_minutes,
-            "total_gps": user_stats.get('total_gps', 0) or race_stats.get('total_gps', 0),
-            "completed_gps": race_stats.get('completed_gps', 0) or 0,
-            "total_entries": entry_stats.get('total_entries', 0),
-            "total_gp_payouts": entry_stats.get('total_gp_payouts', 0),
+            "total_gps": total_gps,
+            "completed_gps": completed_gps,
+            "total_entries": total_entries,
+            "total_gp_payouts": total_gp_payouts,
             "total_duels": total_duels,
-            "total_seasons": season_stats.get('total_seasons', 0) or 0,
-            "completed_seasons": season_stats.get('completed_seasons', 0) or 0,
+            "total_seasons": total_seasons,
+            "completed_seasons": completed_seasons,
             "completed_season_rounds": completed_season_rounds,
-            "total_bets": bet_stats.get('total_bets', 0),
-            "total_bet_volume": bet_stats.get('total_bet_volume', 0),
-            "total_bet_payouts": bet_stats.get('total_bet_payouts', 0),
-            "total_inventory_items": inv_stats.get('total_inventory_items', 0) or 0,
-            "equipped_items": inv_stats.get('equipped_items', 0) or 0,
+            "total_inventory_items": total_inventory_items,
+            "equipped_items": equipped_items,
         }
     except sqlite3.Error as e:
-        print(f"Error fetching engagement stats: {e}")
+        print(f"Error in get_server_engagement_stats: {e}")
         return {
-            "total_racers": 0, "active_today": 0, "total_wealth": 0, "avg_level": 1.0,
-            "chat_credits_today": 0, "voice_credits_today": 0, "est_voice_minutes_today": 0,
-            "total_gps": 0, "completed_gps": 0, "total_entries": 0, "total_gp_payouts": 0,
-            "total_duels": 0, "total_seasons": 0, "completed_seasons": 0, "completed_season_rounds": 0,
-            "total_bets": 0, "total_bet_volume": 0, "total_bet_payouts": 0,
+            "timeframe": timeframe, "total_racers": 0, "new_racers": 0, "active_today": 0,
+            "active_chatters": 0, "active_voice_members": 0, "total_wealth": 0, "avg_level": 1.0,
+            "chat_credits_today": 0, "est_chat_messages_today": 0, "voice_credits_today": 0, "est_voice_minutes_today": 0,
+            "total_gps": 0, "completed_gps": 0, "total_entries": 0, "total_gp_payouts": 0, "total_duels": 0,
+            "total_seasons": 0, "completed_seasons": 0, "completed_season_rounds": 0,
             "total_inventory_items": 0, "equipped_items": 0
         }
     finally:
