@@ -256,5 +256,32 @@ def test_transfer_user_ownership():
     assert database.is_bot_admin(new_id, guild_id=guild_id) is True
     assert database.is_bot_admin(old_id, guild_id=guild_id) is False
 
+def test_transfer_user_ownership_with_existing_dest_and_overwrite():
+    old_id = 111111
+    new_id = 222222
+    guild_id = 9999
+
+    # Create profiles for both users
+    database.create_user(discord_id=old_id, guild_id=guild_id, team_name="Team Alpha")
+    database.create_user(discord_id=new_id, guild_id=guild_id, team_name="Team Beta")
+
+    # Transfer without overwrite -> should fail
+    success, msg = database.transfer_user_ownership(old_id, new_id, guild_id=guild_id, overwrite=False)
+    assert success is False
+    assert "already has an existing profile" in msg
+
+    # Transfer with overwrite -> should succeed and replace new_id's profile with old_id's profile
+    success, msg = database.transfer_user_ownership(old_id, new_id, guild_id=guild_id, overwrite=True)
+    assert success is True
+    assert database.get_user_by_discord_id(old_id, guild_id=guild_id) is None
+    user_dest = database.get_user_by_discord_id(new_id, guild_id=guild_id)
+    assert user_dest["team_name"] == "Team Alpha"
+
+def test_transfer_user_ownership_source_not_found():
+    success, msg = database.transfer_user_ownership(999999, 888888, guild_id=9999)
+    assert success is False
+    assert "Source user" in msg and "does not have an active profile" in msg
+
+
 
 

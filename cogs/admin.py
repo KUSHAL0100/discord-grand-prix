@@ -174,10 +174,20 @@ class AdminCog(commands.Cog):
         await interaction.response.send_message(embed=utils.create_embed(title="🛡️ Game Admins", description=desc, color=utils.COLOR_INFO))
 
     @admin_group.command(name="transfer_profile", description="Transfer a user's entire team profile and admin rights to another user.")
-    @app_commands.describe(from_user="The user profile to transfer from", to_user="The new owner of the profile")
+    @app_commands.describe(
+        from_user="The user profile to transfer from (Source)",
+        to_user="The new owner of the profile (Destination)",
+        overwrite="Set to True to overwrite destination user's existing profile if they already have one"
+    )
     @is_owner_or_mod()
     @app_commands.guild_only()
-    async def admin_transfer_profile(self, interaction: discord.Interaction, from_user: discord.User, to_user: discord.User):
+    async def admin_transfer_profile(
+        self,
+        interaction: discord.Interaction,
+        from_user: discord.User,
+        to_user: discord.User,
+        overwrite: bool = False
+    ):
         if from_user.id == to_user.id:
             await interaction.response.send_message("❌ Source and target user cannot be the same.", ephemeral=True)
             return
@@ -185,7 +195,7 @@ class AdminCog(commands.Cog):
             await interaction.response.send_message("❌ Cannot transfer profile to a bot account.", ephemeral=True)
             return
             
-        success, msg = database.transfer_user_ownership(from_user.id, to_user.id, guild_id=interaction.guild_id)
+        success, msg = database.transfer_user_ownership(from_user.id, to_user.id, guild_id=interaction.guild_id, overwrite=overwrite)
         color = utils.COLOR_SUCCESS if success else utils.COLOR_ERROR
         await interaction.response.send_message(embed=utils.create_embed(title="🔄 Profile Ownership Transfer", description=msg, color=color))
 

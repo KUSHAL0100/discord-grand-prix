@@ -2103,6 +2103,22 @@ def reset_user_profile(discord_id: int, guild_id: int) -> Tuple[bool, str]:
     finally:
         conn.close()
 
+def _delete_user_data_by_uid(cursor: sqlite3.Cursor, uid: int) -> None:
+    """Internal helper to delete all profile data for a given user_id."""
+    cursor.execute("DELETE FROM race_entries WHERE user_id = ?", (uid,))
+    cursor.execute("DELETE FROM drivers WHERE user_id = ?", (uid,))
+    cursor.execute("DELETE FROM strategists WHERE user_id = ?", (uid,))
+    cursor.execute("DELETE FROM garage WHERE user_id = ?", (uid,))
+    cursor.execute("DELETE FROM user_inventory WHERE user_id = ?", (uid,))
+    cursor.execute("DELETE FROM user_boosters WHERE user_id = ?", (uid,))
+    cursor.execute("DELETE FROM track_mastery WHERE user_id = ?", (uid,))
+    cursor.execute("DELETE FROM duel_history WHERE winner_id = ? OR loser_id = ?", (uid, uid))
+    cursor.execute("DELETE FROM bets WHERE bettor_id = ? OR target_id = ?", (uid, uid))
+    cursor.execute("UPDATE races SET winner_id = NULL WHERE winner_id = ?", (uid,))
+    cursor.execute("UPDATE seasons SET winner_id = NULL WHERE winner_id = ?", (uid,))
+    cursor.execute("DELETE FROM users WHERE user_id = ?", (uid,))
+
+
 def delete_user_profile(discord_id: int, guild_id: int) -> Tuple[bool, str]:
     """Permanently delete a user's entire profile and all associated data from the database.
     The user will need to use /start again to create a new profile."""
@@ -2117,21 +2133,7 @@ def delete_user_profile(discord_id: int, guild_id: int) -> Tuple[bool, str]:
         uid = row['user_id']
         team_name = row['team_name']
 
-        # Delete from all related tables
-        cursor.execute("DELETE FROM race_entries WHERE user_id = ?", (uid,))
-        cursor.execute("DELETE FROM drivers WHERE user_id = ?", (uid,))
-        cursor.execute("DELETE FROM strategists WHERE user_id = ?", (uid,))
-        cursor.execute("DELETE FROM garage WHERE user_id = ?", (uid,))
-        cursor.execute("DELETE FROM user_inventory WHERE user_id = ?", (uid,))
-        cursor.execute("DELETE FROM user_boosters WHERE user_id = ?", (uid,))
-        cursor.execute("DELETE FROM track_mastery WHERE user_id = ?", (uid,))
-        cursor.execute("DELETE FROM duel_history WHERE winner_id = ? OR loser_id = ?", (uid, uid))
-        cursor.execute("DELETE FROM bets WHERE bettor_id = ? OR target_id = ?", (uid, uid))
-        cursor.execute("UPDATE races SET winner_id = NULL WHERE winner_id = ?", (uid,))
-        cursor.execute("UPDATE seasons SET winner_id = NULL WHERE winner_id = ?", (uid,))
-
-        # Finally delete the user record itself
-        cursor.execute("DELETE FROM users WHERE user_id = ?", (uid,))
+        _delete_user_data_by_uid(cursor, uid)
 
         conn.commit()
         return True, f"Permanently deleted the profile for **{team_name}** (<@{discord_id}>). All stats, garage, inventory, race history, and track mastery have been wiped. They will need to use `/start` to create a new profile."
@@ -2162,7 +2164,7 @@ def reset_wdc_standings(guild_id: int) -> Tuple[bool, str]:
         conn.close()
 
 
-def transfer_user_ownership(old_discord_id: int, new_discord_id: int, guild_id: Optional[int] = None) -> Tuple[bool, str]:
+def transfer_user_ownership(old_discord_id: int, new_discord_id: int, guild_id: Optional[int] = None, overwrite: bool = False) -> Tuple[bool, str]:
     """Transfer ownership of a user profile and admin rights from old_discord_id to new_discord_id."""
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -2175,7 +2177,22 @@ def transfer_user_ownership(old_discord_id: int, new_discord_id: int, guild_id: 
             rows = cursor.fetchall()
 
         if not rows:
-            return False, f"No user profile found with Discord ID `{old_discord_id}`."
+            return False, f"Transfer failed: Source user <@{old_discord_id}> does not have an active profile on this server."
+
+        # Check if new_discord_id already has a profile
+        if guild_id is not None:
+            cursor.execute("SELECT user_id FROM users WHERE discord_id = ? AND guild_id = ?", (new_discord_id, guild_id))
+            dest_rows = cursor.fetchall()
+        else:
+            cursor.execute("SELECT user_id FROM users WHERE discord_id = ?", (new_discord_id,))
+            dest_rows = cursor.fetchall()
+
+        if dest_rows:
+            if overwrite:
+                for dest_row in dest_rows:
+                    _delete_user_data_by_uid(cursor, dest_row['user_id'])
+            else:
+                return False, f"Transfer failed: Destination user <@{new_discord_id}> already has an existing profile on this server. Set `overwrite: True` in the transfer command or delete <@{new_discord_id}>'s profile first using `/admin deleteuser`."
 
         if guild_id is not None:
             cursor.execute("UPDATE users SET discord_id = ? WHERE discord_id = ? AND guild_id = ?", (new_discord_id, old_discord_id, guild_id))
@@ -2190,7 +2207,7 @@ def transfer_user_ownership(old_discord_id: int, new_discord_id: int, guild_id: 
         return True, f"Successfully transferred ownership of {len(rows)} user profile(s) from <@{old_discord_id}> to <@{new_discord_id}>."
     except sqlite3.IntegrityError:
         conn.rollback()
-        return False, f"Transfer failed: Discord ID `{new_discord_id}` already has an existing profile."
+        return False, f"Transfer failed: Destination user <@{new_discord_id}> already has an existing profile."
     except sqlite3.Error as e:
         conn.rollback()
         return False, f"Database error during ownership transfer: {e}"
