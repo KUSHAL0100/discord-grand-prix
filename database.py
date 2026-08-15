@@ -2162,6 +2162,43 @@ def reset_wdc_standings(guild_id: int) -> Tuple[bool, str]:
         conn.close()
 
 
+def transfer_user_ownership(old_discord_id: int, new_discord_id: int, guild_id: Optional[int] = None) -> Tuple[bool, str]:
+    """Transfer ownership of a user profile and admin rights from old_discord_id to new_discord_id."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        if guild_id is not None:
+            cursor.execute("SELECT user_id, team_name FROM users WHERE discord_id = ? AND guild_id = ?", (old_discord_id, guild_id))
+            rows = cursor.fetchall()
+        else:
+            cursor.execute("SELECT user_id, team_name, guild_id FROM users WHERE discord_id = ?", (old_discord_id,))
+            rows = cursor.fetchall()
+
+        if not rows:
+            return False, f"No user profile found with Discord ID `{old_discord_id}`."
+
+        if guild_id is not None:
+            cursor.execute("UPDATE users SET discord_id = ? WHERE discord_id = ? AND guild_id = ?", (new_discord_id, old_discord_id, guild_id))
+            cursor.execute("UPDATE bot_admins SET discord_id = ? WHERE discord_id = ? AND guild_id = ?", (new_discord_id, old_discord_id, guild_id))
+        else:
+            cursor.execute("UPDATE users SET discord_id = ? WHERE discord_id = ?", (new_discord_id, old_discord_id))
+            cursor.execute("UPDATE bot_admins SET discord_id = ? WHERE discord_id = ?", (new_discord_id, old_discord_id))
+
+        cursor.execute("UPDATE bot_admins SET added_by = ? WHERE added_by = ?", (new_discord_id, old_discord_id))
+
+        conn.commit()
+        return True, f"Successfully transferred ownership of {len(rows)} user profile(s) from <@{old_discord_id}> to <@{new_discord_id}>."
+    except sqlite3.IntegrityError:
+        conn.rollback()
+        return False, f"Transfer failed: Discord ID `{new_discord_id}` already has an existing profile."
+    except sqlite3.Error as e:
+        conn.rollback()
+        return False, f"Database error during ownership transfer: {e}"
+    finally:
+        conn.close()
+
+
+
 
 def admin_set_user_stat(discord_id: int, guild_id: int, stat_name: str, value: int) -> Tuple[bool, str]:
     """Set a driver skill or garage part level for a target user on a guild."""

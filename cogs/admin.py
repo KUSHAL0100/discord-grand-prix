@@ -173,6 +173,23 @@ class AdminCog(commands.Cog):
             desc = "\n".join(lines)
         await interaction.response.send_message(embed=utils.create_embed(title="🛡️ Game Admins", description=desc, color=utils.COLOR_INFO))
 
+    @admin_group.command(name="transfer_profile", description="Transfer a user's entire team profile and admin rights to another user.")
+    @app_commands.describe(from_user="The user profile to transfer from", to_user="The new owner of the profile")
+    @is_owner_or_mod()
+    @app_commands.guild_only()
+    async def admin_transfer_profile(self, interaction: discord.Interaction, from_user: discord.User, to_user: discord.User):
+        if from_user.id == to_user.id:
+            await interaction.response.send_message("❌ Source and target user cannot be the same.", ephemeral=True)
+            return
+        if to_user.bot:
+            await interaction.response.send_message("❌ Cannot transfer profile to a bot account.", ephemeral=True)
+            return
+            
+        success, msg = database.transfer_user_ownership(from_user.id, to_user.id, guild_id=interaction.guild_id)
+        color = utils.COLOR_SUCCESS if success else utils.COLOR_ERROR
+        await interaction.response.send_message(embed=utils.create_embed(title="🔄 Profile Ownership Transfer", description=msg, color=color))
+
+
     @season_admin_group.command(name="create", description="Create a new World Driver Championship Season.")
     @app_commands.describe(name="Season name (e.g. Season 1, 2026 Championship)")
     @is_admin()

@@ -232,4 +232,29 @@ def test_delete_user():
     assert "Permanently deleted" in msg
     assert database.get_user_by_discord_id(12345, guild_id=9999) is None
 
+def test_transfer_user_ownership():
+    old_id = 742389699288760350
+    new_id = 1536419501669875773
+    guild_id = 9999
+
+    # Create user profile with old_id
+    success, _ = database.create_user(discord_id=old_id, guild_id=guild_id, team_name="Owner Team")
+    assert success is True
+
+    # Grant admin to old_id
+    database.add_bot_admin(discord_id=old_id, guild_id=guild_id, added_by=9999)
+
+    # Perform transfer
+    transfer_success, msg = database.transfer_user_ownership(old_id, new_id, guild_id=guild_id)
+    assert transfer_success is True
+
+    # Verify old_id has no profile and new_id owns the profile
+    assert database.get_user_by_discord_id(old_id, guild_id=guild_id) is None
+    new_user = database.get_user_by_discord_id(new_id, guild_id=guild_id)
+    assert new_user is not None
+    assert new_user["team_name"] == "Owner Team"
+    assert database.is_bot_admin(new_id, guild_id=guild_id) is True
+    assert database.is_bot_admin(old_id, guild_id=guild_id) is False
+
+
 
