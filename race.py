@@ -988,9 +988,23 @@ def simulate_gp_generator(entries_data: List[Dict[str, Any]], track_name: str, t
             # Base lap time: T_base
             lap_time = T_base
             
-            # Car performance bonus (includes equipped rarities, category weights, damage penalties & track profiles)
-            car_power = t.calculate_base_car_power(track_name)
-            car_bonus = (car_power / 100.0) * 4.0
+            # Car performance bonus on-track (ONLY Engine, Aero, and ERS affect lap time)
+            from crates import RARITY_BONUS_MULTIPLIERS
+            equipped_parts = database.get_equipped_inventory(t.user_id) if not t.is_ai else {}
+            
+            def get_cat_stat(cat: str, base: int) -> float:
+                item = equipped_parts.get(cat)
+                if item:
+                    r = item.get('rarity', 'Common')
+                    lvl = max(base, item.get('level', 1))
+                    return lvl * config.get_tier_stat_multiplier(lvl) * RARITY_BONUS_MULTIPLIERS.get(r, 1.0)
+                return base * config.get_tier_stat_multiplier(base)
+
+            eng_boost = get_cat_stat('engine', t.engine) * track_profile.get("engine_mod", 1.0) * 0.05
+            aero_boost = get_cat_stat('aerodynamics', t.aerodynamics) * track_profile.get("aero_mod", 1.0) * 0.04
+            ers_boost = get_cat_stat('ers', t.ers) * track_profile.get("ers_mod", 1.0) * 0.04
+
+            car_bonus = (eng_boost + aero_boost + ers_boost) * (1.0 - min(0.5, (t.damage_total / 10.0) / 100.0))
             lap_time -= car_bonus
             
             # Driver pace bonus (shaves time)
