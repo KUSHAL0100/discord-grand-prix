@@ -787,12 +787,24 @@ class AdminStatsView(discord.ui.View):
         )
 
         vc_hours = round(stats['est_voice_minutes_today'] / 60, 1)
+        if self.current_tf == "weekly":
+            daily_msgs = round(stats['est_chat_messages_today'] / 7, 1)
+            daily_vc_hrs = round(vc_hours / 7, 1)
+            pacing_str = f"\n• 📈 **Daily Average Pacing:** `~{daily_msgs:,} msgs/day` | `~{daily_vc_hrs} VC hrs/day`"
+        elif self.current_tf == "monthly":
+            daily_msgs = round(stats['est_chat_messages_today'] / 30, 1)
+            daily_vc_hrs = round(vc_hours / 30, 1)
+            pacing_str = f"\n• 📈 **Daily Average Pacing:** `~{daily_msgs:,} msgs/day` | `~{daily_vc_hrs} VC hrs/day`"
+        else:
+            pacing_str = ""
+
         embed.add_field(
             name=f"💬 Chat & Voice Activity Driven by Bot ({tf_label})",
             value=(
                 f"• 💬 **Text Messages Sent:** `~{stats['est_chat_messages_today']:,} messages` (`{stats['chat_credits_today']:,} credits rewarded`)\n"
                 f"• 🎙️ **Voice Channel Time:** `~{stats['est_voice_minutes_today']:,} mins` (`~{vc_hours} hrs active in VC`) (`{stats['voice_credits_today']:,} credits rewarded`)\n"
                 f"• 👥 **Active Members Engaged:** `{stats['active_chatters']:,} text chatters` | `{stats['active_voice_members']:,} voice members`"
+                f"{pacing_str}"
             ),
             inline=False
         )

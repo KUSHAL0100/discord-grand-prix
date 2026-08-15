@@ -2568,12 +2568,33 @@ def get_server_engagement_stats(guild_id: int, timeframe: str = 'today') -> Dict
             act_row = cursor.fetchone()
             active_members_count = act_row[0] if act_row else 0
 
-        # Ensure today's active credits baseline is always included
-        chat_credits = max(chat_credits, fb_chat_credits)
-        voice_credits = max(voice_credits, fb_voice_credits)
-        active_chatters = max(active_chatters, fb_active_chatters)
-        active_voice_members = max(active_voice_members, fb_active_voice)
-        active_members_count = max(active_members_count, fb_active_members)
+        # Scale fallback if activity_logs is empty for older timeframes
+        if chat_credits == 0:
+            if tf == 'today':
+                chat_credits = fb_chat_credits
+            elif tf == 'weekly':
+                chat_credits = fb_chat_credits * 7
+            elif tf == 'monthly':
+                chat_credits = fb_chat_credits * 30
+            else:
+                chat_credits = fb_chat_credits * 60
+
+        if voice_credits == 0:
+            if tf == 'today':
+                voice_credits = fb_voice_credits
+            elif tf == 'weekly':
+                voice_credits = fb_voice_credits * 7
+            elif tf == 'monthly':
+                voice_credits = fb_voice_credits * 30
+            else:
+                voice_credits = fb_voice_credits * 60
+
+        if active_chatters == 0:
+            active_chatters = fb_active_chatters
+        if active_voice_members == 0:
+            active_voice_members = fb_active_voice
+        if active_members_count == 0:
+            active_members_count = fb_active_members
 
         chat_per_msg = getattr(config, 'CHAT_CREDITS_PER_MSG', 25)
         est_chat_messages = chat_credits // chat_per_msg if chat_per_msg > 0 else 0
