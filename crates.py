@@ -2,16 +2,7 @@ import random
 from typing import Dict, Any, Tuple
 import database
 
-# Rarity Base Level Offsets (Higher rarity parts carry authentic base power boosts so Level 1 Rare beats Level 3 Common)
-RARITY_BASE_OFFSETS = {
-    "Common": 0,        # Base level (+0)
-    "Uncommon": 3,      # Level 1 Uncommon acts as Level 4 (+3 base levels)
-    "Rare": 6,          # Level 1 Rare acts as Level 7 (+6 base levels)
-    "Epic": 10,         # Level 1 Epic acts as Level 11 (+10 base levels)
-    "Legendary": 15     # Level 1 Legendary acts as Level 16 (+15 base levels)
-}
-
-# Legacy efficiency multipliers mapping
+# Efficiency multipliers mapping (Common 1.00x, Uncommon 1.05x, Rare 1.12x, Epic 1.17x, Legendary 1.25x)
 RARITY_BONUS_MULTIPLIERS = {
     "Common": 1.00,
     "Uncommon": 1.05,

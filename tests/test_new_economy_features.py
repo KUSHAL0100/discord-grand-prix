@@ -114,10 +114,10 @@ def test_legendary_pit_crew_effective_stat():
     eq_ok, eq_msg = database.equip_inventory_part(user_id, item_id)
     assert eq_ok
     
-    # Legendary Pit Crew has base level offset +15 and multiplier 1.25 -> (1 + 15) * 1.25 = 20.0
-    assert driver.effective_pit_crew == 20.0
+    # Legendary Pit Crew has pure multiplier 1.25 -> (1 + 0) * 1.25 = 1.25
+    assert driver.effective_pit_crew == 1.25
     stop_time_legendary = max(1.8, round(3.5 - (driver.effective_pit_crew * 0.10), 2))
-    assert stop_time_legendary == 1.80
+    assert stop_time_legendary == 3.38
     assert stop_time_legendary < stop_time_common
     
     database.delete_user_profile(discord_id, guild_id)

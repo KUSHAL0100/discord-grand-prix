@@ -438,12 +438,11 @@ class SimTeam:
             equipped = database.get_equipped_inventory(user_id)
             item = equipped.get('pit_crew')
             if item:
-                from crates import RARITY_BASE_OFFSETS, RARITY_BONUS_MULTIPLIERS
+                from crates import RARITY_BONUS_MULTIPLIERS
                 rarity = item.get('rarity', 'Common')
                 item_lvl = item.get('level', 1)
-                offset = RARITY_BASE_OFFSETS.get(rarity, 0)
                 base_lvl = getattr(self, 'pit_crew', 1)
-                effective_level = max(base_lvl, item_lvl + offset)
+                effective_level = max(base_lvl, item_lvl)
                 bonus_mult = RARITY_BONUS_MULTIPLIERS.get(rarity, 1.0)
                 return effective_level * bonus_mult
         except Exception:
@@ -459,15 +458,14 @@ class SimTeam:
         ers_mult = profile.get("ers_mod", 1.0)
         
         equipped = database.get_equipped_inventory(self.user_id) if not self.is_ai else {}
-        from crates import RARITY_BASE_OFFSETS, RARITY_BONUS_MULTIPLIERS
+        from crates import RARITY_BONUS_MULTIPLIERS
         
         def calculate_effective_stat(category: str, base_level: int) -> float:
             item = equipped.get(category)
             if item:
                 rarity = item.get('rarity', 'Common')
                 item_lvl = item.get('level', 1)
-                offset = RARITY_BASE_OFFSETS.get(rarity, 0)
-                effective_level = max(base_level, item_lvl + offset)
+                effective_level = max(base_level, item_lvl)
                 tier_mult = config.get_tier_stat_multiplier(effective_level)
                 bonus_mult = RARITY_BONUS_MULTIPLIERS.get(rarity, 1.0)
                 return effective_level * tier_mult * bonus_mult

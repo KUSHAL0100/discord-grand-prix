@@ -111,18 +111,18 @@ def test_rarity_scaling_realism():
     })
     power_common = sim_common.calculate_base_car_power("Monza")
     
-    # 2. Equip Level 1 Rare engine
-    ok_r, msg_r, id_r = database.add_inventory_part(user_id, "engine", "Rare Turbo V8", "Rare", 1, 1)
+    # 2. Equip Level 3 Rare engine
+    ok_r, msg_r, id_r = database.add_inventory_part(user_id, "engine", "Rare Turbo V8", "Rare", 3, 3)
     database.equip_inventory_part(user_id, id_r)
     
     sim_rare = race.SimTeam({
         "user_id": user_id, "team_name": "Rare Car", "discord_id": discord_id,
-        "engine": 1, "aerodynamics": 1, "tyres": 1, "ers": 1, "reliability": 1
+        "engine": 3, "aerodynamics": 1, "tyres": 1, "ers": 1, "reliability": 1
     })
     power_rare = sim_rare.calculate_base_car_power("Monza")
     
-    # Verify Level 1 Rare engine power > Level 3 Common engine power
-    assert power_rare > power_common, f"Expected Level 1 Rare ({power_rare}) > Level 3 Common ({power_common})"
+    # Verify Level 3 Rare engine power > Level 3 Common engine power
+    assert power_rare > power_common, f"Expected Level 3 Rare ({power_rare}) > Level 3 Common ({power_common})"
 
 def test_rarity_upgrade_costs():
     """Verify get_upgrade_cost scales properly based on part rarity."""
