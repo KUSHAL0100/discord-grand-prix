@@ -988,8 +988,9 @@ def simulate_gp_generator(entries_data: List[Dict[str, Any]], track_name: str, t
             # Base lap time: T_base
             lap_time = T_base
             
-            # Car upgrades bonus (shaves time realistically)
-            car_bonus = (t.engine * 0.05) + (t.aerodynamics * 0.04) + (t.ers * 0.04)
+            # Car performance bonus (includes equipped rarities, category weights, damage penalties & track profiles)
+            car_power = t.calculate_base_car_power(track_name)
+            car_bonus = (car_power / 100.0) * 4.0
             lap_time -= car_bonus
             
             # Driver pace bonus (shaves time)
