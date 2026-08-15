@@ -2412,4 +2412,145 @@ def get_head_to_head_record(user1_id: int, user2_id: int) -> Tuple[int, int]:
     finally:
         conn.close()
 
+def get_server_engagement_stats(guild_id: int) -> Dict[str, Any]:
+    """
+    Retrieve comprehensive engagement & activity statistics for a Discord server (guild_id).
+    Returns a dictionary of metrics showing how much the bot has engaged server members.
+    """
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        # 1. Users & Community Profile Stats
+        cursor.execute("""
+            SELECT 
+                COUNT(*) as total_racers,
+                COALESCE(SUM(money), 0) as total_wealth,
+                COALESCE(AVG(level), 1.0) as avg_level,
+                COALESCE(SUM(wins), 0) as total_wins,
+                COALESCE(SUM(wins + losses), 0) as total_duels_and_races_run,
+                COALESCE(SUM(daily_chat_credits), 0) as chat_credits_today,
+                COALESCE(SUM(daily_voice_credits), 0) as voice_credits_today
+            FROM users WHERE guild_id = ?
+        """, (guild_id,))
+        user_stats = dict(cursor.fetchone() or {})
+
+        # Active users today
+        cursor.execute("""
+            SELECT COUNT(*) FROM users 
+            WHERE guild_id = ? AND (
+                daily_chat_credits > 0 
+                OR daily_voice_credits > 0 
+                OR last_daily_claim = date('now')
+                OR last_work_claim IS NOT NULL
+            )
+        """, (guild_id,))
+        active_row = cursor.fetchone()
+        active_today = active_row[0] if active_row else 0
+
+        # 2. Grand Prix & Race Events Stats
+        cursor.execute("""
+            SELECT 
+                COUNT(*) as total_gps,
+                SUM(CASE WHEN status = 'Finished' THEN 1 ELSE 0 END) as completed_gps,
+                COALESCE(SUM(laps), 0) as total_laps_scheduled
+            FROM races WHERE guild_id = ?
+        """, (guild_id,))
+        race_stats = dict(cursor.fetchone() or {})
+
+        cursor.execute("""
+            SELECT 
+                COUNT(*) as total_entries,
+                COALESCE(SUM(credits_won), 0) as total_gp_payouts
+            FROM race_entries re
+            JOIN races r ON re.race_id = r.race_id
+            WHERE r.guild_id = ?
+        """, (guild_id,))
+        entry_stats = dict(cursor.fetchone() or {})
+
+        # 3. Head-to-Head Duels
+        cursor.execute("SELECT COUNT(*) FROM duel_history WHERE guild_id = ?", (guild_id,))
+        duel_row = cursor.fetchone()
+        total_duels = duel_row[0] if duel_row else 0
+
+        # 4. Championship Seasons & Rounds
+        cursor.execute("""
+            SELECT 
+                COUNT(*) as total_seasons,
+                SUM(CASE WHEN status = 'Finished' THEN 1 ELSE 0 END) as completed_seasons
+            FROM seasons WHERE guild_id = ?
+        """, (guild_id,))
+        season_stats = dict(cursor.fetchone() or {})
+
+        cursor.execute("""
+            SELECT COUNT(*) 
+            FROM season_calendar sc 
+            JOIN seasons s ON sc.season_id = s.season_id 
+            WHERE s.guild_id = ? AND sc.status = 'Finished'
+        """, (guild_id,))
+        sc_row = cursor.fetchone()
+        completed_season_rounds = sc_row[0] if sc_row else 0
+
+        # 5. Betting Activity
+        cursor.execute("""
+            SELECT 
+                COUNT(*) as total_bets,
+                COALESCE(SUM(amount), 0) as total_bet_volume,
+                COALESCE(SUM(payout), 0) as total_bet_payouts
+            FROM bets b
+            JOIN races r ON b.race_id = r.race_id
+            WHERE r.guild_id = ?
+        """, (guild_id,))
+        bet_stats = dict(cursor.fetchone() or {})
+
+        # 6. Garage Upgrades & Progression
+        cursor.execute("""
+            SELECT 
+                COUNT(*) as total_inventory_items,
+                SUM(CASE WHEN is_equipped = 1 THEN 1 ELSE 0 END) as equipped_items
+            FROM user_inventory ui
+            JOIN users u ON ui.user_id = u.user_id
+            WHERE u.guild_id = ?
+        """, (guild_id,))
+        inv_stats = dict(cursor.fetchone() or {})
+
+        vc_credits = user_stats.get('voice_credits_today', 0)
+        vc_per_min = getattr(config, 'VOICE_CREDITS_PER_MIN', 15)
+        est_vc_minutes = vc_credits // vc_per_min if vc_per_min > 0 else 0
+
+        return {
+            "total_racers": user_stats.get('total_racers', 0),
+            "active_today": active_today,
+            "total_wealth": user_stats.get('total_wealth', 0),
+            "avg_level": round(user_stats.get('avg_level', 1.0), 1),
+            "chat_credits_today": user_stats.get('chat_credits_today', 0),
+            "voice_credits_today": vc_credits,
+            "est_voice_minutes_today": est_vc_minutes,
+            "total_gps": user_stats.get('total_gps', 0) or race_stats.get('total_gps', 0),
+            "completed_gps": race_stats.get('completed_gps', 0) or 0,
+            "total_entries": entry_stats.get('total_entries', 0),
+            "total_gp_payouts": entry_stats.get('total_gp_payouts', 0),
+            "total_duels": total_duels,
+            "total_seasons": season_stats.get('total_seasons', 0) or 0,
+            "completed_seasons": season_stats.get('completed_seasons', 0) or 0,
+            "completed_season_rounds": completed_season_rounds,
+            "total_bets": bet_stats.get('total_bets', 0),
+            "total_bet_volume": bet_stats.get('total_bet_volume', 0),
+            "total_bet_payouts": bet_stats.get('total_bet_payouts', 0),
+            "total_inventory_items": inv_stats.get('total_inventory_items', 0) or 0,
+            "equipped_items": inv_stats.get('equipped_items', 0) or 0,
+        }
+    except sqlite3.Error as e:
+        print(f"Error fetching engagement stats: {e}")
+        return {
+            "total_racers": 0, "active_today": 0, "total_wealth": 0, "avg_level": 1.0,
+            "chat_credits_today": 0, "voice_credits_today": 0, "est_voice_minutes_today": 0,
+            "total_gps": 0, "completed_gps": 0, "total_entries": 0, "total_gp_payouts": 0,
+            "total_duels": 0, "total_seasons": 0, "completed_seasons": 0, "completed_season_rounds": 0,
+            "total_bets": 0, "total_bet_volume": 0, "total_bet_payouts": 0,
+            "total_inventory_items": 0, "equipped_items": 0
+        }
+    finally:
+        conn.close()
+
+
 
