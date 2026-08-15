@@ -778,8 +778,8 @@ class AdminStatsView(discord.ui.View):
         embed.add_field(
             name="👥 Community & Driver Base",
             value=(
-                f"• 🏎️ **Total Drivers:** `{stats['total_racers']:,}`{new_racers_str}\n"
-                f"• ⚡ **Active Players:** `{stats['active_today']:,}` engaged in server\n"
+                f"• 🏎️ **Total Registered Drivers:** `{stats['total_racers']:,}`{new_racers_str}\n"
+                f"• ⚡ **Active Players ({tf_label}):** `{stats['active_today']:,} members`\n"
                 f"• 💰 **Server Economy Wealth:** `{stats['total_wealth']:,} credits`\n"
                 f"• 🎖️ **Average Driver Level:** `Lvl {stats['avg_level']}`"
             ),
@@ -787,30 +787,19 @@ class AdminStatsView(discord.ui.View):
         )
 
         vc_hours = round(stats['est_voice_minutes_today'] / 60, 1)
-        if self.current_tf == "weekly":
-            daily_msgs = round(stats['est_chat_messages_today'] / 7, 1)
-            daily_vc_hrs = round(vc_hours / 7, 1)
-            pacing_str = f"\n• 📈 **Daily Average Pacing:** `~{daily_msgs:,} msgs/day` | `~{daily_vc_hrs} VC hrs/day`"
-        elif self.current_tf == "monthly":
-            daily_msgs = round(stats['est_chat_messages_today'] / 30, 1)
-            daily_vc_hrs = round(vc_hours / 30, 1)
-            pacing_str = f"\n• 📈 **Daily Average Pacing:** `~{daily_msgs:,} msgs/day` | `~{daily_vc_hrs} VC hrs/day`"
-        else:
-            pacing_str = ""
 
         embed.add_field(
-            name=f"💬 Chat & Voice Activity Driven by Bot ({tf_label})",
+            name=f"💬 Text Chat & Voice Activity Driven by Bot ({tf_label})",
             value=(
                 f"• 💬 **Text Messages Sent:** `~{stats['est_chat_messages_today']:,} messages` (`{stats['chat_credits_today']:,} credits rewarded`)\n"
                 f"• 🎙️ **Voice Channel Time:** `~{stats['est_voice_minutes_today']:,} mins` (`~{vc_hours} hrs active in VC`) (`{stats['voice_credits_today']:,} credits rewarded`)\n"
-                f"• 👥 **Active Members Engaged:** `{stats['active_chatters']:,} text chatters` | `{stats['active_voice_members']:,} voice members`"
-                f"{pacing_str}"
+                f"• 👥 **Active Engaged Members:** `{stats['active_chatters']:,} text chatters` | `{stats['active_voice_members']:,} voice members`"
             ),
             inline=False
         )
 
         embed.add_field(
-            name="🏁 Grand Prix & Race Weekends",
+            name=f"🏁 Grand Prix & Race Weekends ({tf_label})",
             value=(
                 f"• 🏁 **Grand Prix Events:** `{stats['total_gps']:,} hosted` (`{stats['completed_gps']:,}` finished)\n"
                 f"• 🏎️ **Driver Grid Entries:** `{stats['total_entries']:,} entries`\n"
@@ -820,7 +809,7 @@ class AdminStatsView(discord.ui.View):
         )
 
         embed.add_field(
-            name="⚔️ Head-to-Head Duels & Championships",
+            name=f"⚔️ Head-to-Head Duels & Championships ({tf_label})",
             value=(
                 f"• ⚔️ **1v1 Duels Fought:** `{stats['total_duels']:,} duels`\n"
                 f"• 🏆 **WDC Seasons:** `{stats['total_seasons']:,} seasons` (`{stats['completed_seasons']:,}` completed)\n"

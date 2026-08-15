@@ -2434,7 +2434,7 @@ def get_head_to_head_record(user1_id: int, user2_id: int) -> Tuple[int, int]:
 
 def get_server_engagement_stats(guild_id: int, timeframe: str = 'today') -> Dict[str, Any]:
     """
-    Retrieve comprehensive engagement & activity statistics for a Discord server (guild_id).
+    Retrieve real, accurate engagement & activity statistics for a Discord server (guild_id).
     timeframe can be 'today', 'weekly' (7 days), 'monthly' (30 days), or 'all' (all-time).
     Returns a dictionary of metrics showing how much the bot has engaged server members.
     """
@@ -2462,14 +2462,14 @@ def get_server_engagement_stats(guild_id: int, timeframe: str = 'today') -> Dict
             duel_date_filter = None
             user_date_filter = None
 
-        # 1. Users & Community Profile Stats
+        # 1. Driver Base & Economy
         cursor.execute("SELECT COUNT(*), COALESCE(SUM(money), 0), COALESCE(AVG(level), 1.0) FROM users WHERE guild_id = ?", (guild_id,))
         u_row = cursor.fetchone()
         total_racers = u_row[0] if u_row else 0
         total_wealth = u_row[1] if u_row else 0
         avg_level = round(u_row[2] if u_row else 1.0, 1)
 
-        # New racers registered in timeframe
+        # New drivers registered in timeframe
         if user_date_filter:
             cursor.execute(f"SELECT COUNT(*) FROM users WHERE guild_id = ? AND {user_date_filter}", (guild_id,))
             new_row = cursor.fetchone()
@@ -2477,7 +2477,7 @@ def get_server_engagement_stats(guild_id: int, timeframe: str = 'today') -> Dict
         else:
             new_racers = total_racers
 
-        # 2. Text Chat & Voice Channel Activity from activity_logs + users fallback
+        # Today's daily activity snapshot from users table
         cursor.execute("""
             SELECT 
                 COALESCE(SUM(daily_chat_credits), 0),
@@ -2494,6 +2494,7 @@ def get_server_engagement_stats(guild_id: int, timeframe: str = 'today') -> Dict
         fb_active_voice = fb_row[3] if fb_row else 0
         fb_active_members = fb_row[4] if fb_row else 0
 
+        # 2. Text Chat & Voice Channel Activity from activity_logs
         chat_credits = 0
         voice_credits = 0
         active_chatters = 0
@@ -2548,19 +2549,11 @@ def get_server_engagement_stats(guild_id: int, timeframe: str = 'today') -> Dict
                 elif row[0] == 'voice':
                     voice_credits = row[1]
 
-            cursor.execute("""
-                SELECT COUNT(DISTINCT user_id)
-                FROM activity_logs
-                WHERE guild_id = ? AND activity_type = 'chat'
-            """, (guild_id,))
+            cursor.execute("SELECT COUNT(DISTINCT user_id) FROM activity_logs WHERE guild_id = ? AND activity_type = 'chat'", (guild_id,))
             ac_row = cursor.fetchone()
             active_chatters = ac_row[0] if ac_row else 0
 
-            cursor.execute("""
-                SELECT COUNT(DISTINCT user_id)
-                FROM activity_logs
-                WHERE guild_id = ? AND activity_type = 'voice'
-            """, (guild_id,))
+            cursor.execute("SELECT COUNT(DISTINCT user_id) FROM activity_logs WHERE guild_id = ? AND activity_type = 'voice'", (guild_id,))
             av_row = cursor.fetchone()
             active_voice_members = av_row[0] if av_row else 0
 
@@ -2568,33 +2561,12 @@ def get_server_engagement_stats(guild_id: int, timeframe: str = 'today') -> Dict
             act_row = cursor.fetchone()
             active_members_count = act_row[0] if act_row else 0
 
-        # Scale fallback if activity_logs is empty for older timeframes
-        if chat_credits == 0:
-            if tf == 'today':
-                chat_credits = fb_chat_credits
-            elif tf == 'weekly':
-                chat_credits = fb_chat_credits * 7
-            elif tf == 'monthly':
-                chat_credits = fb_chat_credits * 30
-            else:
-                chat_credits = fb_chat_credits * 60
-
-        if voice_credits == 0:
-            if tf == 'today':
-                voice_credits = fb_voice_credits
-            elif tf == 'weekly':
-                voice_credits = fb_voice_credits * 7
-            elif tf == 'monthly':
-                voice_credits = fb_voice_credits * 30
-            else:
-                voice_credits = fb_voice_credits * 60
-
-        if active_chatters == 0:
-            active_chatters = fb_active_chatters
-        if active_voice_members == 0:
-            active_voice_members = fb_active_voice
-        if active_members_count == 0:
-            active_members_count = fb_active_members
+        # REAL baseline integration: Use max of activity_logs or today's snapshot
+        chat_credits = max(chat_credits, fb_chat_credits)
+        voice_credits = max(voice_credits, fb_voice_credits)
+        active_chatters = max(active_chatters, fb_active_chatters)
+        active_voice_members = max(active_voice_members, fb_active_voice)
+        active_members_count = max(active_members_count, fb_active_members)
 
         chat_per_msg = getattr(config, 'CHAT_CREDITS_PER_MSG', 25)
         est_chat_messages = chat_credits // chat_per_msg if chat_per_msg > 0 else 0
