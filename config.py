@@ -42,12 +42,12 @@ WORK_MAX_CREDITS = 800
 def get_tier_stat_multiplier(level: int) -> float:
     """Returns stat gain multiplier based on component level category."""
     if level >= 16:
-        return 2.0   # Tier 4 (Elite/Extreme): 200% stat efficiency
+        return 1.30   # Tier 4 (Elite/Extreme): 130% stat efficiency
     elif level >= 11:
-        return 1.6   # Tier 3 (Advanced): 160% stat efficiency
+        return 1.20   # Tier 3 (Advanced): 120% stat efficiency
     elif level >= 6:
-        return 1.25  # Tier 2 (Performance): 125% stat efficiency
-    return 1.0       # Tier 1 (Spec/Rookie): 100% base stat efficiency
+        return 1.10   # Tier 2 (Performance): 110% stat efficiency
+    return 1.00       # Tier 1 (Spec/Rookie): 100% base stat efficiency
 
 
 # Parts & Upgrades configuration

@@ -1159,8 +1159,9 @@ def simulate_gp_generator(entries_data: List[Dict[str, Any]], track_name: str, t
                     continue
                     
                 dnf_chance = max(0.2, 6.5 - t.reliability * 0.25)
-                aggression_mult = 1.0 + (t.driver_aggression - 50.0) / 100.0
-                dnf_chance *= aggression_mult
+                # Low consistency increases error/crash risk; high consistency protects against mistakes
+                consistency_risk_mult = 1.0 + (100.0 - t.driver_consistency) / 100.0
+                dnf_chance *= (consistency_risk_mult / 1.5)
                 
                 if t.strategy == "Aggressive":
                     dnf_chance += 2.0
@@ -1279,8 +1280,12 @@ def simulate_gp_generator(entries_data: List[Dict[str, Any]], track_name: str, t
                 
                 gap = back.total_time - front.total_time
                 
-                # Within 0.6s dirty air/DRS window
-                if gap <= 0.6:
+                # Within 1.0s F1 DRS & Slipstream detection window
+                if gap <= 1.0:
+                    # Slipstream Tow effect: trailing car gains speed boost from aerodynamic drafting
+                    slipstream_tow = min(0.35, (1.0 - gap) * 0.40)
+                    back.total_time = max(front.total_time + 0.05, back.total_time - slipstream_tow)
+
                     # Calculate tyre health advantage
                     tyre_adv = max(-0.25, min(0.4, (back.tyre_health - front.tyre_health) / 100.0))
                     

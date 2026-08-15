@@ -6,9 +6,9 @@ import crates
 
 def test_tier_stat_scaling():
     assert config.get_tier_stat_multiplier(3) == 1.0     # Tier 1 (100%)
-    assert config.get_tier_stat_multiplier(8) == 1.25    # Tier 2 (125%)
-    assert config.get_tier_stat_multiplier(14) == 1.6    # Tier 3 (160%)
-    assert config.get_tier_stat_multiplier(18) == 2.0    # Tier 4 (200%)
+    assert config.get_tier_stat_multiplier(8) == 1.10    # Tier 2 (110%)
+    assert config.get_tier_stat_multiplier(14) == 1.20   # Tier 3 (120%)
+    assert config.get_tier_stat_multiplier(18) == 1.30   # Tier 4 (130%)
 
 def test_inventory_and_equipment_system():
     discord_id = 777777
