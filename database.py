@@ -2443,21 +2443,20 @@ def get_server_engagement_stats(guild_id: int, timeframe: str = 'today') -> Dict
     try:
         tf = (timeframe or 'today').lower()
         if tf == 'today':
-            date_filter = "created_at >= datetime('now', '-1 day')"
-            race_date_filter = "datetime(date) >= datetime('now', '-1 day')"
-            duel_date_filter = "datetime(created_at) >= datetime('now', '-1 day')"
-            user_date_filter = "datetime(created_at) >= datetime('now', '-1 day')"
+            date_param = "-1 day"
         elif tf == 'weekly':
-            date_filter = "created_at >= datetime('now', '-7 days')"
-            race_date_filter = "datetime(date) >= datetime('now', '-7 days')"
-            duel_date_filter = "datetime(created_at) >= datetime('now', '-7 days')"
-            user_date_filter = "datetime(created_at) >= datetime('now', '-7 days')"
+            date_param = "-7 days"
         elif tf == 'monthly':
-            date_filter = "created_at >= datetime('now', '-30 days')"
-            race_date_filter = "datetime(date) >= datetime('now', '-30 days')"
-            duel_date_filter = "datetime(created_at) >= datetime('now', '-30 days')"
-            user_date_filter = "datetime(created_at) >= datetime('now', '-30 days')"
+            date_param = "-30 days"
         else: # 'all'
+            date_param = None
+
+        if date_param:
+            date_filter = f"substr(created_at, 1, 10) >= date('now', '{date_param}')"
+            race_date_filter = f"substr(date, 1, 10) >= date('now', '{date_param}')"
+            duel_date_filter = f"substr(created_at, 1, 10) >= date('now', '{date_param}')"
+            user_date_filter = f"substr(created_at, 1, 10) >= date('now', '{date_param}')"
+        else:
             date_filter = None
             race_date_filter = None
             duel_date_filter = None
@@ -2478,7 +2477,23 @@ def get_server_engagement_stats(guild_id: int, timeframe: str = 'today') -> Dict
         else:
             new_racers = total_racers
 
-        # 2. Text Chat & Voice Channel Activity from activity_logs
+        # 2. Text Chat & Voice Channel Activity from activity_logs + users fallback
+        cursor.execute("""
+            SELECT 
+                COALESCE(SUM(daily_chat_credits), 0),
+                COALESCE(SUM(daily_voice_credits), 0),
+                COUNT(CASE WHEN daily_chat_credits > 0 THEN 1 END),
+                COUNT(CASE WHEN daily_voice_credits > 0 THEN 1 END),
+                COUNT(CASE WHEN daily_chat_credits > 0 OR daily_voice_credits > 0 THEN 1 END)
+            FROM users WHERE guild_id = ?
+        """, (guild_id,))
+        fb_row = cursor.fetchone()
+        fb_chat_credits = fb_row[0] if fb_row else 0
+        fb_voice_credits = fb_row[1] if fb_row else 0
+        fb_active_chatters = fb_row[2] if fb_row else 0
+        fb_active_voice = fb_row[3] if fb_row else 0
+        fb_active_members = fb_row[4] if fb_row else 0
+
         chat_credits = 0
         voice_credits = 0
         active_chatters = 0
@@ -2533,28 +2548,32 @@ def get_server_engagement_stats(guild_id: int, timeframe: str = 'today') -> Dict
                 elif row[0] == 'voice':
                     voice_credits = row[1]
 
+            cursor.execute("""
+                SELECT COUNT(DISTINCT user_id)
+                FROM activity_logs
+                WHERE guild_id = ? AND activity_type = 'chat'
+            """, (guild_id,))
+            ac_row = cursor.fetchone()
+            active_chatters = ac_row[0] if ac_row else 0
+
+            cursor.execute("""
+                SELECT COUNT(DISTINCT user_id)
+                FROM activity_logs
+                WHERE guild_id = ? AND activity_type = 'voice'
+            """, (guild_id,))
+            av_row = cursor.fetchone()
+            active_voice_members = av_row[0] if av_row else 0
+
             cursor.execute("SELECT COUNT(DISTINCT user_id) FROM activity_logs WHERE guild_id = ?", (guild_id,))
             act_row = cursor.fetchone()
             active_members_count = act_row[0] if act_row else 0
 
-        # Fallback for 'today' if activity_logs is empty
-        if tf == 'today' and chat_credits == 0 and voice_credits == 0:
-            cursor.execute("""
-                SELECT 
-                    COALESCE(SUM(daily_chat_credits), 0),
-                    COALESCE(SUM(daily_voice_credits), 0),
-                    COUNT(CASE WHEN daily_chat_credits > 0 THEN 1 END),
-                    COUNT(CASE WHEN daily_voice_credits > 0 THEN 1 END),
-                    COUNT(CASE WHEN daily_chat_credits > 0 OR daily_voice_credits > 0 THEN 1 END)
-                FROM users WHERE guild_id = ?
-            """, (guild_id,))
-            fb_row = cursor.fetchone()
-            if fb_row:
-                chat_credits = fb_row[0]
-                voice_credits = fb_row[1]
-                active_chatters = fb_row[2]
-                active_voice_members = fb_row[3]
-                active_members_count = fb_row[4]
+        # Ensure today's active credits baseline is always included
+        chat_credits = max(chat_credits, fb_chat_credits)
+        voice_credits = max(voice_credits, fb_voice_credits)
+        active_chatters = max(active_chatters, fb_active_chatters)
+        active_voice_members = max(active_voice_members, fb_active_voice)
+        active_members_count = max(active_members_count, fb_active_members)
 
         chat_per_msg = getattr(config, 'CHAT_CREDITS_PER_MSG', 25)
         est_chat_messages = chat_credits // chat_per_msg if chat_per_msg > 0 else 0
