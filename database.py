@@ -1158,6 +1158,47 @@ def cancel_active_gp(guild_id: int) -> Tuple[bool, str]:
     finally:
         conn.close()
 
+def reroll_gp_to_grid(guild_id: int) -> Tuple[bool, str]:
+    """
+    Resets the most recent Grand Prix (or currently active GP) for a guild back to 'GridSet' status,
+    clearing finish results/points/credits/winner while keeping all qualifying grid data (Q1/Q2/Q3 times and start_position).
+    """
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT race_id, track, status FROM races WHERE guild_id = ? ORDER BY race_id DESC LIMIT 1", (guild_id,))
+        race_row = cursor.fetchone()
+        if not race_row:
+            return False, "No Grand Prix race found for this server."
+            
+        race_id = race_row['race_id']
+        track = race_row['track']
+        
+        cursor.execute("UPDATE races SET status = 'GridSet', winner_id = NULL WHERE race_id = ?", (race_id,))
+        cursor.execute("""
+            UPDATE race_entries 
+            SET finish_position = NULL, points_earned = 0, credits_won = 0, dnf = 0 
+            WHERE race_id = ?
+        """, (race_id,))
+        
+        conn.commit()
+        return True, f"Grand Prix of **{track}** (Race ID `{race_id}`) has been reset to **GridSet** status! All qualifying grid positions (P1-P{get_entry_count(race_id)}) preserved. You can now use `/gp_admin` and click **🏎️ Start Main GP** to restart."
+    except sqlite3.Error as e:
+        conn.rollback()
+        return False, f"Database error: {str(e)}"
+    finally:
+        conn.close()
+
+def get_entry_count(race_id: int) -> int:
+    """Helper to count entries for a race."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT COUNT(*) as cnt FROM race_entries WHERE race_id = ?", (race_id,))
+    row = cursor.fetchone()
+    conn.close()
+    return row['cnt'] if row else 0
+
+
 def register_gp_entry(discord_id: int, guild_id: int) -> Tuple[bool, str]:
     """Register a user for the upcoming Grand Prix in a specific guild."""
     conn = get_db_connection()

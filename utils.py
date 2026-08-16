@@ -71,7 +71,14 @@ def create_embed(
     footer_text: str = "",
     thumbnail_url: str = None
 ) -> discord.Embed:
-    """Helper function to create a standardized beautiful embed."""
+    """Helper function to create a standardized beautiful embed with Discord API size limits enforced."""
+    if title and len(title) > 256:
+        title = title[:253] + "..."
+    if description and len(description) > 4096:
+        description = description[:4090] + "\n..."
+    if footer_text and len(footer_text) > 2048:
+        footer_text = footer_text[:2045] + "..."
+
     embed = discord.Embed(
         title=title,
         description=description,
@@ -79,10 +86,16 @@ def create_embed(
     )
     
     if fields:
-        for field in fields:
+        for field in fields[:25]:
+            name = str(field.get("name", ""))
+            if len(name) > 256:
+                name = name[:253] + "..."
+            value = str(field.get("value", ""))
+            if len(value) > 1024:
+                value = value[:1021] + "..."
             embed.add_field(
-                name=field.get("name", ""),
-                value=field.get("value", ""),
+                name=name,
+                value=value,
                 inline=field.get("inline", True)
             )
             
@@ -95,6 +108,44 @@ def create_embed(
         embed.set_thumbnail(url=thumbnail_url)
         
     return embed
+
+def chunk_text_lines(lines: List[str], max_chars: int = 3500) -> List[str]:
+    """
+    Splits a list of string lines into chunks where no chunk's joined length exceeds max_chars.
+    """
+    if not lines:
+        return []
+    
+    chunks = []
+    current_chunk = []
+    current_len = 0
+    
+    for line in lines:
+        line_str = str(line)
+        line_len = len(line_str)
+        if line_len > max_chars:
+            if current_chunk:
+                chunks.append("\n".join(current_chunk))
+                current_chunk = []
+                current_len = 0
+            for i in range(0, line_len, max_chars):
+                chunks.append(line_str[i:i + max_chars])
+            continue
+            
+        added_len = line_len + (1 if current_chunk else 0)
+        if current_len + added_len > max_chars:
+            chunks.append("\n".join(current_chunk))
+            current_chunk = [line_str]
+            current_len = line_len
+        else:
+            current_chunk.append(line_str)
+            current_len += added_len
+            
+    if current_chunk:
+        chunks.append("\n".join(current_chunk))
+        
+    return chunks
+
 
 def make_progress_bar(percentage: float, length: int = 10) -> str:
     """Render a visual progress bar for damage using emojis."""

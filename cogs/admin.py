@@ -528,6 +528,20 @@ class AdminCog(commands.Cog):
 
         await interaction.response.send_message(embed=embed, view=view)
 
+    @admin_group.command(name="reroll", description="Reset the GP status back to GridSet (Q3 finished) to restart the race from the grid.")
+    @is_admin()
+    @app_commands.guild_only()
+    async def admin_reroll_gp(self, interaction: discord.Interaction):
+        success, msg = database.reroll_gp_to_grid(interaction.guild_id)
+        color = utils.COLOR_SUCCESS if success else utils.COLOR_ERROR
+        embed = utils.create_embed(
+            title="🔄 Grand Prix Grid Reroll / Reset",
+            description=msg,
+            color=color
+        )
+        await interaction.response.send_message(embed=embed)
+
+
 
 class SeasonCalendarAdminView(discord.ui.View):
     def __init__(self, active_season, calendar):

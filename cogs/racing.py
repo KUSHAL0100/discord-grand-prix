@@ -1700,8 +1700,8 @@ class GPStartRaceButton(discord.ui.Button):
             )
             live_message = await interaction.followup.send(embed=progress_embed)
             
-            grid_desc = "\n".join(setup_logs)
-            progress_embed.description = grid_desc
+            grid_chunks = utils.chunk_text_lines(setup_logs, max_chars=3500)
+            progress_embed.description = grid_chunks[0] if grid_chunks else ""
             await live_message.edit(embed=progress_embed)
             await asyncio.sleep(6)
             
@@ -1743,13 +1743,19 @@ class GPStartRaceButton(discord.ui.Button):
                     if active_lap_times:
                         leader_lap_time = min(active_lap_times)
                         
-                    lap_embed = utils.create_embed(
-                        title=f"🏎️ Grand Prix Lap {l_num}/{active_gp['laps']} | 🌤️ {current_weather}",
-                        description="\n".join(lap_events),
-                        color=utils.COLOR_RACE_RESULTS
-                    )
+                    lap_chunks = utils.chunk_text_lines(lap_events, max_chars=3500) if isinstance(lap_events, list) else [str(lap_events)]
                     view = GPLapTelemetryView(l_num, lap_snapshot, entries)
-                    await interaction.channel.send(embed=lap_embed, view=view)
+                    for idx_chunk, chunk_text in enumerate(lap_chunks):
+                        title_str = f"🏎️ Grand Prix Lap {l_num}/{active_gp['laps']} | 🌤️ {current_weather}"
+                        if idx_chunk > 0:
+                            title_str += f" (Part {idx_chunk + 1})"
+                        lap_embed = utils.create_embed(
+                            title=title_str,
+                            description=chunk_text,
+                            color=utils.COLOR_RACE_RESULTS
+                        )
+                        v = view if idx_chunk == len(lap_chunks) - 1 else None
+                        await interaction.channel.send(embed=lap_embed, view=v)
                     
                     # Sleep for the actual physical duration of the leading driver to sync simulator clock
                     await asyncio.sleep(leader_lap_time)
@@ -1781,20 +1787,13 @@ class GPStartRaceButton(discord.ui.Button):
                 conn.commit()
                 conn.close()
             
-            # 4. Print final results
-            chunks = []
-            current_chunk = []
-            for log in finish_logs:
-                current_chunk.append(log)
-                if len(current_chunk) == 20:
-                    chunks.append("\n".join(current_chunk))
-                    current_chunk = []
-            if current_chunk:
-                chunks.append("\n".join(current_chunk))
-                
+            # 4. Print final results using character-aware chunking
+            chunks = utils.chunk_text_lines(finish_logs, max_chars=3500)
+            
+            first_chunk_text = chunks[0] if chunks else ""
             results_embed = utils.create_embed(
                 title=f"🏁 RESULTS: Grand Prix of {active_gp['track']} Finished",
-                description=f"🏆 **Grand Prix completed successfully!**\n\n" + (chunks[0] if chunks else ""),
+                description=f"🏆 **Grand Prix completed successfully!**\n\n{first_chunk_text}",
                 color=utils.COLOR_SUCCESS
             )
             await interaction.channel.send(embed=results_embed)

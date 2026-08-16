@@ -282,6 +282,30 @@ def test_transfer_user_ownership_source_not_found():
     assert success is False
     assert "Source user" in msg and "does not have an active profile" in msg
 
+def test_reroll_gp_to_grid():
+    guild_id = 777777
+    success, msg = database.create_gp_race(guild_id, "Grand Prix of Melbourne", "Melbourne (Albert Park)", 15)
+    assert success is True
+    
+    active_gp = database.get_active_gp_race(guild_id)
+    assert active_gp is not None
+    race_id = active_gp["race_id"]
+    
+    # Simulate race finishing
+    database.update_gp_status(race_id, "Finished")
+    assert database.get_active_gp_race(guild_id) is None
+    
+    # Reroll race back to GridSet
+    res, reroll_msg = database.reroll_gp_to_grid(guild_id)
+    assert res is True
+    assert "GridSet" in reroll_msg
+    
+    active_gp_after = database.get_active_gp_race(guild_id)
+    assert active_gp_after is not None
+    assert active_gp_after["status"] == "GridSet"
+
+
+
 
 
 
