@@ -178,6 +178,47 @@ class AdminCog(commands.Cog):
         color = utils.COLOR_SUCCESS if success else utils.COLOR_ERROR
         await interaction.response.send_message(embed=utils.create_embed(title="⏮️ Admin Account Rollback (3:00 PM IST)", description=msg, color=color))
 
+    @admin_group.command(name="restore_pre3pm", description="Instantly restore pre-3:00 PM IST exact stats, level, XP, credits, and garage levels.")
+    @app_commands.describe(target="The user whose profile to restore to exact pre-3PM state")
+    @is_admin()
+    @app_commands.guild_only()
+    async def admin_restore_pre3pm(self, interaction: discord.Interaction, target: discord.User):
+        conn = database.get_db_connection()
+        cursor = conn.cursor()
+        if target.id == 880355982872555590:
+            cursor.execute("UPDATE users SET money = 838, xp = 2185, level = 3, wins = 28, losses = 23 WHERE discord_id = ?", (target.id,))
+            cursor.execute("SELECT user_id FROM users WHERE discord_id = ?", (target.id,))
+            row = cursor.fetchone()
+            if row:
+                uid = row['user_id']
+                cursor.execute("UPDATE garage SET engine = 9, aerodynamics = 7, tyres = 6, ers = 6, reliability = 7, pit_crew = 6 WHERE user_id = ?", (uid,))
+                cursor.execute("UPDATE drivers SET pace = 57, qual = 57, wet_skill = 53, consistency = 55, aggression = 54, overtaking = 54 WHERE user_id = ?", (uid,))
+            conn.commit()
+            conn.close()
+            await interaction.response.send_message(embed=utils.create_embed(
+                title="✅ Restored Pre-3:00 PM Profile",
+                description=f"Successfully restored **{target.mention}** to exact pre-3PM state:\n• **Level:** 3 | **XP:** 2,185 | **Credits:** 838¢\n• **Garage:** Engine Lvl 9, Aero Lvl 7, Tyres Lvl 6, ERS Lvl 6, Reliability Lvl 7, Pit Crew Lvl 6\n• **Driver Stats:** 57/57/53/55/54/54",
+                color=utils.COLOR_SUCCESS
+            ))
+        elif target.id == 973109717603856415:
+            cursor.execute("UPDATE users SET money = 591, xp = 1980, level = 2, wins = 29, losses = 13 WHERE discord_id = ?", (target.id,))
+            cursor.execute("SELECT user_id FROM users WHERE discord_id = ?", (target.id,))
+            row = cursor.fetchone()
+            if row:
+                uid = row['user_id']
+                cursor.execute("UPDATE garage SET engine = 6, aerodynamics = 4, tyres = 4, ers = 3, reliability = 5, pit_crew = 4 WHERE user_id = ?", (uid,))
+                cursor.execute("UPDATE drivers SET pace = 62, qual = 55, wet_skill = 50, consistency = 53, aggression = 60, overtaking = 60 WHERE user_id = ?", (uid,))
+            conn.commit()
+            conn.close()
+            await interaction.response.send_message(embed=utils.create_embed(
+                title="✅ Restored Pre-3:00 PM Profile",
+                description=f"Successfully restored **{target.mention}** to exact pre-3PM state:\n• **Level:** 2 | **XP:** 1,980 | **Credits:** 591¢\n• **Garage:** Engine Lvl 6, Aero Lvl 4, Tyres Lvl 4, ERS Lvl 3, Reliability Lvl 5, Pit Crew Lvl 4\n• **Driver Stats:** 62/55/50/53/60/60",
+                color=utils.COLOR_SUCCESS
+            ))
+        else:
+            conn.close()
+            await interaction.response.send_message("❌ Target user ID not recognized for automated pre-3PM restoration.", ephemeral=True)
+
     @admin_group.command(name="deleteuser", description="Permanently delete a user's entire profile. They will need to /start again.")
     @app_commands.describe(target="The user whose profile will be permanently deleted")
     @is_admin()

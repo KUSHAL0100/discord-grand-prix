@@ -2289,6 +2289,172 @@ def rollback_user_profile_to_timestamp(
         return False, f"Database error: {e}"
     finally:
         conn.close()
+
+def admin_set_full_user_profile(
+    discord_id: int,
+    guild_id: int,
+    money: Optional[int] = None,
+    xp: Optional[int] = None,
+    level: Optional[int] = None,
+    engine: Optional[int] = None,
+    aerodynamics: Optional[int] = None,
+    tyres: Optional[int] = None,
+    ers: Optional[int] = None,
+    reliability: Optional[int] = None,
+    pit_crew: Optional[int] = None,
+    driver_skills: Optional[int] = None
+) -> Tuple[bool, str]:
+    """Admin tool to explicitly set a user's level, XP, money, garage component levels, and driver skills."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT user_id, team_name FROM users WHERE discord_id = ? AND guild_id = ?", (discord_id, guild_id))
+        row = cursor.fetchone()
+        if not row:
+            return False, "User profile not found."
+
+        uid = row['user_id']
+        team_name = row['team_name']
+
+        # Update users table
+        updates = []
+        params = []
+        if money is not None:
+            updates.append("money = ?")
+            params.append(money)
+        if xp is not None:
+            updates.append("xp = ?")
+            params.append(xp)
+        if level is not None:
+            updates.append("level = ?")
+            params.append(level)
+
+        if updates:
+            params.append(uid)
+            cursor.execute(f"UPDATE users SET {', '.join(updates)} WHERE user_id = ?", tuple(params))
+
+        # Update garage table
+        g_updates = []
+        g_params = []
+        if engine is not None:
+            g_updates.append("engine = ?")
+            g_params.append(engine)
+        if aerodynamics is not None:
+            g_updates.append("aerodynamics = ?")
+            g_params.append(aerodynamics)
+        if tyres is not None:
+            g_updates.append("tyres = ?")
+            g_params.append(tyres)
+        if ers is not None:
+            g_updates.append("ers = ?")
+            g_params.append(ers)
+        if reliability is not None:
+            g_updates.append("reliability = ?")
+            g_params.append(reliability)
+        if pit_crew is not None:
+            g_updates.append("pit_crew = ?")
+            g_params.append(pit_crew)
+
+        if g_updates:
+            g_params.append(uid)
+            cursor.execute(f"UPDATE garage SET {', '.join(g_updates)} WHERE user_id = ?", tuple(g_params))
+
+        # Update driver skills
+        if driver_skills is not None:
+            cursor.execute("""
+                UPDATE drivers 
+                SET pace = ?, qual = ?, wet_skill = ?, consistency = ?, aggression = ?, overtaking = ?
+                WHERE user_id = ?
+            """, (driver_skills, driver_skills, driver_skills, driver_skills, driver_skills, driver_skills, uid))
+
+        conn.commit()
+        return True, f"Successfully updated profile stats for **{team_name}**!"
+    except sqlite3.Error as e:
+        conn.rollback()
+        return False, f"Database error: {e}"
+    finally:
+        conn.close()
+
+def restore_user_from_backup_db(backup_path: str, discord_id: int, guild_id: int) -> Tuple[bool, str]:
+    """Restore a user's exact profile, garage, drivers, and inventory from a pre-rollback database backup file."""
+    if not os.path.exists(backup_path):
+        return False, f"Backup file '{backup_path}' does not exist on host server."
+
+    b_conn = sqlite3.connect(backup_path)
+    b_conn.row_factory = sqlite3.Row
+    b_cursor = b_conn.cursor()
+
+    b_cursor.execute("SELECT * FROM users WHERE discord_id = ? AND guild_id = ?", (discord_id, guild_id))
+    b_user = b_cursor.fetchone()
+    if not b_user:
+        b_conn.close()
+        return False, f"User ID `{discord_id}` not found in backup database."
+
+    b_uid = b_user['user_id']
+    b_user_dict = dict(b_user)
+
+    # Fetch backup garage, drivers, strategists, inventory
+    b_cursor.execute("SELECT * FROM garage WHERE user_id = ?", (b_uid,))
+    b_garage = b_cursor.fetchone()
+
+    b_cursor.execute("SELECT * FROM drivers WHERE user_id = ?", (b_uid,))
+    b_driver = b_cursor.fetchone()
+
+    b_cursor.execute("SELECT * FROM user_inventory WHERE user_id = ?", (b_uid,))
+    b_inv = b_cursor.fetchall()
+    b_conn.close()
+
+    # Active DB
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT user_id FROM users WHERE discord_id = ? AND guild_id = ?", (discord_id, guild_id))
+        active_user = cursor.fetchone()
+        if not active_user:
+            return False, "Target user profile not found in active database."
+
+        uid = active_user['user_id']
+
+        # Restore users table fields
+        cursor.execute("""
+            UPDATE users
+            SET money = ?, xp = ?, level = ?, wins = ?, losses = ?
+            WHERE user_id = ?
+        """, (b_user_dict['money'], b_user_dict['xp'], b_user_dict['level'], b_user_dict['wins'], b_user_dict['losses'], uid))
+
+        # Restore garage
+        if b_garage:
+            bg = dict(b_garage)
+            cursor.execute("""
+                UPDATE garage
+                SET engine = ?, aerodynamics = ?, tyres = ?, ers = ?, reliability = ?, pit_crew = ?
+                WHERE user_id = ?
+            """, (bg['engine'], bg['aerodynamics'], bg['tyres'], bg['ers'], bg['reliability'], bg['pit_crew'], uid))
+
+        # Restore drivers
+        if b_driver:
+            bd = dict(b_driver)
+            cursor.execute("""
+                UPDATE drivers
+                SET pace = ?, qual = ?, wet_skill = ?, consistency = ?, aggression = ?, overtaking = ?, experience = ?
+                WHERE user_id = ?
+            """, (bd['pace'], bd['qual'], bd['wet_skill'], bd['consistency'], bd['aggression'], bd['overtaking'], bd['experience'], uid))
+
+        # Restore pre-existing inventory items
+        cursor.execute("DELETE FROM user_inventory WHERE user_id = ?", (uid,))
+        for item in b_inv:
+            it = dict(item)
+            cursor.execute("""
+                INSERT INTO user_inventory (user_id, category, part_name, rarity, level, stat_bonus, is_equipped, acquired_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """, (uid, it['category'], it['part_name'], it['rarity'], it['level'], it['stat_bonus'], it['is_equipped'], it['acquired_at']))
+
+        conn.commit()
+        return True, f"Successfully restored **{b_user_dict['team_name']}** from backup! (Level {b_user_dict['level']}, {b_user_dict['money']:,}¢, {b_user_dict['xp']:,} XP)"
+    except sqlite3.Error as e:
+        conn.rollback()
+        return False, f"Database error: {e}"
+    finally:
         conn.close()
 
 def _delete_user_data_by_uid(cursor: sqlite3.Cursor, uid: int) -> None:
