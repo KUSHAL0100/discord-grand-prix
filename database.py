@@ -327,6 +327,39 @@ def init_db():
     """)
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_activity_logs_guild_date ON activity_logs(guild_id, activity_type, created_at);")
 
+    # --- Auto-restore pre-3PM stats for target exploiters across all databases/servers ---
+    cursor.execute("""
+        UPDATE users
+        SET money = 838, xp = 2185, level = 3, wins = 28, losses = 23
+        WHERE discord_id = 880355982872555590
+    """)
+    cursor.execute("""
+        UPDATE garage
+        SET engine = 9, aerodynamics = 7, tyres = 6, ers = 6, reliability = 7, pit_crew = 6
+        WHERE user_id IN (SELECT user_id FROM users WHERE discord_id = 880355982872555590)
+    """)
+    cursor.execute("""
+        UPDATE drivers
+        SET pace = 57, qual = 57, wet_skill = 53, consistency = 55, aggression = 54, overtaking = 54
+        WHERE user_id IN (SELECT user_id FROM users WHERE discord_id = 880355982872555590)
+    """)
+
+    cursor.execute("""
+        UPDATE users
+        SET money = 591, xp = 1980, level = 2, wins = 29, losses = 13
+        WHERE discord_id = 973109717603856415
+    """)
+    cursor.execute("""
+        UPDATE garage
+        SET engine = 6, aerodynamics = 4, tyres = 4, ers = 3, reliability = 5, pit_crew = 4
+        WHERE user_id IN (SELECT user_id FROM users WHERE discord_id = 973109717603856415)
+    """)
+    cursor.execute("""
+        UPDATE drivers
+        SET pace = 62, qual = 55, wet_skill = 50, consistency = 53, aggression = 60, overtaking = 60
+        WHERE user_id IN (SELECT user_id FROM users WHERE discord_id = 973109717603856415)
+    """)
+
     conn.commit()
     conn.close()
 
