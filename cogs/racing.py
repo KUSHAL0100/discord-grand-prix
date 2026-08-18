@@ -798,25 +798,25 @@ class RaceChallengeView(discord.ui.View):
                     loss_xp_delta = config.FREE_RACE_LOSS_XP if not is_challenger_winner else config.FREE_RACE_WIN_XP
                     wager_str = "\n🤖 **AI Competitive Race** (Free Entry)"
                 elif self.wager >= config.MIN_XP_WAGER_THRESHOLD:
-                    winner_credits_display = self.wager * 2
+                    winner_credits_display = int(self.wager * 1.75)
                     loser_credits_display = int(self.wager * 0.25)
                     winner_xp_display = config.WIN_XP
                     loser_xp_display = config.LOSS_XP
-                    win_money_delta = self.wager
+                    win_money_delta = int(self.wager * 0.75)
                     loss_money_delta = -int(self.wager * 0.75)
                     win_xp_delta = config.WIN_XP
                     loss_xp_delta = config.LOSS_XP
-                    wager_str = f"\n💰 **Wager Paid:** **+{self.wager * 2:,} credits** pot won!"
+                    wager_str = f"\n💰 **Wager Paid:** **+{int(self.wager * 1.75):,} credits** pot won! *(Runner-up 25% refund)*"
                 elif self.wager > 0:
-                    winner_credits_display = self.wager * 2
+                    winner_credits_display = int(self.wager * 1.75)
                     loser_credits_display = int(self.wager * 0.25)
                     winner_xp_display = config.FREE_RACE_WIN_XP
                     loser_xp_display = config.FREE_RACE_LOSS_XP
-                    win_money_delta = self.wager
+                    win_money_delta = int(self.wager * 0.75)
                     loss_money_delta = -int(self.wager * 0.75)
                     win_xp_delta = config.FREE_RACE_WIN_XP
                     loss_xp_delta = config.FREE_RACE_LOSS_XP
-                    wager_str = f"\n💰 **Wager Paid:** **+{self.wager * 2:,} credits** pot won! *(Wager under 200¢: reduced XP)*"
+                    wager_str = f"\n💰 **Wager Paid:** **+{int(self.wager * 1.75):,} credits** pot won! *(Wager under 200¢: reduced XP, 25% runner-up refund)*"
                 else:
                     winner_credits_display = config.DUEL_WIN_CREDITS       # 50 credits
                     loser_credits_display = config.DUEL_LOSS_CREDITS      # 25 credits

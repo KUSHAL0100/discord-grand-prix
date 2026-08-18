@@ -2144,6 +2144,140 @@ def reset_user_profile(discord_id: int, guild_id: int) -> Tuple[bool, str]:
     finally:
         conn.close()
 
+def rollback_user_profile_to_timestamp(
+    discord_id: int, 
+    guild_id: int, 
+    cutoff_iso: str, 
+    target_money: Optional[int] = None, 
+    target_xp: Optional[int] = None, 
+    target_level: Optional[int] = None,
+    reset_upgrades: bool = True,
+    reset_driver_skills: bool = True
+) -> Tuple[bool, str]:
+    """Perform a comprehensive account rollback to state prior to cutoff_iso.
+    Reverts money, XP, level, driver skills, strategist skills, garage part upgrades, crate drops, boosters, and pity counters."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT user_id, team_name, money, xp, level FROM users WHERE discord_id = ? AND guild_id = ?", (discord_id, guild_id))
+        row = cursor.fetchone()
+        if not row:
+            return False, "User profile not found on this server."
+            
+        uid = row['user_id']
+        team_name = row['team_name']
+        
+        # Parse cutoff to construct both IST and UTC strings for robust SQLite matching
+        from datetime import datetime, timezone, timedelta
+        ist_tz = timezone(timedelta(hours=5, minutes=30))
+        try:
+            cutoff_dt = datetime.fromisoformat(cutoff_iso)
+        except Exception:
+            cutoff_dt = datetime.now(ist_tz).replace(hour=15, minute=0, second=0, microsecond=0)
+
+        if cutoff_dt.tzinfo is None:
+            cutoff_dt = cutoff_dt.replace(tzinfo=ist_tz)
+        
+        ist_str1 = cutoff_dt.strftime('%Y-%m-%d %H:%M:%S')
+        ist_str2 = cutoff_dt.strftime('%Y-%m-%dT%H:%M:%S')
+        utc_dt = cutoff_dt.astimezone(timezone.utc)
+        utc_str1 = utc_dt.strftime('%Y-%m-%d %H:%M:%S')
+        utc_str2 = utc_dt.strftime('%Y-%m-%dT%H:%M:%S')
+
+        # 1. Delete all inventory parts acquired on or after cutoff (checking IST & UTC formats)
+        cursor.execute("""
+            DELETE FROM user_inventory 
+            WHERE user_id = ? AND (
+                acquired_at >= ? OR acquired_at >= ? OR acquired_at >= ? OR acquired_at >= ?
+            )
+        """, (uid, ist_str1, ist_str2, utc_str1, utc_str2))
+        inv_removed = cursor.rowcount
+
+        # 2. Delete duel history & bets created on or after cutoff
+        cursor.execute("""
+            DELETE FROM duel_history 
+            WHERE (winner_id = ? OR loser_id = ?) AND (
+                created_at >= ? OR created_at >= ? OR created_at >= ? OR created_at >= ?
+            )
+        """, (uid, uid, ist_str1, ist_str2, utc_str1, utc_str2))
+        duels_removed = cursor.rowcount
+        cursor.execute("DELETE FROM bets WHERE bettor_id = ? OR target_id = ?", (uid, uid))
+
+        # 3. Reset crate pity counters
+        cursor.execute("""
+            UPDATE users 
+            SET crate_rookie_pity = 0, crate_pro_pity = 0, crate_champion_pity = 0
+            WHERE user_id = ?
+        """, (uid,))
+
+        # 4. Revert garage component upgrades and repair all damage
+        if reset_upgrades:
+            cursor.execute("""
+                UPDATE garage 
+                SET engine = 1, aerodynamics = 1, tyres = 1, ers = 1, reliability = 1, pit_crew = 1,
+                    damage_engine = 0, damage_tyres = 0, damage_total = 0
+                WHERE user_id = ?
+            """, (uid,))
+
+        # 5. Revert driver skills & experience
+        if reset_driver_skills:
+            cursor.execute("""
+                UPDATE drivers
+                SET pace = 50, qual = 50, wet_skill = 50, consistency = 50, aggression = 50, overtaking = 50, experience = 0
+                WHERE user_id = ?
+            """, (uid,))
+
+        # 6. Revert strategist skills & experience
+        cursor.execute("""
+            UPDATE strategists
+            SET pit_timing = 50, weather_call = 50, undercut = 50, sc_skill = 50, risk = 50, communication = 50, experience = 0
+            WHERE user_id = ?
+        """, (uid,))
+
+        # 7. Clear boosters & track mastery gained during exploit session
+        cursor.execute("DELETE FROM user_boosters WHERE user_id = ?", (uid,))
+        cursor.execute("DELETE FROM track_mastery WHERE user_id = ?", (uid,))
+
+        # 8. Re-evaluate remaining equipped inventory parts per category
+        categories = ["engine", "aerodynamics", "tyres", "ers", "reliability", "pit_crew"]
+        for cat in categories:
+            cursor.execute("SELECT item_id FROM user_inventory WHERE user_id = ? AND category = ? AND is_equipped = 1", (uid, cat))
+            equipped_row = cursor.fetchone()
+            if not equipped_row:
+                cursor.execute("SELECT item_id FROM user_inventory WHERE user_id = ? AND category = ? ORDER BY level DESC LIMIT 1", (uid, cat))
+                best_remaining = cursor.fetchone()
+                if best_remaining:
+                    cursor.execute("UPDATE user_inventory SET is_equipped = 1 WHERE item_id = ?", (best_remaining['item_id'],))
+
+        # 9. Set post-rollback money, XP, and Level (defaults to starting baseline if not specified)
+        new_money = target_money if target_money is not None else config.STARTING_MONEY
+        new_xp = target_xp if target_xp is not None else config.STARTING_XP
+        new_level = target_level if target_level is not None else config.STARTING_LEVEL
+
+        cursor.execute("""
+            UPDATE users 
+            SET money = ?, xp = ?, level = ?, wins = 0, losses = 0,
+                daily_chat_credits = 0, daily_voice_credits = 0,
+                daily_free_duels = 0, daily_free_races = 0
+            WHERE user_id = ?
+        """, (new_money, new_xp, new_level, uid))
+        
+        conn.commit()
+        return True, (
+            f"Successfully performed a complete account rollback for **{team_name}** to state prior to `{cutoff_iso}`!\n"
+            f"• **Credits & XP Reset:** `{new_money:,}¢` | `{new_xp:,} XP` | Level `{new_level}` (All level-up credits & wager profit revoked)\n"
+            f"• **Crate Drops Purged:** `{inv_removed}` unboxed inventory parts deleted\n"
+            f"• **Garage & Upgrades Reset:** Component levels & damage reset to Level 1 baseline\n"
+            f"• **Driver & Strategist Skills Reset:** All training stats reset to default (50)\n"
+            f"• **Track Practice Reset:** Practice sessions, familiarity, and pace bonuses wiped\n"
+            f"• **Duels, Bets & Pity:** `{duels_removed}` duels purged, wins/losses reset, crate pity reset to 0."
+        )
+    except sqlite3.Error as e:
+        conn.rollback()
+        return False, f"Database error: {e}"
+    finally:
+        conn.close()
+
 def _delete_user_data_by_uid(cursor: sqlite3.Cursor, uid: int) -> None:
     """Internal helper to delete all profile data for a given user_id."""
     cursor.execute("DELETE FROM race_entries WHERE user_id = ?", (uid,))

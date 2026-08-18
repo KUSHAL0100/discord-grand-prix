@@ -15,23 +15,29 @@ def test_reject_cooldown_expiry():
     assert REJECT_COOLDOWNS[(challenger_id, opponent_id)] > now
 
 def test_wager_payout_calculation():
-    # 500 wager -> 1000 credits winner, 125 credits loser (25%)
+    # 500 wager -> 875 credits winner (1.75x), 125 credits loser (0.25x), zero net inflation
     wager_500 = 500
-    win_500 = (wager_500 * 2) if wager_500 > 0 else config.WIN_PRIZE_CREDITS
+    win_500 = int(wager_500 * 1.75) if wager_500 > 0 else config.WIN_PRIZE_CREDITS
     loss_500 = int(wager_500 * 0.25) if wager_500 > 0 else config.LOSS_PRIZE_CREDITS
-    assert win_500 == 1000
+    win_delta_500 = int(wager_500 * 0.75)
+    loss_delta_500 = -int(wager_500 * 0.75)
+    assert win_500 == 875
     assert loss_500 == 125
+    assert win_delta_500 + loss_delta_500 == 0
 
-    # 400 wager -> 800 credits winner, 100 credits loser (25%)
+    # 400 wager -> 700 credits winner (1.75x), 100 credits loser (0.25x), zero net inflation
     wager_400 = 400
-    win_400 = (wager_400 * 2) if wager_400 > 0 else config.WIN_PRIZE_CREDITS
+    win_400 = int(wager_400 * 1.75) if wager_400 > 0 else config.WIN_PRIZE_CREDITS
     loss_400 = int(wager_400 * 0.25) if wager_400 > 0 else config.LOSS_PRIZE_CREDITS
-    assert win_400 == 800
+    win_delta_400 = int(wager_400 * 0.75)
+    loss_delta_400 = -int(wager_400 * 0.75)
+    assert win_400 == 700
     assert loss_400 == 100
+    assert win_delta_400 + loss_delta_400 == 0
 
     # 0 wager -> default WIN_PRIZE_CREDITS (200), LOSS_PRIZE_CREDITS (50)
     wager_0 = 0
-    win_0 = (wager_0 * 2) if wager_0 > 0 else config.WIN_PRIZE_CREDITS
+    win_0 = int(wager_0 * 1.75) if wager_0 > 0 else config.WIN_PRIZE_CREDITS
     loss_0 = int(wager_0 * 0.25) if wager_0 > 0 else config.LOSS_PRIZE_CREDITS
     assert win_0 == config.WIN_PRIZE_CREDITS
     assert loss_0 == config.LOSS_PRIZE_CREDITS

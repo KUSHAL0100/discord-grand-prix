@@ -116,6 +116,66 @@ class AdminCog(commands.Cog):
         color = utils.COLOR_SUCCESS if success else utils.COLOR_ERROR
         await interaction.response.send_message(embed=utils.create_embed(title="⚙️ Admin Profile Reset", description=msg, color=color))
 
+    @admin_group.command(name="resetprofile_id", description="Reset a user's racing profile by their Discord ID (Admin only).")
+    @app_commands.describe(discord_id="The Discord User ID to reset")
+    @is_admin()
+    @app_commands.guild_only()
+    async def admin_resetprofile_id(self, interaction: discord.Interaction, discord_id: str):
+        try:
+            target_id = int(discord_id.strip())
+        except ValueError:
+            await interaction.response.send_message("❌ Invalid Discord ID provided.", ephemeral=True)
+            return
+
+        prof = database.get_user_by_discord_id(target_id, interaction.guild_id)
+        if not prof:
+            await interaction.response.send_message(f"❌ User with ID `{target_id}` does not have a profile on this server.", ephemeral=True)
+            return
+
+        success, msg = database.reset_user_profile(target_id, interaction.guild_id)
+        color = utils.COLOR_SUCCESS if success else utils.COLOR_ERROR
+        await interaction.response.send_message(embed=utils.create_embed(title="⚙️ Admin Profile Reset (by ID)", description=msg, color=color))
+
+    @admin_group.command(name="rollback_user", description="Roll back items & duels acquired after cutoff (Admin only).")
+    @app_commands.describe(
+        discord_id="The Discord User ID to roll back",
+        money_override="Optional: Set exact post-rollback credit balance",
+        xp_override="Optional: Set exact post-rollback XP",
+        level_override="Optional: Set exact post-rollback Level"
+    )
+    @is_admin()
+    @app_commands.guild_only()
+    async def admin_rollback_user(
+        self, 
+        interaction: discord.Interaction, 
+        discord_id: str,
+        money_override: Optional[int] = None,
+        xp_override: Optional[int] = None,
+        level_override: Optional[int] = None
+    ):
+        try:
+            target_id = int(discord_id.strip())
+        except ValueError:
+            await interaction.response.send_message("❌ Invalid Discord ID provided.", ephemeral=True)
+            return
+
+        from datetime import datetime, timezone, timedelta
+        ist_tz = timezone(timedelta(hours=5, minutes=30))
+        now_ist = datetime.now(ist_tz)
+        cutoff_time = datetime(now_ist.year, now_ist.month, now_ist.day, 15, 0, 0, tzinfo=ist_tz)
+        cutoff_iso = cutoff_time.isoformat()
+
+        success, msg = database.rollback_user_profile_to_timestamp(
+            discord_id=target_id,
+            guild_id=interaction.guild_id,
+            cutoff_iso=cutoff_iso,
+            target_money=money_override,
+            target_xp=xp_override,
+            target_level=level_override
+        )
+        color = utils.COLOR_SUCCESS if success else utils.COLOR_ERROR
+        await interaction.response.send_message(embed=utils.create_embed(title="⏮️ Admin Account Rollback (3:00 PM IST)", description=msg, color=color))
+
     @admin_group.command(name="deleteuser", description="Permanently delete a user's entire profile. They will need to /start again.")
     @app_commands.describe(target="The user whose profile will be permanently deleted")
     @is_admin()
