@@ -171,7 +171,9 @@ class AdminCog(commands.Cog):
             cutoff_iso=cutoff_iso,
             target_money=money_override,
             target_xp=xp_override,
-            target_level=level_override
+            target_level=level_override,
+            reset_upgrades=False,      # Keeps pre-3pm Common part levels & garage levels intact!
+            reset_driver_skills=False   # Keeps pre-3pm trained driver skills intact!
         )
         color = utils.COLOR_SUCCESS if success else utils.COLOR_ERROR
         await interaction.response.send_message(embed=utils.create_embed(title="⏮️ Admin Account Rollback (3:00 PM IST)", description=msg, color=color))
