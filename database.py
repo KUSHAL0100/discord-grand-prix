@@ -2568,9 +2568,61 @@ def transfer_user_ownership(old_discord_id: int, new_discord_id: int, guild_id: 
     finally:
         conn.close()
 
+def transfer_credits(sender_discord_id: int, recipient_discord_id: int, guild_id: int, amount: int) -> Tuple[bool, str, int, int]:
+    """
+    Atomically transfer credits from sender to recipient in the same server.
+    Returns (success, message, sender_new_balance, recipient_new_balance).
+    """
+    if amount <= 0:
+        return False, "Transfer amount must be greater than 0 credits.", 0, 0
+    if sender_discord_id == recipient_discord_id:
+        return False, "You cannot transfer credits to yourself!", 0, 0
 
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        # Check sender profile
+        cursor.execute("SELECT user_id, team_name, money FROM users WHERE discord_id = ? AND guild_id = ?", (sender_discord_id, guild_id))
+        sender_row = cursor.fetchone()
+        if not sender_row:
+            return False, "You do not have a profile yet. Use `/start` to create one!", 0, 0
+        
+        # Check recipient profile
+        cursor.execute("SELECT user_id, team_name, money FROM users WHERE discord_id = ? AND guild_id = ?", (recipient_discord_id, guild_id))
+        recipient_row = cursor.fetchone()
+        if not recipient_row:
+            return False, "The recipient does not have a profile on this server.", 0, 0
 
+        sender_uid = sender_row['user_id']
+        sender_team = sender_row['team_name']
+        sender_money = sender_row['money']
 
+        recipient_uid = recipient_row['user_id']
+        recipient_team = recipient_row['team_name']
+        recipient_money = recipient_row['money']
+
+        if sender_money < amount:
+            return False, f"Insufficient balance! You have **{sender_money:,} credits**, but tried to send **{amount:,} credits**.", 0, 0
+
+        # Perform atomic transfer
+        sender_new = sender_money - amount
+        recipient_new = recipient_money + amount
+
+        cursor.execute("UPDATE users SET money = ? WHERE user_id = ?", (sender_new, sender_uid))
+        cursor.execute("UPDATE users SET money = ? WHERE user_id = ?", (recipient_new, recipient_uid))
+        conn.commit()
+
+        msg = (
+            f"💸 **Credits Transferred!**\n"
+            f"• **Sent:** `{amount:,} credits` ➡️ **{recipient_team}**\n"
+            f"• **Your Remaining Balance:** `{sender_new:,} credits`"
+        )
+        return True, msg, sender_new, recipient_new
+    except sqlite3.Error as e:
+        conn.rollback()
+        return False, f"Database error: {e}", 0, 0
+    finally:
+        conn.close()
 def admin_set_user_stat(discord_id: int, guild_id: int, stat_name: str, value: int) -> Tuple[bool, str]:
     """Set a driver skill or garage part level for a target user on a guild."""
     conn = get_db_connection()

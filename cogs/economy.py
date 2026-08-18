@@ -346,5 +346,31 @@ class EconomyCog(commands.Cog):
         view = LeaderboardView(interaction.user.id, results, criterion, title_map[criterion], top_10_only=top_10_only)
         await interaction.response.send_message(embed=view.get_embed(), view=view)
 
+    @app_commands.command(name="share", description="Transfer credits from your balance to another driver in the server.")
+    @app_commands.describe(
+        recipient="The user you want to transfer credits to",
+        amount="The amount of credits to transfer"
+    )
+    @app_commands.guild_only()
+    async def share_credits(self, interaction: discord.Interaction, recipient: discord.User, amount: int):
+        if recipient.bot:
+            await interaction.response.send_message("❌ You cannot transfer credits to bot accounts.", ephemeral=True)
+            return
+        if recipient.id == interaction.user.id:
+            await interaction.response.send_message("❌ You cannot transfer credits to yourself.", ephemeral=True)
+            return
+        if amount <= 0:
+            await interaction.response.send_message("❌ Transfer amount must be at least 1 credit.", ephemeral=True)
+            return
+
+        success, msg, sender_new, recipient_new = database.transfer_credits(
+            sender_discord_id=interaction.user.id,
+            recipient_discord_id=recipient.id,
+            guild_id=interaction.guild_id,
+            amount=amount
+        )
+        color = utils.COLOR_SUCCESS if success else utils.COLOR_ERROR
+        await interaction.response.send_message(embed=utils.create_embed(title="💸 Credit Transfer", description=msg, color=color))
+
 async def setup(bot: commands.Bot):
     await bot.add_cog(EconomyCog(bot))
